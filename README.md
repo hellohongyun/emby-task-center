@@ -1,6 +1,6 @@
 # Emby Task Center
 
-自托管的 Emby 分享管理面板：会员与有效期、卡密、邮箱门户、虚拟媒体库、媒体库存、缺集检测、在线会话和使用记录。
+自己的 Emby 媒体库只给自己用有些浪费，所以做了这个项目：把媒体库分享给朋友，同时集中管理会员、有效期、卡密、虚拟媒体库、库存、缺集和在线会话。
 
 [源码](https://github.com/hellohongyun/emby-task-center) · [镜像](https://github.com/users/hellohongyun/packages/container/package/emby-task-center) · [部署文档](docs/deployment.md)
 
