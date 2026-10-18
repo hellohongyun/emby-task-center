@@ -8,7 +8,7 @@
 
 ```bash
 date -Is
-curl --max-time 5 -sS -o /dev/null -w 'direct status=%{http_code} total=%{time_total}s\n' http://127.0.0.1:3000/health
+curl --max-time 5 -sS -o /dev/null -w 'direct status=%{http_code} total=%{time_total}s\n' http://127.0.0.1:12333/health
 curl --max-time 5 -sS -o /dev/null -w 'proxy status=%{http_code} total=%{time_total}s\n' https://tasks.example.com/health
 docker compose ps
 docker stats --no-stream
@@ -23,7 +23,7 @@ docker compose logs --since 30m --tail 2000 --timestamps app
 
 对照同一窗口的扫描开始、完成、失败事件，以及扫描历史的起止时间。若应用数据库日志因写锁或队列容量缺失，继续检查容器标准输出中的事件和 `log_buffer_overflow`，不要仅凭管理页的日志列表认定没有请求。
 
-代理可使用 [部署文档](deployment.md#反向代理与-tls) 的时长日志格式，记录状态、请求总时长、上游响应时长与上游状态。核对实际代理等待预算、浏览器超时、容器重启时间；不直接通过延长全部超时掩盖慢查询。
+代理可使用 [部署文档](deployment.md) 中的时长日志格式，记录状态、请求总时长、上游响应时长与上游状态。核对实际代理等待预算、浏览器超时、容器重启时间；不直接通过延长全部超时掩盖慢查询。
 
 项目目前没有事件循环延迟监测；直连健康检查超时不能直接证明是主线程阻塞。`uncaught_exception` 和 `unhandled_rejection` 触发退出码 1，不再忽略后继续服务；对照事件、容器重启与代理请求时间，并查明异常类型。正常停机首次信号立即停止调度，应用最多等待 25 秒收尾，Compose 提供 30 秒宽限；收尾超时或失败以非零状态退出。
 

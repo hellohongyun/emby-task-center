@@ -54,15 +54,15 @@ pnpm release:ghcr --skip-build --publish
 
 ## 服务器更新
 
-部署模板固定使用 `image: ghcr.io/hellohongyun/emby-task-center:latest`。在原部署目录执行以下命令，并保留原有项目名、Compose 文件和数据挂载：
+部署模板固定使用 `image: ghcr.io/hellohongyun/emby-task-center:latest`。在原部署目录执行：
 
 ```bash
-docker compose pull app
-docker compose up -d --no-build app
+docker compose pull
+docker compose up -d
 docker compose ps
 curl --fail http://127.0.0.1:12333/health
 ```
 
-仅执行 `restart` 不会拉取新版镜像。更新后核对前端实际版本号；升级前备份完整实际数据目录，详细步骤见 [GHCR 部署](../deploy/ghcr.md) 和 [部署与备份](deployment.md)。
+仅执行 `restart` 不会拉取新版镜像。更新后核对前端实际版本号；升级前备份完整数据目录，详细步骤见 [部署、备份与升级](deployment.md)。
 
 需要回滚时，将镜像临时指向旧固定版本，并恢复与其匹配的数据快照；新版本数据库不保证可供旧版本使用。恢复跟随正式发布时再改回 `latest`。

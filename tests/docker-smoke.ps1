@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$composeFile = Join-Path $projectRoot "compose.yaml"
+$composeFile = Join-Path $projectRoot "compose.build.yaml"
 $runId = [guid]::NewGuid().ToString("N")
 $ProjectName = "$ProjectName-$runId"
 $smokeImage = if ($Image) { $Image } else { "emby-task-center-smoke:$runId" }

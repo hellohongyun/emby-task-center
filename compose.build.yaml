@@ -1,23 +1,26 @@
-# 独立 GHCR 部署模板：复制到服务器的应用目录，无需 .env 或源码。
-# Linux Host 网络；latest 跟随最新正式版本，更新时执行 pull 与 up。
+# 源码构建与隔离测试专用；镜像部署使用 compose.yaml。
 name: emby-task-center
 
 services:
   app:
-    image: ghcr.io/hellohongyun/emby-task-center:latest
-    platform: linux/amd64
+    image: emby-task-center:local
+    build:
+      context: .
+      dockerfile: Dockerfile
     init: true
     restart: unless-stopped
     stop_grace_period: 30s
-    network_mode: host
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
     environment:
       NODE_ENV: production
-      TZ: Asia/Shanghai
+      TZ: "${TZ:-Asia/Shanghai}"
+      PORT: "3000"
       DATABASE_PATH: /data/emby-task-center.db
       WEB_DIST_PATH: /app/public
     volumes:
       - type: bind
-        source: ./data
+        source: "${DATA_PATH:-./data}"
         target: /data
     read_only: true
     tmpfs:

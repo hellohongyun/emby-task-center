@@ -2,31 +2,16 @@ name: emby-task-center
 
 services:
   app:
-    image: emby-task-center:local
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/hellohongyun/emby-task-center:latest
+    platform: linux/amd64
+    network_mode: host
     init: true
     restart: unless-stopped
     stop_grace_period: 30s
-    ports:
-      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
-    # P1 配置后台化：这里只剩 bootstrap / 部署变量。
-    # 业务配置（TMDB、Emby、邮件 SMTP、PanSou、TgtoDrive、Telegram、媒体库扫描、日志、会话、
-    # 登录安全…）全部在「管理员后台 → 配置」页设置，存于数据库，不再依赖 .env。
-    # 首次启动用默认管理员 admin / admin123 登录，登录后请立即在配置页修改口令。
     environment:
-      NODE_ENV: production
-      TZ: "${TZ:-Asia/Shanghai}"
-      PORT: "3000"
-      DATABASE_PATH: /data/emby-task-center.db
-      WEB_DIST_PATH: /app/public
-      # 媒体库信息源固定为 Emby（库根实时取自 Emby 的媒体库），不再需要 MEDIA_ROOTS_JSON
+      TZ: Asia/Shanghai
     volumes:
-      - type: bind
-        source: "${DATA_PATH:-./data}"
-        target: /data
-      # 不再挂载片源目录：媒体库信息源是 Emby API，应用不读磁盘上的 .strm
+      - ./data:/data
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777

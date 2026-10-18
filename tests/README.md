@@ -68,7 +68,7 @@ pnpm exec playwright test -c playwright.deep.config.ts
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/docker-smoke.ps1
 ```
 
-脚本使用本轮专属 Compose 项目和临时数据目录。`-Keep` 保留本轮容器和目录供排查；通常运行后清理本轮资源。容器验证需要可用的 Docker daemon；缺少 daemon 时，只能报告静态配置和构建检查，不能算容器验证成功。
+脚本使用源码构建模板 `compose.build.yaml`、本轮专属 Compose 项目和临时数据目录，通过桥接网络隔离测试端口。`-Keep` 保留本轮容器和目录供排查；通常运行后清理本轮资源。容器验证需要可用的 Docker daemon；缺少 daemon 时，只能报告静态配置和构建检查，不能算容器验证成功。
 
 验证已构建的待发布镜像时追加 `-Image emby-task-center:<固定版本标签>`。脚本复用该镜像、验证它的实际容器行为，并保留它；不会另建或删除传入的镜像。静态配置和本地应用构建检查仍执行。
 
