@@ -8,11 +8,15 @@
  *   - 加上少量历史/部署变量。
  * 需要配置的用例必须自己显式传入（例如 readSettings(db, { SMTP_HOST: "..." })）。
  */
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { installSafeListen } from "../../apps/server/src/test-support/port-guard";
 import { SETTING_KEYS, settingDefinition } from "../../apps/server/src/settings/registry";
 
 // 让 listen(0) 避开 fetch 禁用端口（否则偶发 "bad port"），详见 port-guard.ts 的根因说明。
 installSafeListen();
+// Worker 夹具需位于工作区内解析依赖；全新克隆也自动准备其临时父目录。
+mkdirSync(resolve(".local"), { recursive: true });
 
 const LEGACY_NAMES = [
   "SHARED_PASSWORD",

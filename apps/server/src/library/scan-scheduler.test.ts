@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createScanScheduler, type ScanScheduleTask } from "./scan-scheduler";
 
-function clock(iso = "2026-08-16T10:00:00+08:00") {
+function clock(iso = "2026-08-16T10:00:00") {
   let value = new Date(iso);
   return {
     now: () => value,
@@ -27,7 +27,7 @@ describe("adaptive scan scheduler", () => {
   });
 
   it("after the first gap scan waits for the release gate when only one episode is missing", () => {
-    const time = clock("2026-08-16T17:00:00+08:00"); // Sunday, before release
+    const time = clock("2026-08-16T17:00:00"); // Local Sunday, before release
     const scheduler = createScanScheduler({ mode: "adaptive", episodeDelayHours: 4, now: time.now });
     const task = gap({ releaseDays: [0], releaseTime: "18:00" });
 
