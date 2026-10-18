@@ -81,7 +81,7 @@ export function forwardRequest(context: ProxyTarget, path = context.request.url 
 }
 
 /** Only browsing responses are buffered; every query retains the original Emby user's credentials. */
-export function upstreamJson(context: ProxyTarget, url: URL) {
+export function upstreamJson(context: ProxyTarget, url: URL, timeoutMs = 30_000) {
   const originalPrefix = /^\/emby(?=\/|\?|$)/i.test(context.request.url ?? "") ? "/emby" : "";
   const target = targetUrl(context.upstream, `${originalPrefix}${url.pathname}${url.search}`);
   const headers = requestHeaders(context, target);
@@ -94,7 +94,7 @@ export function upstreamJson(context: ProxyTarget, url: URL) {
     (resolve, reject) => {
       const upstream = send(
         target,
-        { method: "GET", headers, signal: AbortSignal.any([context.signal, AbortSignal.timeout(30_000)]) },
+        { method: "GET", headers, signal: AbortSignal.any([context.signal, AbortSignal.timeout(timeoutMs)]) },
         (incoming) => {
           const chunks: Buffer[] = [];
           incoming.on("data", (chunk: Buffer) => chunks.push(chunk));

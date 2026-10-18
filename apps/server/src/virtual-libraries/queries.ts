@@ -5,6 +5,7 @@ import {
   listBody,
   parameter,
   result,
+  setParameter,
   sendJson,
   UpstreamQueryError,
   type Item,
@@ -13,6 +14,7 @@ import {
 } from "./query-helpers";
 import { authenticate, queryScope } from "./query-scope";
 import { facetQuery } from "./query-facets";
+import { orderUserViews } from "./view-order";
 export type { UpstreamJson } from "./query-helpers";
 
 interface QueryContext {
@@ -57,7 +59,13 @@ function rootQuery(url: URL) {
 
 async function appendLibraries(context: QueryContext) {
   const { url, store, upstream } = context;
-  const response = await checked(upstream, url);
+  const views = /^\/Users\/[^/]+\/Views\/?$/i.test(url.pathname);
+  const source = new URL(url);
+  if (views) {
+    setParameter(source, "StartIndex");
+    setParameter(source, "Limit");
+  }
+  const response = await checked(upstream, source);
   const original = listBody(response.body);
   const serverId = original.Items.find((item) => item.ServerId)?.ServerId;
   let additions = store.list().map((library) => dto(store, library.id, serverId));
@@ -66,6 +74,13 @@ async function appendLibraries(context: QueryContext) {
   const start = integerParameter(url, "StartIndex", 0);
   const total = original.TotalRecordCount ?? original.Items.length;
   const limit = integerParameter(url, "Limit", Number.MAX_SAFE_INTEGER);
+  if (views) {
+    const ordered = await orderUserViews(url, [...original.Items, ...additions], upstream);
+    return {
+      ...response,
+      body: { ...original, Items: ordered.slice(start, start + limit), TotalRecordCount: total + additions.length },
+    };
+  }
   const available = Math.max(0, limit - original.Items.length);
   const offset = Math.max(0, start - total);
   const items = [...original.Items, ...additions.slice(offset, offset + available)];

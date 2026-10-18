@@ -9,7 +9,7 @@ export interface UpstreamJson {
   body: unknown;
   raw?: Buffer;
 }
-export type QueryUpstream = (url: URL) => Promise<UpstreamJson>;
+export type QueryUpstream = (url: URL, timeoutMs?: number) => Promise<UpstreamJson>;
 export type Item = Record<string, unknown> & { Id?: string };
 
 export class UpstreamQueryError extends Error {

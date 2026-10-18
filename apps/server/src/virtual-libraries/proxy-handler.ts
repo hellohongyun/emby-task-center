@@ -49,7 +49,13 @@ export function createVirtualProxyHandler(store: VirtualLibraryStore, upstream: 
         return;
       }
       if (
-        await handleVirtualQuery({ request, response, url, store, upstream: (target) => upstreamJson(context, target) })
+        await handleVirtualQuery({
+          request,
+          response,
+          url,
+          store,
+          upstream: (target, timeoutMs) => upstreamJson(context, target, timeoutMs),
+        })
       )
         return;
       const deleted = request.method === "DELETE" ? /^\/Items\/([^/]+)\/?$/i.exec(url.pathname)?.[1] : undefined;

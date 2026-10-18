@@ -16,6 +16,8 @@ pnpm exec vitest run apps/server/src/virtual-libraries apps/server/src/routes/vi
 
 关联恢复回归覆盖 TMDB 身份持久化、旧库加列升级、原 ID 失效或复用、唯一候选恢复、多来源歧义、身份缺失、401/网络失败及并发移除保护。真实本地 HTTP 代理测试验证原客户端凭据、播放 DTO 与普通请求透传；前端覆盖关联告警和切库后的旧响应隔离。
 
+`queries-view-order.test.ts` 和 `view-order-proxy.test.ts` 验证原库与虚拟库按 Emby 用户偏好混排、排序后分页、偏好失败回退、原配置写入及凭据透传、用户隔离和代理重启后恢复。仅使用临时 SQLite 与本地 HTTP 上游，不修改真实 Emby 用户设置。
+
 缺集聚焦回归覆盖合并集闭区间持久化与重扫、所选启用库独立计算、停用库历史保留、公开 Emby 库 ID（含 GUID）与本地行号碰撞、删除前真实库存复核、当前库 Emby 跳转、只读 worker 一致快照与生命周期。前端覆盖切库清除选择、空库切换、待核对提示、迟到响应、401、超时和离页取消。只在临时数据库与本地上游中执行删除；真实库核对仅执行只读查询。
 
 `apps/server/src/library/emby-unnumbered-specials.test.ts` 另覆盖无集号 S00 的保留与严格边界：正季、未知季缺号及非法数字仍拒绝；同真实 ID 去重，不同特别篇保留。临时文件 SQLite 验证库存文件数、正常合并集行、重扫稳定和重开持久化，不写真实 Emby。
