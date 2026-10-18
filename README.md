@@ -66,7 +66,7 @@ Emby 客户端（可选）
 
 ## 部署
 
-**环境要求：** Linux `amd64`，Docker Engine 与 Docker Compose。
+**环境要求：** Linux `amd64`，Docker Engine 与 Docker Compose，fnos。
 
 将以下内容保存为 `compose.yaml`：
 
