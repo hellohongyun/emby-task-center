@@ -1,0 +1,1 @@
+ALTER TABLE `automation_runs` ADD `batch_task_ids` text;

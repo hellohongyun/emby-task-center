@@ -1,0 +1,113 @@
+@media (max-width: 1024px) {
+  .detail-close {
+    width: 44px;
+    height: 44px;
+    margin-bottom: -50px;
+  }
+}
+
+@media (max-width: 719px) {
+  .detail-sheet {
+    min-width: 0;
+    max-height: calc(100dvh - max(12px, env(safe-area-inset-top)));
+    border-radius: 18px 18px 0 0;
+  }
+
+  .content {
+    min-width: 0;
+    padding: 0 14px 22px;
+  }
+
+  .title-row {
+    gap: 12px;
+    align-items: center;
+    margin-top: -32px;
+  }
+
+  .poster-wrap {
+    width: 80px;
+  }
+
+  .title-main h2 {
+    font-size: 19px;
+    line-height: 1.4;
+  }
+
+  .meta,
+  .folder-path {
+    line-height: 1.5;
+  }
+
+  .folder-path {
+    align-items: flex-start;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .bind-box input,
+  .bind-box button,
+  .more-results {
+    min-height: 44px;
+  }
+
+  .bind-box input {
+    font-size: 16px;
+  }
+
+  .tmdb-search button {
+    flex: none;
+    padding: 0 10px;
+  }
+
+  .tmdb-results {
+    min-width: 0;
+  }
+
+  .tmdb-result {
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 6px 10px;
+    padding: 10px;
+  }
+
+  .tr-poster {
+    grid-row: span 2;
+  }
+
+  .tr-meta {
+    grid-column: 2;
+    overflow-wrap: anywhere;
+  }
+
+  .info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .info-grid > div {
+    min-width: 0;
+    padding: 10px;
+  }
+
+  .info-grid dd {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .file-list {
+    max-height: 40dvh;
+    overscroll-behavior-y: contain;
+  }
+
+  .file-main {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .file-main code {
+    flex: 1 1 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+  }
+}

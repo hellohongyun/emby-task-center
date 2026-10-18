@@ -1,0 +1,240 @@
+@import "./virtual-library-items.css";
+.vl-page {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 6px 4px 32px;
+  color: #e7edf1;
+}
+.vl-page h1 {
+  margin: 0 0 7px;
+  font-size: 25px;
+  font-weight: 760;
+}
+.vl-page h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+.vl-page h2 span {
+  margin-left: 6px;
+  font-size: 12px;
+  color: #8295a1;
+}
+.vl-page p {
+  line-height: 1.65;
+}
+.vl-page-head,
+.vl-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.vl-page-head {
+  margin: 3px 0 22px;
+}
+.vl-page-head p {
+  margin: 0;
+  color: #869aa9;
+  font-size: 13px;
+}
+.vl-page button {
+  min-height: 38px;
+  padding: 8px 13px;
+  border: 1px solid #2b404d;
+  border-radius: 7px;
+  background: #14232e;
+  color: #d8e4eb;
+  font-size: 12px;
+  cursor: pointer;
+}
+.vl-page button:hover:not(:disabled) {
+  background: #1e3442;
+  border-color: #4c6777;
+}
+.vl-page button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.vl-page button.vl-primary {
+  color: #edfff0;
+  background: #427b46;
+  border-color: #5a9d5e;
+  font-weight: 650;
+}
+.vl-page button.vl-primary:hover:not(:disabled) {
+  background: #508c55;
+}
+.vl-page button.vl-danger {
+  color: #efacac;
+  border-color: #62383d;
+  background: #2a191e;
+}
+.vl-page button:focus-visible,
+.vl-page input:focus-visible,
+.vl-page select:focus-visible,
+.vl-page summary:focus-visible {
+  outline: 2px solid #6ac173;
+  outline-offset: 3px;
+}
+.vl-panel {
+  margin-bottom: 18px;
+  padding: 20px;
+  border: 1px solid #203340;
+  border-radius: 12px;
+  background: #091620;
+}
+.vl-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.vl-main {
+  min-width: 0;
+}
+.vl-libraries {
+  padding: 15px;
+}
+.vl-libraries .vl-section-head {
+  margin: 0 0 16px;
+}
+.vl-libraries .vl-section-head button {
+  padding: 5px 9px;
+}
+.vl-page .vl-library-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 14px;
+  text-align: left;
+  background: #0d1c27;
+  border-color: #1a2d3b;
+}
+.vl-page .vl-library-card.active {
+  border-color: #56985d;
+  background: #132b22;
+}
+.vl-library-card strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.vl-library-card span,
+.vl-library-card small {
+  font-size: 12px;
+  color: #8da4b3;
+}
+.vl-fields {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 18px 0 10px;
+}
+.vl-fields > label {
+  display: flex;
+  flex: 1;
+  min-width: 130px;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: #9eb0bd;
+}
+.vl-fields > label.vl-upstream {
+  flex: 4;
+}
+.vl-page input:not([type="checkbox"]),
+.vl-page select {
+  width: 100%;
+  min-height: 41px;
+  border: 1px solid #2a3e4b;
+  border-radius: 7px;
+  padding: 8px 11px;
+  color: #e3ebf0;
+  background: #06111a;
+  font: inherit;
+  font-size: 13px;
+}
+.vl-page input::placeholder {
+  color: #607889;
+}
+.vl-page small {
+  color: #79919f;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.vl-page input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #65b96a;
+}
+.vl-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 17px 0;
+  font-size: 13px;
+}
+.vl-muted {
+  margin: 8px 0;
+  color: #8298a7;
+  font-size: 12px;
+}
+.vl-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.vl-proxy summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 650;
+}
+.vl-badge {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  color: #8a9da8;
+  background: #192b36;
+}
+.vl-badge.running {
+  color: #a0dca5;
+  background: #193925;
+}
+.vl-address {
+  font-size: 13px;
+  color: #b2dcb6;
+  overflow-wrap: anywhere;
+}
+.vl-address code {
+  user-select: all;
+}
+.vl-empty {
+  padding: 25px 8px;
+  color: #829aa9;
+  font-size: 13px;
+  text-align: center;
+}
+.vl-error,
+.vl-notice {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  margin: 0 0 16px;
+  border: 1px solid #6a333d;
+  border-radius: 8px;
+  color: #efacac;
+  background: #2b171d;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.vl-notice {
+  border-color: #2f5a3e;
+  color: #b5dbbd;
+  background: #10261b;
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `task_automation_settings` ADD `requeued_at` text;

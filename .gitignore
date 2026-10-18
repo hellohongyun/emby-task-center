@@ -1,0 +1,51 @@
+node_modules/
+coverage/
+apps/web/dist/
+.env
+# 所有层级的实际环境配置保留在本地，只公开占位模板。
+**/.env*
+!**/.env.example
+# 运维脚本专用的凭据文件（Telegram 会话等），同样绝不入库
+.env.ops
+*.env.ops
+dist/
+.local/
+media/
+release/
+/data/
+/strm/
+strm.zip
+server-local-*.log
+server-local-*.log.err
+
+# 根目录测试/构建产物，避免污染工作树状态
+/*.txt
+/*.tar
+/manifest.json
+/diag-realdesc.mjs
+/.dsh-shots/
+
+# 运行期数据与本地工具产物（不是源码，避免误提交大数据/本机状态）
+# /tgtodrive/ 是默认 STRM_PATH=./tgtodrive 的本地片源样本（1000+ .strm）
+/tgtodrive/
+/.workbuddy/
+/.dsh-tmp/
+/_tmp_*
+# deploy/*.tar.gz 是历史发布包（单个约 121MB）；现在统一用未压缩 tar（docker load -i 不认 .tar.gz），
+# 同样是百兆级二进制，别提交进仓库。
+/deploy/*.tar.gz
+/deploy/*.tar
+/deploy/checksums.txt
+
+# 数据库、测试报告和运行日志不属于公开源码。
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+*.log
+*.log.err
+test-results/
+playwright-report/

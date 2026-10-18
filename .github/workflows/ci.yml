@@ -1,0 +1,56 @@
+name: CI
+
+# 检查源码、类型、测试、覆盖率、构建与零配置启动。
+# 浏览器隔离套件和 Docker 冒烟的运行方式见 tests/README.md。
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.16.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # better-sqlite3 / esbuild 等需要安装脚本，仓库用 pnpm-workspace.yaml 的 allowBuilds 放行
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests (server + packages + web)
+        run: pnpm test
+
+      - name: Coverage gate (server + packages)
+        run: pnpm test:coverage
+
+      - name: Build (web + server bundle)
+        run: pnpm build
+
+      # P1 验收：除 bootstrap 变量外零配置也要能启动并允许默认管理员登录
+      - name: Zero-env startup smoke
+        run: pnpm smoke:zero-env

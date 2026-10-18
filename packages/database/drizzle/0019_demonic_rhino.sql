@@ -1,0 +1,1 @@
+ALTER TABLE `media_tasks` ADD `season_number` integer;

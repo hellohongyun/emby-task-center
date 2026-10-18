@@ -1,0 +1,1 @@
+ALTER TABLE `media_tasks` DROP COLUMN `target_season`;

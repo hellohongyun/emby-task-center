@@ -1,0 +1,67 @@
+/* 未匹配原因分析（从 LibraryView.css 按归属切出，选择器未改） */
+
+.unmatched-report {
+  margin-bottom: 14px;
+  border: 1px solid #2a3136;
+  border-radius: 10px;
+  background: #0e141a;
+  overflow: hidden;
+}
+
+.unmatched-report summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  color: #d3dbe0;
+  font-size: 12px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.unmatched-report summary::after {
+  content: "▾";
+  margin-left: 6px;
+  color: #6f7f89;
+}
+
+.unmatched-report[open] summary::after {
+  content: "▴";
+}
+
+.report-grid {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.report-row {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid #20323c;
+  border-radius: 8px;
+  background: #0d1921;
+}
+
+.report-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.report-head b {
+  font-size: 12px;
+}
+
+.report-head em {
+  font-style: normal;
+  color: #7fd08a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.report-row small {
+  color: #7f8e97;
+  font-size: 11px;
+  line-height: 1.5;
+}

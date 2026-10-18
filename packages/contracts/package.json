@@ -1,0 +1,16 @@
+{
+  "name": "@emby-task-center/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "前后端共享契约（zod schema + 类型）；单一真源，避免两端各写一套",
+  "exports": {
+    "./media": "./src/media.ts",
+    "./task": "./src/task.ts",
+    "./virtual-library": "./src/virtual-library.ts"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "license": "MIT"
+}

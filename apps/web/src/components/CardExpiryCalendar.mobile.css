@@ -1,0 +1,64 @@
+@media (max-width: 900px) {
+  .expiry-picker {
+    width: 100%;
+    min-width: 0;
+  }
+  .picker-trigger {
+    width: 100%;
+    min-height: 44px;
+    flex-wrap: wrap;
+    padding: 10px;
+    font-size: 16px;
+  }
+  .picker-trigger em {
+    margin-left: auto;
+    font-size: 12px;
+  }
+  .picker-pop {
+    position: fixed;
+    top: auto;
+    right: 0;
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+    left: 0;
+    margin-inline: auto;
+    box-sizing: border-box;
+    width: min(360px, calc(100vw - 24px));
+    max-height: calc(100dvh - 140px - env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 12px;
+    box-shadow:
+      0 0 0 100vmax rgb(0 0 0 / 35%),
+      0 18px 40px rgb(0 0 0 / 45%);
+  }
+  .quick {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .quick-btn,
+  .quick-close,
+  .month-head button {
+    min-width: 0;
+    min-height: 44px;
+    width: auto;
+    font-size: 12px;
+  }
+  .month-head button {
+    width: 44px;
+  }
+  .day {
+    min-width: 0;
+    min-height: 44px;
+    padding: 0;
+    font-size: 13px;
+  }
+  .footnote {
+    font-size: 11px;
+    color: #8a97a1;
+  }
+}
+.expiry-picker button:focus-visible {
+  outline: 2px solid #7fd08a;
+  outline-offset: 2px;
+}

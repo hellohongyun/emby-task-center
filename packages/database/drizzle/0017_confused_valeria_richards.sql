@@ -1,0 +1,1 @@
+ALTER TABLE `task_automation_settings` ADD `release_days` text DEFAULT '[]' NOT NULL;

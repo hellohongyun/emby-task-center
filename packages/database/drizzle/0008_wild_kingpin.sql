@@ -1,0 +1,1 @@
+ALTER TABLE `library_items` ADD `poster_path` text;

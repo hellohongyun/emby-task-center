@@ -1,0 +1,2 @@
+CREATE TABLE `task_subscriptions` (`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL, `task_id` integer NOT NULL, `email` text NOT NULL, `enabled` integer DEFAULT true NOT NULL, `created_at` text NOT NULL, `updated_at` text NOT NULL, FOREIGN KEY (`task_id`) REFERENCES `media_tasks`(`id`) ON UPDATE cascade ON DELETE cascade);--> statement-breakpoint
+CREATE UNIQUE INDEX `task_subscription_identity_idx` ON `task_subscriptions` (`task_id`,`email`);

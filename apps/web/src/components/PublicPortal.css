@@ -1,0 +1,240 @@
+.portal {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+  background: var(--bg);
+}
+.portal-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 380px) auto;
+  align-items: center;
+  gap: 14px;
+  height: 64px;
+  padding: 0 max(16px, calc((100vw - 1120px) / 2));
+  border-bottom: 1px solid var(--line);
+  background: rgb(3 11 17 / 86%);
+  backdrop-filter: blur(14px);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.brand img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+.brand-name {
+  min-height: 40px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 780;
+  cursor: pointer;
+  letter-spacing: 0.2px;
+}
+.portal-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #061019;
+}
+.portal-nav button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-dim);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+}
+.portal-nav button.active {
+  color: var(--accent-strong);
+  background: rgb(104 189 104 / 12%);
+}
+.portal-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--input);
+  color: var(--text-dim);
+  transition: border-color 0.18s var(--ease);
+}
+.portal-search:focus-within {
+  border-color: var(--accent);
+}
+.portal-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font-size: 13px;
+}
+.portal-search input::placeholder {
+  color: #5f7480;
+}
+.session {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+.session-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #0a141c;
+}
+.session-chip b {
+  max-width: 180px;
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-chip small {
+  color: #7fd08a;
+  font-size: 10px;
+}
+.session-chip.expired small {
+  color: #ef8585;
+}
+.logout {
+  min-height: 36px;
+  width: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  color: #b7c1c8;
+  background: #101d25;
+  cursor: pointer;
+}
+.logout:hover {
+  color: #ef8585;
+  border-color: #5e3a3a;
+}
+.login-btn {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: 1px solid #315244;
+  border-radius: 999px;
+  color: #bce8be;
+  background: #10241b;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.portal-main {
+  flex: 1;
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: 0 18px 40px;
+}
+.portal-mobile-nav {
+  display: none;
+}
+
+@media (max-width: 840px) {
+  .portal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 0 14px;
+  }
+  .portal-nav,
+  .portal-search {
+    display: none;
+  }
+  .brand-name {
+    display: none;
+  }
+  .brand img {
+    width: 30px;
+    height: 30px;
+  }
+  .session {
+    flex: 0 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+  .login-btn {
+    white-space: nowrap;
+    padding: 0 12px;
+  }
+  .session-chip b {
+    max-width: 110px;
+  }
+  .portal-main {
+    padding: 0 14px 110px;
+  }
+  .portal-mobile-nav {
+    position: fixed;
+    z-index: 50;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    gap: 4px;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    background: rgb(4 12 18 / 94%);
+    backdrop-filter: blur(14px);
+  }
+  .portal-mobile-nav button {
+    flex: 1;
+    min-width: 0;
+    min-height: 52px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border: 0;
+    border-radius: 10px;
+    color: var(--text-dim);
+    background: transparent;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .portal-mobile-nav button.active {
+    color: var(--accent-strong);
+    background: rgb(104 189 104 / 10%);
+  }
+}

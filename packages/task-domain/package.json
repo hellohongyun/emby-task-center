@@ -1,0 +1,17 @@
+{
+  "name": "@emby-task-center/task-domain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "任务领域服务（创建/认领/状态机/进度）",
+  "exports": {
+    "./task-service": "./src/task-service.ts",
+    "./task-worker-service": "./src/task-worker-service.ts"
+  },
+  "dependencies": {
+    "@emby-task-center/contracts": "workspace:*",
+    "@emby-task-center/database": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "license": "MIT"
+}

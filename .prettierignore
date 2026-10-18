@@ -1,0 +1,20 @@
+# 运行期数据、产物与不可手改的生成物不参与格式化
+node_modules
+dist
+apps/web/dist
+.local
+media
+tgtodrive
+deploy
+release
+coverage
+packages/database/drizzle
+pnpm-lock.yaml
+
+# 文档保持人写格式（避免格式提交把文档 diff 淹没）
+*.md
+docs/**
+.superpowers/**
+.workbuddy/**
+.dsh-tmp/**
+.dsh-shots/**

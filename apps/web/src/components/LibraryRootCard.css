@@ -1,0 +1,199 @@
+/* 媒体库目录卡片 + 海报墙（从 LibraryView.css 按归属切出，选择器未改） */
+
+.root-card {
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid #20323c;
+  border-radius: 12px;
+  background: #0a151c;
+}
+
+.root-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.root-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.root-title > svg {
+  flex: none;
+}
+
+.root-title > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.root-title h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.root-title span {
+  color: #82909a;
+  font-size: 12px;
+}
+
+.root-header button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid #315244;
+  border-radius: 8px;
+  color: #bce8be;
+  background: #10241b;
+  cursor: pointer;
+}
+
+.scan-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0;
+  color: #82909a;
+  font-size: 12px;
+}
+
+.scan-meta strong {
+  color: #c6d0d5;
+}
+
+.poster-wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 14px;
+}
+
+.poster-card {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid #22343e;
+  border-radius: 10px;
+  color: #eef2f4;
+  background: #0d1921;
+  text-align: left;
+  cursor: pointer;
+}
+
+.poster-card img,
+.poster-fallback {
+  width: 100%;
+  aspect-ratio: 2/3;
+  object-fit: cover;
+}
+
+.poster-fallback {
+  display: grid;
+  place-items: center;
+  color: #d7e2e6;
+  background: linear-gradient(160deg, #123244, #0b1a26);
+  font-size: 44px;
+  font-weight: 800;
+}
+
+.poster-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  color: #cfe8d1;
+  background: rgb(17 46 26 / 88%);
+  font-size: 11px;
+}
+
+.poster-res {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  color: #e7d9a8;
+  background: rgb(58 46 14 / 88%);
+  font-size: 11px;
+}
+
+.poster-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 10px 11px;
+}
+
+.poster-caption strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.poster-caption small {
+  color: #7d8b94;
+  font-size: 11px;
+}
+
+@media (max-width: 700px) {
+  .root-card {
+    min-width: 0;
+    padding: 12px;
+  }
+
+  .poster-wall {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 10px;
+  }
+
+  .root-header,
+  .scan-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .root-title h2 {
+    font-size: 17px;
+  }
+
+  .root-header button {
+    min-height: 44px;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .scan-meta {
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .poster-caption {
+    padding: 8px;
+  }
+
+  .poster-badge,
+  .poster-res {
+    top: 6px;
+    padding: 3px 5px;
+    font-size: 10px;
+  }
+
+  .poster-badge {
+    left: 6px;
+  }
+
+  .poster-res {
+    right: 6px;
+  }
+}

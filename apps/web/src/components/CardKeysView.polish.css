@@ -1,0 +1,146 @@
+.card-keys,
+.card-keys * {
+  box-sizing: border-box;
+}
+.create-card,
+.table-card,
+.table-wrap {
+  min-width: 0;
+}
+.heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: 20px;
+  padding: 8px 0 4px;
+}
+.heading-main h2 {
+  font-size: 26px;
+  margin-bottom: 7px;
+}
+.usage-guide {
+  margin-top: 7px;
+  color: #8a97a1;
+  font-size: 12px;
+}
+.usage-guide summary {
+  width: fit-content;
+  cursor: pointer;
+  padding: 5px 0;
+}
+.usage-guide[open] .hint {
+  max-width: 560px;
+  margin: 5px 0;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.stat-pill {
+  min-width: 72px;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 14px;
+  border-radius: 10px;
+}
+.stat-pill b {
+  font-size: 21px;
+  line-height: 1.2;
+}
+.refresh-cards {
+  justify-self: end;
+}
+.create-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: end;
+}
+.create-form > *,
+.edit-form > *,
+.card-head > div {
+  min-width: 0;
+}
+.create-form select,
+.create-form input,
+.create-form label:has(input[type="text"]) input,
+.edit-form input,
+.edit-form textarea {
+  width: 100%;
+  min-width: 0;
+}
+.card-head p {
+  line-height: 1.6;
+}
+.blessing-block > textarea {
+  display: block;
+  width: 100%;
+  min-height: 90px;
+  padding: 11px 12px;
+  border: 1px solid #283b47;
+  border-radius: 9px;
+  color: #eef2f4;
+  background: #0e1a23;
+  outline: 0;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.blessing-block > textarea:focus {
+  border-color: #5aa95a;
+  box-shadow: 0 0 0 3px rgb(93 175 93 / 14%);
+}
+.card-keys button:focus-visible,
+.usage-guide summary:focus-visible {
+  outline: 2px solid #7fd08a;
+  outline-offset: 3px;
+}
+.mobile-action-label {
+  display: none;
+}
+.code-cell code,
+.code-chip code,
+.name-cell,
+.user-cell,
+.expiry-cell {
+  overflow-wrap: anywhere;
+}
+.status-badges {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.status-badges .status.warn {
+  margin-left: 0;
+}
+.code-cell .copy-icon,
+.name-cell .gift {
+  flex-shrink: 0;
+}
+.card-keys .error,
+.card-keys .ai-notice,
+.edit-note {
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 901px) {
+  .cards-table {
+    min-width: 1040px;
+  }
+  .code-column {
+    width: 165px;
+  }
+  .kind-column {
+    width: 76px;
+  }
+  .status-column {
+    width: 90px;
+  }
+  .code-cell code,
+  .kind-tag,
+  .status {
+    white-space: nowrap;
+  }
+}

@@ -1,0 +1,207 @@
+/* 媒体库页外壳（从 LibraryView.css 按归属切出，选择器未改） */
+.library-view {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.library-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 10px 0 20px;
+}
+
+.library-heading .eyebrow {
+  color: #68bf6a;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.library-heading h1 {
+  margin: 5px 0;
+  font-size: 28px;
+}
+
+.library-heading p {
+  margin: 0;
+  color: #84929c;
+}
+
+.library-heading button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid #315244;
+  border-radius: 8px;
+  color: #bce8be;
+  background: #10241b;
+  cursor: pointer;
+}
+
+.heading-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+.match-message {
+  margin: -6px 0 14px;
+  padding: 9px 12px;
+  border: 1px solid #2c4a35;
+  border-radius: 8px;
+  color: #9fd7a1;
+  background: #0e1913;
+  font-size: 12px;
+}
+
+.library-error {
+  padding: 12px;
+  border-radius: 8px;
+  color: #ef8585;
+  background: #241315;
+}
+
+.filter-controls {
+  min-width: 0;
+}
+
+.work-detail {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #2a3d48;
+  border-radius: 9px;
+  background: #0d1921;
+}
+
+.work-detail h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.work-detail h3 small {
+  color: #7d8b94;
+  font-weight: 400;
+}
+
+.work-detail ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.work-detail li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-top: 1px solid #1b2c35;
+  font-size: 12px;
+}
+
+.work-detail code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #b9c5cb;
+}
+
+.work-detail li span {
+  flex: none;
+  color: #7f8e97;
+}
+
+@media (max-width: 700px) {
+  .library-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 0;
+  }
+
+  .library-heading h1 {
+    font-size: 24px;
+  }
+
+  .library-heading p {
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  .heading-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .library-heading button {
+    min-height: 44px;
+    justify-content: center;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+}
+
+.library-picker,
+.library-pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 18px 0;
+}
+.library-picker select,
+.library-pagination button {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #315244;
+  border-radius: 8px;
+  background: #10241b;
+  color: #bce8be;
+}
+.library-picker select {
+  max-width: 100%;
+}
+.library-pagination {
+  justify-content: center;
+}
+.library-pagination button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@media (max-width: 700px) {
+  .library-picker {
+    align-items: stretch;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .library-picker select {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .library-pagination {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .library-pagination span {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    text-align: center;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .library-pagination button {
+    min-height: 44px;
+  }
+}

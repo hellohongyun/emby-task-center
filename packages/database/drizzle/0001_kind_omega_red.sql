@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `library_episodes_identity_idx` ON `library_episodes` (`library_item_id`,`parsed_season`,`episode_number`,`absolute_episode_number`);

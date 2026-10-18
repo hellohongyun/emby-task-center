@@ -1,0 +1,17 @@
+{
+  "name": "@emby-task-center/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SQLite/Drizzle 访问层：连接、schema、迁移（内部包，直接导出 TS 源码，由消费方打包）",
+  "exports": {
+    "./client": "./src/client.ts",
+    "./schema": "./src/schema.ts",
+    "./migrate": "./src/migrate.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.2"
+  },
+  "license": "MIT"
+}

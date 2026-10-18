@@ -1,0 +1,7 @@
+/* 父组件与子组件共用（空状态）（从 LibraryView.css 按归属切出，选择器未改） */
+
+.empty {
+  padding: 30px;
+  color: #7e8c96;
+  text-align: center;
+}

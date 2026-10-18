@@ -1,0 +1,270 @@
+@media (max-width: 900px) {
+  .card-keys {
+    min-width: 0;
+    gap: 14px;
+    padding: 0 0 16px;
+  }
+  .heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    padding-top: 4px;
+  }
+  .heading-main {
+    grid-column: 1 / -1;
+  }
+  .heading-main h2 {
+    font-size: 24px;
+  }
+  .stats {
+    gap: 6px;
+  }
+  .stat-pill {
+    min-width: 0;
+    padding: 8px 9px;
+    font-size: 11px;
+  }
+  .stat-pill b {
+    font-size: 20px;
+  }
+  .refresh-cards {
+    align-self: center;
+  }
+  .create-card,
+  .table-card {
+    min-width: 0;
+    gap: 16px;
+    padding: 15px;
+    border-radius: 12px;
+  }
+  .card-head {
+    flex-wrap: wrap;
+    gap: 9px;
+  }
+  .card-head > div:not(.bulk-actions) {
+    flex: 1;
+  }
+  .card-head h3 {
+    font-size: 16px;
+  }
+  .card-head p {
+    font-size: 12px;
+  }
+  .create-form {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .create-form label,
+  .edit-form label,
+  .field-label {
+    font-size: 13px;
+  }
+  .card-keys input,
+  .card-keys select,
+  .card-keys textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .card-keys button {
+    min-height: 44px;
+    justify-content: center;
+  }
+  .card-keys button.ghost.icon,
+  .card-keys button.danger {
+    min-width: 44px;
+  }
+  .mode-note {
+    padding: 9px 10px;
+    font-size: 12px;
+  }
+  .blessing-head {
+    align-items: stretch;
+    gap: 10px;
+  }
+  .blessing-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+  }
+  .ai-hint {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+  .blessing-block > textarea {
+    min-height: 108px;
+    font-size: 16px;
+  }
+  .create-actions > button {
+    width: 100%;
+  }
+  .generated-head {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .codes,
+  .code-chip {
+    width: 100%;
+    min-width: 0;
+  }
+  .code-chip {
+    justify-content: space-between;
+    text-align: left;
+  }
+  .bulk-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    margin-left: 0;
+    gap: 8px;
+  }
+  .bulk-actions > button:only-child {
+    grid-column: 1 / -1;
+  }
+  .table-wrap {
+    overflow: visible;
+    min-width: 0;
+  }
+  .cards-table,
+  .cards-table tbody {
+    display: block;
+    min-width: 0;
+  }
+  .cards-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .cards-table .card-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+    padding: 14px;
+    border: 1px solid #263945;
+    border-radius: 11px;
+    background: #0e1a23;
+  }
+  .cards-table .card-row:first-child {
+    margin-top: 0;
+  }
+  .cards-table .card-row > td {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 0;
+    gap: 5px;
+    padding: 0;
+    border: 0;
+    font-size: 13px;
+  }
+  .card-row > td[data-label]::before {
+    content: attr(data-label);
+    color: #8495a2;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .card-row > .code-column,
+  .card-row > .name-column,
+  .card-row > .expiry-cell,
+  .card-row > .user-cell,
+  .card-row > .created-column,
+  .card-row > .actions-column {
+    grid-column: 1 / -1;
+  }
+  .card-row > .code-column {
+    order: 1;
+  }
+  .card-row > .name-column {
+    order: 2;
+  }
+  .card-row > .kind-column {
+    order: 3;
+  }
+  .card-row > .status-column {
+    order: 4;
+  }
+  .card-row > .expiry-cell {
+    order: 5;
+  }
+  .card-row > .user-cell {
+    order: 6;
+  }
+  .card-row > .created-column {
+    order: 7;
+  }
+  .card-row > .actions-column {
+    order: 8;
+  }
+  .cards-table .code-cell {
+    width: 100%;
+    justify-content: space-between;
+    padding: 10px;
+    text-align: left;
+    font-size: 13px;
+  }
+  .name-cell {
+    align-items: flex-start;
+    font-size: 15px;
+    font-weight: 650;
+    line-height: 1.5;
+  }
+  .cards-table .expiry-cell,
+  .cards-table .user-cell {
+    min-width: 0;
+    line-height: 1.5;
+  }
+  .dim small,
+  .expiry-cell small {
+    color: #8495a2;
+    font-size: 11px;
+    margin-top: 0;
+  }
+  .row-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 10px;
+    padding-top: 12px;
+    border-top: 1px solid #263945;
+  }
+  .mobile-action-label {
+    display: inline;
+  }
+  .row-actions button.danger {
+    display: inline-flex;
+    gap: 5px;
+  }
+  .cards-table .edit-row,
+  .cards-table .edit-row > td {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+  .cards-table .edit-row > td {
+    margin-top: 8px;
+    padding: 14px;
+    border: 1px solid #355c3c;
+    border-radius: 11px;
+  }
+  .edit-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 13px;
+  }
+  .edit-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-left: 0;
+    gap: 6px;
+  }
+  .edit-actions button {
+    padding: 0 8px;
+  }
+  .edit-note {
+    line-height: 1.6;
+  }
+}

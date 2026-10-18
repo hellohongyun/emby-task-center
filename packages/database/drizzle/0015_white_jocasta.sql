@@ -1,0 +1,1 @@
+ALTER TABLE `media_tasks` ADD `source_mode` text DEFAULT 'auto' NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE `library_items` ADD `tags_json` text DEFAULT '[]' NOT NULL;

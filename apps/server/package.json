@@ -1,0 +1,23 @@
+{
+  "name": "@emby-task-center/server",
+  "version": "1.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Express API + 后台任务（P3：真实声明依赖，不再是空对象）",
+  "dependencies": {
+    "@emby-task-center/contracts": "workspace:*",
+    "@emby-task-center/database": "workspace:*",
+    "@emby-task-center/task-domain": "workspace:*",
+    "bencode": "^4.0.1",
+    "better-sqlite3": "^13.0.3",
+    "bittorrent-dht": "^11.0.12",
+    "bittorrent-protocol": "^5.0.9",
+    "drizzle-orm": "^0.45.2",
+    "express": "^5.2.1",
+    "nodemailer": "^9.0.5",
+    "redis": "^6.2.1",
+    "ut_metadata": "^5.0.1",
+    "zod": "^4.4.3"
+  },
+  "license": "MIT"
+}

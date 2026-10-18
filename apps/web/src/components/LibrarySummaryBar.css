@@ -1,0 +1,68 @@
+/* 媒体库统计条（从 LibraryView.css 按归属切出，选择器未改） */
+
+.library-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.library-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 18px;
+  border: 1px solid #20323c;
+  border-radius: 10px;
+  background: #0b161d;
+}
+
+.library-summary strong {
+  font-size: 24px;
+}
+
+.library-summary span {
+  color: #82909a;
+  font-size: 12px;
+}
+
+.match-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.match-bar {
+  height: 5px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #1d2c37;
+}
+
+.match-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #68bd68, #7fd08a);
+  transition: width 0.3s var(--ease);
+}
+
+@media (max-width: 700px) {
+  .library-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .library-summary > div {
+    min-width: 0;
+    padding: 11px 8px;
+    gap: 5px;
+  }
+  .library-summary strong {
+    font-size: clamp(17px, 4.8vw, 22px);
+    font-variant-numeric: tabular-nums;
+  }
+  .library-summary span {
+    font-size: 11px;
+  }
+}

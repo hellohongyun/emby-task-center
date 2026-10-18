@@ -1,0 +1,1 @@
+ALTER TABLE `media_tasks` ADD `content_kind` text;
