@@ -123,4 +123,37 @@ describe("Emby user library order with virtual views", () => {
     expect(upstream).toHaveBeenCalledTimes(1);
     expect(parameter(upstream.mock.calls[0][0], "StartIndex")).toBe("1");
   });
+
+  it("matches the Guid used by Emby settings even when a library has a different Id", async () => {
+    const upstream = fixture({ OrderedViews: ["real-guid", "virtual-a", "second-guid"] });
+    upstream.mockImplementationOnce(async () =>
+      result({
+        Items: [
+          { ...original[1], Guid: "second-guid" },
+          { ...original[0], Guid: "real-guid" },
+        ],
+        TotalRecordCount: 2,
+      }),
+    );
+    expect(ids(await browse(upstream))).toEqual(["real-a", "virtual-a", "real-b", "virtual-b"]);
+  });
+
+  it("matches compact GUID order values to hyphenated GUIDs", async () => {
+    const upstream = fixture({ OrderedViews: ["00112233445566778899AABBCCDDEEFF", "virtual-a"] });
+    upstream.mockImplementationOnce(async () =>
+      result({
+        Items: [original[1], { ...original[0], Guid: "00112233-4455-6677-8899-aabbccddeeff" }],
+        TotalRecordCount: 2,
+      }),
+    );
+    expect(ids(await browse(upstream)).slice(0, 2)).toEqual(["real-a", "virtual-a"]);
+  });
+
+  it("counts visible libraries after applying hidden Ids, and lists them in settings", async () => {
+    const upstream = fixture({ OrderedViews: [], MyMediaExcludes: ["real-a", "virtual-b"] });
+    const body = await browse(upstream);
+    expect(ids(body)).toEqual(["real-b", "virtual-a"]);
+    expect(body.TotalRecordCount).toBe(2);
+    expect((await browse(upstream, "/Users/u/Views?IncludeHidden=true")).TotalRecordCount).toBe(4);
+  });
 });

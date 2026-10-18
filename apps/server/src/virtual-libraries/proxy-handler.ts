@@ -1,12 +1,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
 import type { VirtualLibraryStore } from "./store";
 import { handleVirtualQuery } from "./queries";
 import { forwardRequest, upstreamJson, type ProxyTarget } from "./proxy-transport";
 import { createProxyMappingRepair } from "./proxy-mapping-repair";
-import { parameter } from "./query-helpers";
+import { parameter, sendJson } from "./query-helpers";
+import { createHomeSectionCache } from "./home-section-cache";
 
 export function createVirtualProxyHandler(store: VirtualLibraryStore, upstream: () => string, marker: string) {
   const repairMappings = createProxyMappingRepair(store);
+  const homeSections = createHomeSectionCache();
   return async (request: IncomingMessage, response: ServerResponse) => {
     try {
       if (request.headers["x-task-center-proxy"] === marker) {
@@ -20,6 +23,29 @@ export function createVirtualProxyHandler(store: VirtualLibraryStore, upstream: 
       const context: ProxyTarget = { upstream: upstream(), request, response, signal: abort.signal };
       const url = new URL(request.url ?? "/", "http://proxy.local");
       url.pathname = url.pathname.replace(/^\/emby(?=\/|$)/i, "") || "/";
+      const homeUser = /^\/Users\/([^/]+)\/(HomeSections|Sections\/[^/]+\/Items)\/?$/i.exec(url.pathname);
+      let knownSections: unknown;
+      if (request.method === "GET" && homeUser && store.list().length) {
+        const scope = createHash("sha256")
+          .update(
+            JSON.stringify([
+              context.upstream,
+              request.headers.authorization,
+              request.headers["x-emby-authorization"],
+              request.headers["x-mediabrowser-authorization"],
+              request.headers["x-emby-token"],
+              [...url.searchParams].filter(([key]) => /^(api_key|apikey|token|x-emby-token)$/i.test(key)),
+            ]),
+          )
+          .digest("hex");
+        if (homeUser[2].toLowerCase() === "homesections") {
+          const reply = await upstreamJson(context, url);
+          if (reply.status >= 200 && reply.status < 300) homeSections.write(scope, homeUser[1], reply.body);
+          sendJson(response, reply);
+          return;
+        }
+        knownSections = homeSections.read(scope, homeUser[1]);
+      }
       const image = /^\/Items\/([^/]+)\/Images\/(Primary|Thumb|Backdrop)(?:\/\d+)?$/i.exec(url.pathname);
       const detail = /^\/(?:Users\/[^/]+\/)?Items\/([^/]+)\/?$/i.exec(url.pathname);
       const virtualId = parameter(url, "ParentId") ?? image?.[1] ?? detail?.[1];
@@ -54,6 +80,7 @@ export function createVirtualProxyHandler(store: VirtualLibraryStore, upstream: 
           response,
           url,
           store,
+          homeSections: knownSections,
           upstream: (target, timeoutMs) => upstreamJson(context, target, timeoutMs),
         })
       )

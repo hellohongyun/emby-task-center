@@ -8,13 +8,15 @@ import {
   setParameter,
   sendJson,
   UpstreamQueryError,
-  type Item,
   type QueryUpstream,
   type VirtualQueryStore,
 } from "./query-helpers";
 import { authenticate, queryScope } from "./query-scope";
 import { facetQuery } from "./query-facets";
 import { orderUserViews } from "./view-order";
+import { libraryDto as dto } from "./library-dto";
+import { homeSectionItems } from "./home-sections";
+import { discoveryItems } from "./discovery-items";
 export type { UpstreamJson } from "./query-helpers";
 
 interface QueryContext {
@@ -23,30 +25,7 @@ interface QueryContext {
   url: URL;
   store: VirtualQueryStore;
   upstream: QueryUpstream;
-}
-
-function dto(store: VirtualQueryStore, id: string, serverId?: unknown): Item {
-  const library = store.get(id)!;
-  const cover = store.listItems(id).find((item) => item.imageTag);
-  return {
-    Id: library.id,
-    Name: library.name,
-    SortName: library.name,
-    Type: "CollectionFolder",
-    IsFolder: true,
-    CollectionType: library.collectionType === "mixed" ? null : library.collectionType,
-    Subviews:
-      library.collectionType === "movies"
-        ? ["movies", "genres", "folders"]
-        : library.collectionType === "tvshows"
-          ? ["series", "genres", "folders"]
-          : ["movies", "series", "genres", "folders"],
-    ChildCount: library.itemCount,
-    DisplayPreferencesId: library.id,
-    DateCreated: library.createdAt,
-    ImageTags: cover?.imageTag ? { Primary: cover.imageTag } : {},
-    ...(serverId ? { ServerId: serverId } : {}),
-  };
+  homeSections?: unknown;
 }
 
 function rootQuery(url: URL) {
@@ -78,7 +57,7 @@ async function appendLibraries(context: QueryContext) {
     const ordered = await orderUserViews(url, [...original.Items, ...additions], upstream);
     return {
       ...response,
-      body: { ...original, Items: ordered.slice(start, start + limit), TotalRecordCount: total + additions.length },
+      body: { ...original, Items: ordered.slice(start, start + limit), TotalRecordCount: ordered.length },
     };
   }
   const available = Math.max(0, limit - original.Items.length);
@@ -100,8 +79,15 @@ export async function handleVirtualQuery(context: QueryContext): Promise<boolean
     /^\/(?:Users\/[^/]+\/)?Items(?:\/(?:Latest|Resume))?\/?$/i.test(path) || /^\/Shows\/NextUp\/?$/i.test(path);
   const views = /^\/Users\/[^/]+\/Views\/?$/i.test(path);
   const root = rootQuery(url);
-  if (!library && !parentLibrary && !views && !root) return false;
   try {
+    if (!library && !parentLibrary) {
+      const discovery = (await homeSectionItems(context)) ?? (await discoveryItems(context));
+      if (discovery) {
+        sendJson(response, discovery);
+        return true;
+      }
+    }
+    if (!library && !parentLibrary && !views && !root) return false;
     if (library) {
       const probe = await authenticate(upstream, url);
       const serverId = listBody(probe.body).Items[0]?.ServerId;
