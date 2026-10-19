@@ -1,6 +1,6 @@
 # 版本命名与镜像发布
 
-当前正式版本为 `1.1.0`。正式发布统一采用 `主版本.次版本.补丁版本`（`X.Y.Z`），不再使用日期或功能名称作为新正式版本号，也不加 `v` 前缀。
+当前正式版本为 `1.2.0`。正式发布统一采用 `主版本.次版本.补丁版本`（`X.Y.Z`），不再使用日期或功能名称作为新正式版本号，也不加 `v` 前缀。
 
 ## 递增规则
 
@@ -20,10 +20,10 @@
 
 ## 镜像标签
 
-每次正式发布从同一次构建生成两个标签。例如 `1.1.0`：
+每次正式发布从同一次构建生成两个标签。例如 `1.2.0`：
 
 ```text
-ghcr.io/hellohongyun/emby-task-center:1.1.0
+ghcr.io/hellohongyun/emby-task-center:1.2.0
 ghcr.io/hellohongyun/emby-task-center:latest
 ```
 
@@ -41,7 +41,7 @@ pnpm release:ghcr
 随后运行 Docker 冒烟，Windows PowerShell 示例（镜像标签替换为根版本）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/docker-smoke.ps1 -Image ghcr.io/hellohongyun/emby-task-center:1.1.0
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/docker-smoke.ps1 -Image ghcr.io/hellohongyun/emby-task-center:1.2.0
 ```
 
 验证通过后，在已登录 GHCR 的构建机器发布刚才验证的镜像：

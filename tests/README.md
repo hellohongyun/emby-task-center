@@ -4,6 +4,8 @@
 
 在项目根目录运行 `pnpm test`。服务端使用 Vitest，前端使用 Vue 组件和请求夹具；这些测试不代表真实 Emby、TMDB、SMTP 或反向代理已经验证。
 
+名单逐项选片通过 `useVirtualNameQueue.test.ts`、`VirtualNameQueue.test.ts` 和 `VirtualLibrariesPage.test.ts` 验证：仅自动填入搜索词，成功加入后推进，失败保留选择，跳过不写关联，切库后的旧请求不推进新名单。
+
 `apps/server/src/routes/http-direct-login.test.ts` 使用生产模式、临时 SQLite 与本地 HTTP 服务验证管理员和会员登录 Cookie 不带 `Secure`、携带 Cookie 可访问各自接口、退出会清除两类 Cookie，以及响应不下发 HSTS。另验证伪造 `X-Forwarded-For` / `X-Forwarded-Proto` 不能绕过直连 IP 登录锁定；通过检查实际 Cookie 响应头，避免浏览器对 localhost 的特殊处理掩盖问题。这些用例不监听生产端口、不写真实数据库，也不调用外网。
 
 虚拟媒体库的聚焦回归可运行：

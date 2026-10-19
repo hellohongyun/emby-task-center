@@ -7,10 +7,14 @@ import VirtualLibraryItems from "../components/virtual-libraries/VirtualLibraryI
 import VirtualProxySettings from "../components/virtual-libraries/VirtualProxySettings.vue";
 import VirtualSourcePicker from "../components/virtual-libraries/VirtualSourcePicker.vue";
 import VirtualLibraryPoster from "../components/virtual-libraries/VirtualLibraryPoster.vue";
+import VirtualNameQueue from "../components/virtual-libraries/VirtualNameQueue.vue";
+import { useVirtualNameQueue } from "../composables/useVirtualNameQueue";
 import type { VirtualLibrary } from "@emby-task-center/contracts/virtual-library";
 
 const services = useAppServices();
 const api = useVirtualLibraries(services.requireAuth);
+const queue = useVirtualNameQueue(api);
+const { names: queueNames, index: queueIndex, busy: queueBusy, adding: queueAdding } = queue;
 const {
   libraries,
   selectedId,
@@ -77,7 +81,7 @@ async function removeLibrary() {
   }
 }
 async function addItems() {
-  if (await api.addItems()) notice.value = "已选内容已加入虚拟媒体库";
+  if (await queue.add()) notice.value = "已选内容已加入虚拟媒体库";
 }
 function updatePoster(library: VirtualLibrary) {
   libraries.value = libraries.value.map((current) => (current.id === library.id ? library : current));
@@ -179,6 +183,14 @@ function updatePoster(library: VirtualLibrary) {
           @remove="api.removeItem"
           @refresh="api.loadItems"
         />
+        <VirtualNameQueue
+          :names="queueNames"
+          :index="queueIndex"
+          :busy="queueBusy"
+          @start="queue.start"
+          @skip="queue.next"
+          @stop="queue.stop"
+        />
         <VirtualSourcePicker
           :collection-type="selectedLibrary.collectionType"
           v-model:search="searchTerm"
@@ -188,7 +200,7 @@ function updatePoster(library: VirtualLibrary) {
           :selected="selectedItems"
           :added="addedIds"
           :loading="sourceLoading || itemLoading"
-          :busy="saving"
+          :busy="saving || queueAdding"
           :total="total"
           :start="startIndex"
           :limit="limit"

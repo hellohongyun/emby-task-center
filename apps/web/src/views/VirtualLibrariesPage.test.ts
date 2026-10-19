@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/vue";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/vue";
 import { afterEach, expect, it, vi } from "vitest";
 import VirtualLibrariesPage from "./VirtualLibrariesPage.vue";
 import { APP_SERVICES, type AppServices } from "../state/app-services";
@@ -103,7 +103,7 @@ it("shows add failures and keeps the selection available for retry", async () =>
   await fireEvent.click(screen.getByRole("button", { name: "加入已选（1）" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("影片类型与当前媒体库不兼容，请改为混合库");
   expect(screen.getByRole("checkbox", { name: "选择 周末电影" })).toBeChecked();
-  expect(screen.getByRole("button", { name: "加入已选（1）" })).toBeEnabled();
+  await waitFor(() => expect(screen.getByRole("button", { name: "加入已选（1）" })).toBeEnabled());
 });
 
 it("creates a new library with its display type and explicit sort order", async () => {
@@ -158,4 +158,42 @@ it("disables proxy refresh while its configuration is being saved", async () => 
   );
   expect(await screen.findByRole("button", { name: "保存反代设置" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "刷新状态" })).toBeEnabled();
+});
+
+it("uses each pasted name in the existing picker and advances only after a successful manual add", async () => {
+  const fetch = setup();
+  await screen.findByRole("checkbox", { name: "选择 周末电影" });
+  await fireEvent.update(screen.getByRole("textbox", { name: "影片名单" }), "周末电影\n第二个片名\n没有片源");
+  await fireEvent.click(screen.getByRole("button", { name: "开始逐项选片" }));
+  const search = screen.getByRole("searchbox", { name: "搜索 Emby 内容" });
+  await waitFor(() => expect(search).toHaveValue("周末电影"));
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: "选择 周末电影" })).toBeEnabled());
+  expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+  await fireEvent.click(screen.getByRole("checkbox", { name: "选择 周末电影" }));
+  await fireEvent.click(screen.getByRole("button", { name: "加入已选（1）" }));
+  await waitFor(() => expect(search).toHaveValue("第二个片名"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "跳过此项" })).toBeEnabled());
+  await fireEvent.click(screen.getByRole("button", { name: "跳过此项" }));
+  await waitFor(() => expect(search).toHaveValue("没有片源"));
+  expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  const searches = fetch.mock.calls.filter(([url]) => url.includes("/source-items?"));
+  expect(searches.map(([url]) => new URL(url, "http://test").searchParams.get("searchTerm"))).toEqual([
+    "",
+    "周末电影",
+    "第二个片名",
+    "没有片源",
+  ]);
+});
+
+it("keeps the current queued name and selected version after the existing add API rejects it", async () => {
+  setup(true);
+  await screen.findByRole("checkbox", { name: "选择 周末电影" });
+  await fireEvent.update(screen.getByRole("textbox", { name: "影片名单" }), "周末电影\n第二个片名");
+  await fireEvent.click(screen.getByRole("button", { name: "开始逐项选片" }));
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: "选择 周末电影" })).toBeEnabled());
+  await fireEvent.click(screen.getByRole("checkbox", { name: "选择 周末电影" }));
+  await fireEvent.click(screen.getByRole("button", { name: "加入已选（1）" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("影片类型与当前媒体库不兼容");
+  expect(screen.getByRole("searchbox", { name: "搜索 Emby 内容" })).toHaveValue("周末电影");
+  expect(screen.getByRole("checkbox", { name: "选择 周末电影" })).toBeChecked();
 });
