@@ -1,5 +1,6 @@
 import { anchorOwnedViews } from "./view-order";
 import { libraryDto } from "./library-dto";
+import type { OwnedViewAnchor } from "./owned-view-preferences";
 import {
   authenticationUrl,
   integerParameter,
@@ -17,6 +18,7 @@ interface OverlayContext {
   reply: UpstreamJson;
   onlyIds?: string[];
   serverId?: unknown;
+  ownedOrder?: OwnedViewAnchor[];
 }
 
 function identity(value: unknown): string {
@@ -80,8 +82,10 @@ export async function overlayLibraries(context: OverlayContext): Promise<Upstrea
   const limit = integerParameter(url, "Limit", Number.MAX_SAFE_INTEGER);
   const limited = parameter(url, "Limit") !== undefined;
   let items: Item[];
-  if (!limited || original.length > limit) {
-    items = anchorOwnedViews(original, additions, order);
+  const completeFirstPage =
+    start === 0 && total !== undefined && original.length >= total && original.length + additions.length <= limit;
+  if (!limited || original.length > limit || completeFirstPage) {
+    items = anchorOwnedViews(original, additions, order, onlyIds ? [] : context.ownedOrder);
   } else {
     if (total === undefined && original.length >= limit) return reply;
     const upstreamTotal = total ?? start + original.length;

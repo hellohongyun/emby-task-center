@@ -170,11 +170,36 @@ describe("virtual library query scope performance", () => {
     expect(calls.map((call) => call.searchParams.get("ParentId"))).toEqual(["a", "b"]);
   });
 
-  it.each(["Latest", "Resume"])("retains descendant expansion for %s", async (path) => {
+  it.each(["Resume"])("retains descendant expansion for %s", async (path) => {
     const { handler, calls } = upstreamItems();
     await scope(`/Users/u/Items/${path}?ParentId=virtual&IncludeItemTypes=Series`, handler);
     expect(calls[0].searchParams.get("ParentId")).toBe("a");
     expect(calls.some((call) => call.searchParams.get("ParentId") === "b")).toBe(true);
+  });
+
+  it("reads grouped Latest from whole-work IDs without expanding descendants", async () => {
+    const { handler, calls } = upstreamItems();
+    const response = await scope("/Users/u/Items/Latest?ParentId=virtual&IncludeItemTypes=Episode", handler);
+    expect(response.body).toEqual(series);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].searchParams.get("IncludeItemTypes")).toBe("Series");
+    expect(calls[0].searchParams.get("Ids")).toBe("a,b");
+    expect(calls[0].searchParams.has("ParentId")).toBe(false);
+  });
+
+  it("bounds grouped Latest work queries for 113 mappings instead of scanning each show's episodes", async () => {
+    const many = Array.from({ length: 113 }, (_, i) => ({ ...series[0], Id: `show-${i}`, Name: `show-${i}` }));
+    const { handler, calls } = upstreamItems(many);
+    const response = await scope(
+      "/Users/u/Items/Latest?ParentId=virtual&Limit=20&IncludeItemTypes=Episode",
+      handler,
+      store(many),
+    );
+    expect(response.body).toHaveLength(20);
+    expect(calls).toHaveLength(2);
+    expect(calls.every((call) => !call.searchParams.has("ParentId"))).toBe(true);
+    expect(calls.every((call) => call.searchParams.get("IncludeItemTypes") === "Series")).toBe(true);
+    expect(calls.reduce((count, call) => count + call.searchParams.get("Ids")!.split(",").length, 0)).toBe(113);
   });
 
   it("leaves ordinary non-recursive scope queries unchanged", async () => {

@@ -10,11 +10,13 @@ import {
 } from "./query-helpers";
 import { authenticate } from "./query-scope";
 import { overlayLibraries } from "./owned-library-overlay";
+import type { OwnedViewAnchor } from "./owned-view-preferences";
 
 interface DiscoveryContext {
   url: URL;
   store: VirtualQueryStore;
   upstream: QueryUpstream;
+  ownedOrder?: OwnedViewAnchor[];
 }
 
 function identity(value: unknown): string {
@@ -25,7 +27,12 @@ function identity(value: unknown): string {
 }
 
 /** Add owned folders without changing upstream discovery queries or DTOs. */
-export async function discoveryItems({ url, store, upstream }: DiscoveryContext): Promise<UpstreamJson | undefined> {
+export async function discoveryItems({
+  url,
+  store,
+  upstream,
+  ownedOrder,
+}: DiscoveryContext): Promise<UpstreamJson | undefined> {
   const folders = /^\/Library\/MediaFolders\/?$/i.test(url.pathname);
   const byIds = /^\/(?:Users\/[^/]+\/)?Items\/?$/i.test(url.pathname);
   if (!folders && (!byIds || parameter(url, "ParentId") !== undefined || !parameter(url, "Ids"))) return undefined;
@@ -34,7 +41,7 @@ export async function discoveryItems({ url, store, upstream }: DiscoveryContext)
   const virtualIds = [...new Set(ids.map((id) => libraries.get(identity(id))).filter((id): id is string => !!id))];
   if (!store.list().length || (!folders && !virtualIds.length)) return undefined;
   try {
-    if (folders) return overlayLibraries({ url, store, upstream, reply: await upstream(url) });
+    if (folders) return overlayLibraries({ url, store, upstream, reply: await upstream(url), ownedOrder });
     const realIds = ids.filter((id) => !libraries.has(identity(id)));
     let reply: UpstreamJson;
     let serverId: unknown;

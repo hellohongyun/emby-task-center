@@ -18,7 +18,7 @@ pnpm exec vitest run apps/server/src/virtual-libraries apps/server/src/routes/vi
 
 关联恢复回归覆盖 TMDB 身份持久化、旧库加列升级、原 ID 失效或复用、唯一候选恢复、多来源歧义、身份缺失、401/网络失败及并发移除保护。真实本地 HTTP 代理测试验证原客户端凭据、播放 DTO 与普通请求透传；前端覆盖关联告警和切库后的旧响应隔离。
 
-`queries-view-order.test.ts` 和 `view-order-proxy.test.ts` 验证仅移动自有虚拟库、保留上游顺序及分页、偏好失败回退、原配置写入及凭据透传、用户隔离和代理重启后恢复。仅使用临时 SQLite 与本地 HTTP 上游，不修改真实 Emby 用户设置。
+`queries-view-order.test.ts`、`view-order-proxy.test.ts`、`ttd-order-roundtrip.test.ts` 和 `owned-view-preferences.test.ts` 验证仅移动自有虚拟库、保留上游顺序及分页、偏好失败回退、原配置写入及凭据透传、用户隔离和代理重启后恢复。仅使用临时 SQLite 与本地 HTTP 上游，不修改真实 Emby 用户设置。
 
 `modern-discovery-proxy.test.ts` 使用真实本地 HTTP 与临时数据库，按 Emby 4.10 的动态首页分区、真实 Id 与 Guid 不同、`text/plain` 的 Partial 配置保存，以及上游错误返回无关条目的行为验证发现链路。首页分类缓存只存分区 ID 和类型，并验证凭据隔离、内容继续鉴权及未知分区透传。`home-sections`、`discovery-items` 和 `home-section-cache` 的聚焦用例补充分页、隐藏后数量、缓存过期和父范围约束。
 
@@ -79,3 +79,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests/docker-smoke.ps1
 验证已构建的待发布镜像时追加 `-Image emby-task-center:<固定版本标签>`。脚本复用该镜像、验证它的实际容器行为，并保留它；不会另建或删除传入的镜像。静态配置和本地应用构建检查仍执行。
 
 冒烟检查覆盖构建产物、健康检查、SPA、生产镜像 HTTP 管理员会话（Cookie 无 `Secure`、响应无 HSTS）、数据库重建持久化和容器文件系统边界。应用通过 Emby API 读取媒体库，不挂载 STRM 目录。真实上游及生产数据库另行验证。
+
+`ttd-order-roundtrip.test.ts` 模拟上游保存排序时丢弃 TTD 条目 ID，验证本项目库仍可跨 TTD 调整位置、配置原字节透传、用户隔离和重启恢复。`query-latest-content.test.ts` 与性能用例验证默认首页仅返回作品和原海报、113 条映射仅用两次批量查询，并保留显式分集与继续观看行为；自动测试本身不代替 Hills 实机验收；本次发布另由使用者完成本地测试确认。

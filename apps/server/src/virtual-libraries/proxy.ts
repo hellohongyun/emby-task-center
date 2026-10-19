@@ -4,6 +4,7 @@ import type { Socket } from "node:net";
 import type { AppDatabase } from "@emby-task-center/database/client";
 import { createVirtualLibraryStore } from "./store";
 import { createVirtualProxyHandler } from "./proxy-handler";
+import { createOwnedViewPreferences } from "./owned-view-preferences";
 import { forwardUpgrade } from "./proxy-transport";
 import {
   readVirtualProxyConfig,
@@ -24,6 +25,7 @@ export function createVirtualLibraryProxy(options: {
   report?: (message: string) => void;
 }) {
   const store = createVirtualLibraryStore(options.database);
+  const preferences = createOwnedViewPreferences(options.database, store);
   const marker = randomUUID();
   let active: { server: Server; sockets: Set<Socket>; config: VirtualProxyConfig } | undefined;
   let error: string | null = null;
@@ -64,7 +66,12 @@ export function createVirtualLibraryProxy(options: {
         const instance = { server: createServer(), sockets: new Set<Socket>(), config };
         instance.server.on(
           "request",
-          createVirtualProxyHandler(store, () => virtualProxyUpstream(options.database, instance.config), marker),
+          createVirtualProxyHandler(
+            store,
+            () => virtualProxyUpstream(options.database, instance.config),
+            marker,
+            preferences,
+          ),
         );
         instance.server.on("connection", (socket) => {
           instance.sockets.add(socket);

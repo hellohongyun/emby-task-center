@@ -14,6 +14,7 @@ import {
   type VirtualQueryStore,
 } from "./query-helpers";
 import { idBatches, sortItems, sortingFields } from "./query-sort";
+import { groupLatest } from "./latest-grouping";
 
 export async function authenticate(upstream: QueryUpstream, url: URL) {
   const probe = authenticationUrl(url);
@@ -21,13 +22,14 @@ export async function authenticate(upstream: QueryUpstream, url: URL) {
   return checked(upstream, probe);
 }
 
-async function scopedIds(store: VirtualQueryStore, id: string, url: URL, upstream: QueryUpstream) {
+async function scopedIds(store: VirtualQueryStore, id: string, url: URL, upstream: QueryUpstream, wholeWorks = false) {
   const mapped = store.listItems(id);
   const ids = new Set(mapped.map((item) => item.itemId));
+  const seriesParents = new Map<string, string>();
   // NextUp 本身按真实父项查询；先收集其全部分集不会参与后续范围判断。
-  if (/\/NextUp$/i.test(url.pathname)) return ids;
+  if (wholeWorks || /\/NextUp$/i.test(url.pathname)) return { ids, seriesParents };
   const recursive = parameter(url, "Recursive")?.toLowerCase() === "true" || /\/(Resume|Latest)$/i.test(url.pathname);
-  if (!recursive) return ids;
+  if (!recursive) return { ids, seriesParents };
   const types = parameter(url, "IncludeItemTypes")
     ?.split(",")
     .map((type) => type.trim().toLowerCase());
@@ -39,7 +41,7 @@ async function scopedIds(store: VirtualQueryStore, id: string, url: URL, upstrea
     types.every((type) => type === "movie" || type === "series") &&
     mapped.every((item) => /^(Movie|Series)$/i.test(item.type))
   )
-    return ids;
+    return { ids, seriesParents };
   for (const item of mapped) {
     if (
       !["Series", "Season", "Folder", "BoxSet", "CollectionFolder", "Playlist", "MusicAlbum", "MusicArtist"].includes(
@@ -51,9 +53,14 @@ async function scopedIds(store: VirtualQueryStore, id: string, url: URL, upstrea
     setParameter(children, "ParentId", item.itemId);
     setParameter(children, "Recursive", "true");
     setParameter(children, "Fields", "ParentId");
-    for (const child of await allPages(upstream, children)) if (child.Id) ids.add(child.Id);
+    for (const child of await allPages(upstream, children)) {
+      if (!child.Id) continue;
+      ids.add(child.Id);
+      // 合并后的剧集 ID 可能与分集 SeriesId 不同，以实际父范围查询建立归属。
+      if (item.type === "Series" && !seriesParents.has(child.Id)) seriesParents.set(child.Id, item.itemId);
+    }
   }
-  return ids;
+  return { ids, seriesParents };
 }
 
 export async function queryScope(
@@ -66,7 +73,24 @@ export async function queryScope(
   const latest = /\/Latest$/i.test(url.pathname);
   const nextUp = /\/NextUp$/i.test(url.pathname);
   const resume = /\/Resume$/i.test(url.pathname);
-  const ids = await scopedIds(store, id, url, upstream);
+  const types = parameter(url, "IncludeItemTypes")
+    ?.split(",")
+    .map((type) => type.trim().toLowerCase());
+  const wholeWorks =
+    latest &&
+    parameter(url, "GroupItems")?.toLowerCase() !== "false" &&
+    (!types?.length || types.every((type) => ["movie", "series", "episode"].includes(type))) &&
+    store.listItems(id).every((item) => /^(Movie|Series)$/i.test(item.type));
+  if (wholeWorks && types?.includes("episode")) {
+    setParameter(
+      url,
+      "IncludeItemTypes",
+      [...new Set(types.map((type) => (type === "episode" ? "Series" : type === "movie" ? "Movie" : "Series")))].join(
+        ",",
+      ),
+    );
+  }
+  const { ids, seriesParents } = await scopedIds(store, id, url, upstream, wholeWorks);
   const explicit = parameter(url, "Ids");
   if (explicit !== undefined) {
     const selected = new Set(explicit.split(","));
@@ -90,7 +114,7 @@ export async function queryScope(
     return result(latest ? [] : { Items: [], TotalRecordCount: 0, StartIndex: start });
   }
   // 小范围完整委托 Emby，保持其排序、筛选与分页语义。
-  if (ids.size <= 50 && !nextUp && !latest) {
+  if (ids.size <= 50 && !nextUp && (!latest || wholeWorks)) {
     setParameter(url, "Ids", [...ids].join(","));
     setParameter(url, "Recursive", "true");
     setParameter(url, "EnableTotalRecordCount", "true");
@@ -126,14 +150,7 @@ export async function queryScope(
   const positions = new Map([...ids].map((itemId, index) => [itemId, index]));
   items = sortItems(items, url, positions);
   if (latest && parameter(source, "GroupItems")?.toLowerCase() !== "false") {
-    const series = new Map(items.filter((item) => item.Type === "Series").map((item) => [item.Id!, item]));
-    const groups = new Set<string>();
-    items = items.flatMap((item) => {
-      const key = typeof item.SeriesId === "string" ? item.SeriesId : item.Id!;
-      if (groups.has(key)) return [];
-      groups.add(key);
-      return [series.get(key) ?? item];
-    });
+    items = await groupLatest(items, seriesParents, ids, source, upstream);
   }
   const page = items.slice(start, start + limit);
   return result(latest ? page : { Items: page, TotalRecordCount: items.length, StartIndex: start });

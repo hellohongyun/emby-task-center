@@ -1,11 +1,13 @@
 import { authenticationUrl, type QueryUpstream, type UpstreamJson, type VirtualQueryStore } from "./query-helpers";
 import { overlayLibraries } from "./owned-library-overlay";
+import type { OwnedViewAnchor } from "./owned-view-preferences";
 
 interface HomeSectionContext {
   url: URL;
   store: VirtualQueryStore;
   upstream: QueryUpstream;
   homeSections?: unknown;
+  ownedOrder?: OwnedViewAnchor[];
 }
 
 /** Emby 4.10 loads the home library row through a server-defined section ID. */
@@ -14,6 +16,7 @@ export async function homeSectionItems({
   store,
   upstream,
   homeSections,
+  ownedOrder,
 }: HomeSectionContext): Promise<UpstreamJson | undefined> {
   const match = /^\/Users\/([^/]+)\/Sections\/([^/]+)\/Items\/?$/i.exec(url.pathname);
   if (!match || !store.list().length) return undefined;
@@ -32,5 +35,5 @@ export async function homeSectionItems({
     return undefined;
   }
 
-  return overlayLibraries({ url, store, upstream, reply: await upstream(url) });
+  return overlayLibraries({ url, store, upstream, reply: await upstream(url), ownedOrder });
 }

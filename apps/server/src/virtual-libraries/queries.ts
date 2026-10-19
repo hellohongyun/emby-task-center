@@ -14,6 +14,7 @@ import { overlayLibraries } from "./owned-library-overlay";
 import { libraryDto as dto } from "./library-dto";
 import { homeSectionItems } from "./home-sections";
 import { discoveryItems } from "./discovery-items";
+import type { OwnedViewAnchor } from "./owned-view-preferences";
 export type { UpstreamJson } from "./query-helpers";
 
 interface QueryContext {
@@ -23,11 +24,12 @@ interface QueryContext {
   store: VirtualQueryStore;
   upstream: QueryUpstream;
   homeSections?: unknown;
+  ownedOrder?: OwnedViewAnchor[];
 }
 
 async function appendLibraries(context: QueryContext) {
   const { url, store, upstream } = context;
-  return overlayLibraries({ url, store, upstream, reply: await upstream(url) });
+  return overlayLibraries({ url, store, upstream, reply: await upstream(url), ownedOrder: context.ownedOrder });
 }
 
 export async function handleVirtualQuery(context: QueryContext): Promise<boolean> {

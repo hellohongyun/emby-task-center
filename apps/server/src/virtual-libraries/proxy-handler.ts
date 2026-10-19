@@ -6,8 +6,14 @@ import { forwardRequest, upstreamJson, type ProxyTarget } from "./proxy-transpor
 import { createProxyMappingRepair } from "./proxy-mapping-repair";
 import { parameter, sendJson } from "./query-helpers";
 import { createHomeSectionCache } from "./home-section-cache";
+import type { OwnedViewPreferences } from "./owned-view-preferences";
 
-export function createVirtualProxyHandler(store: VirtualLibraryStore, upstream: () => string, marker: string) {
+export function createVirtualProxyHandler(
+  store: VirtualLibraryStore,
+  upstream: () => string,
+  marker: string,
+  preferences?: OwnedViewPreferences,
+) {
   const repairMappings = createProxyMappingRepair(store);
   const homeSections = createHomeSectionCache();
   return async (request: IncomingMessage, response: ServerResponse) => {
@@ -23,6 +29,15 @@ export function createVirtualProxyHandler(store: VirtualLibraryStore, upstream: 
       const context: ProxyTarget = { upstream: upstream(), request, response, signal: abort.signal };
       const url = new URL(request.url ?? "/", "http://proxy.local");
       url.pathname = url.pathname.replace(/^\/emby(?=\/|$)/i, "") || "/";
+      const user = /^\/Users\/([^/]+)\//i.exec(url.pathname)?.[1] ?? parameter(url, "UserId");
+      const orderedDiscovery =
+        request.method === "GET" &&
+        (/^\/Users\/[^/]+\/(?:Views|Sections\/[^/]+\/Items)\/?$/i.test(url.pathname) ||
+          /^\/Library\/MediaFolders\/?$/i.test(url.pathname));
+      const ownedOrder =
+        user && orderedDiscovery && store.list().length
+          ? preferences?.read(context.upstream, decodeURIComponent(user))
+          : undefined;
       const homeUser = /^\/Users\/([^/]+)\/(HomeSections|Sections\/[^/]+\/Items)\/?$/i.exec(url.pathname);
       let knownSections: unknown;
       if (request.method === "GET" && homeUser && store.list().length) {
@@ -81,11 +96,13 @@ export function createVirtualProxyHandler(store: VirtualLibraryStore, upstream: 
           url,
           store,
           homeSections: knownSections,
+          ownedOrder,
           upstream: (target, timeoutMs) => upstreamJson(context, target, timeoutMs),
         })
       )
         return;
       const deleted = request.method === "DELETE" ? /^\/Items\/([^/]+)\/?$/i.exec(url.pathname)?.[1] : undefined;
+      preferences?.observe(request, response, url, context.upstream);
       forwardRequest(
         context,
         request.url ?? "/",
