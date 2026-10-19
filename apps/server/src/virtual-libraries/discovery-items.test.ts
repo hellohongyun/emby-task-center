@@ -80,12 +80,13 @@ describe("virtual library discovery endpoints", () => {
     },
   );
 
-  it("reads all MediaFolders pages before injecting and paging virtual libraries", async () => {
+  it("keeps MediaFolders upstream page and fills only unused capacity", async () => {
     const upstream = fixture(real, 1);
     const output = body(await run("/Library/MediaFolders?StartIndex=1&Limit=2", upstream));
     expect(output.Items.map((item) => item.Id)).toEqual(["real-b", "virtual"]);
     expect(output.TotalRecordCount).toBe(3);
-    expect(upstream).toHaveBeenCalledTimes(2);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    expect(parameter(upstream.mock.calls[0][0], "StartIndex")).toBe("1");
     expect(output.Items[0]).toEqual(real[1]);
     expect(output.Items[1]).toMatchObject({
       Type: "CollectionFolder",
@@ -103,14 +104,14 @@ describe("virtual library discovery endpoints", () => {
     expect(body(await run("/Library/MediaFolders?IncludeItemTypes=Movie", fixture())).Items).toEqual([]);
   });
 
-  it("combines requested real and virtual IDs before local pagination", async () => {
+  it("removes only owned IDs while preserving upstream pagination", async () => {
     const upstream = fixture();
     const output = body(await run("/users/u/items?ids=virtual,real-b,real-a&startindex=1&limit=1", upstream));
     expect(output.Items).toEqual([real[1]]);
     expect(output.TotalRecordCount).toBe(3);
     expect(parameter(upstream.mock.calls[0][0], "Ids")).toBe("real-b,real-a");
-    expect(parameter(upstream.mock.calls[0][0], "Limit")).toBe("2");
-    expect(parameter(upstream.mock.calls[0][0], "StartIndex")).toBe("0");
+    expect(parameter(upstream.mock.calls[0][0], "Limit")).toBe("1");
+    expect(parameter(upstream.mock.calls[0][0], "StartIndex")).toBe("1");
   });
 
   it("authenticates virtual-only queries without submitting an empty Ids query", async () => {
@@ -133,37 +134,39 @@ describe("virtual library discovery endpoints", () => {
     },
   );
 
-  it("never leaks default films when the upstream ignores unknown Ids", async () => {
+  it("preserves opaque upstream results without guessing unknown ID ownership", async () => {
     const unexpected = Array.from({ length: 25 }, (_, index) => ({ Id: `unrelated-${index}`, Type: "Movie" }));
     const upstream = vi.fn<QueryUpstream>().mockResolvedValue(result({ Items: unexpected, TotalRecordCount: 50_000 }));
     const output = body(await run("/Items?Ids=missing,virtual", upstream));
-    expect(output.Items.map((item) => item.Id)).toEqual(["virtual"]);
-    expect(output.TotalRecordCount).toBe(1);
+    expect(output.Items).toEqual([...unexpected, expect.objectContaining({ Id: "virtual" })]);
+    expect(output.TotalRecordCount).toBe(50_001);
+    expect(parameter(upstream.mock.calls[0][0], "Ids")).toBe("missing");
     expect(upstream).toHaveBeenCalledTimes(1);
   });
 
-  it("accepts a requested Guid alias and discards unrelated results alongside it", async () => {
+  it("preserves Guid aliases and opaque TTD results alongside owned additions", async () => {
     const guid = "12345678-1234-1234-1234-123456789abc";
     const expected = { Id: "123", Guid: guid, Name: "A" };
     const upstream = vi.fn<QueryUpstream>().mockResolvedValue(result({ Items: [expected, { Id: "outside" }] }));
     const output = body(await run(`/Items?Ids=virtual,${guid.replaceAll("-", "").toUpperCase()}`, upstream));
-    expect(output.Items.map((item) => item.Id)).toEqual(["virtual", "123"]);
-    expect(output.Items[1]).toEqual(expected);
+    expect(output.Items.map((item) => item.Id)).toEqual(["123", "outside", "virtual"]);
+    expect(output.Items[0]).toEqual(expected);
     expect(upstream).toHaveBeenCalledTimes(1);
   });
 
-  it("paginates an upstream ID query that caps its result size", async () => {
+  it("does not fetch extra pages of an upstream ID query", async () => {
     const upstream = fixture(real, 1);
     const output = body(await run("/Items?Ids=real-a,virtual,real-b", upstream));
-    expect(output.Items.map((item) => item.Id)).toEqual(["real-a", "virtual", "real-b"]);
-    expect(upstream).toHaveBeenCalledTimes(2);
+    expect(output.Items.map((item) => item.Id)).toEqual(["real-a", "virtual"]);
+    expect(output.TotalRecordCount).toBe(3);
+    expect(upstream).toHaveBeenCalledTimes(1);
   });
 
-  it("stops when upstream ignores pagination instead of looping", async () => {
+  it("makes one request even when upstream pagination is opaque", async () => {
     const upstream = vi.fn<QueryUpstream>().mockResolvedValue(result({ Items: [real[0]], TotalRecordCount: 2 }));
     const output = body(await run("/Items?Ids=real-a,real-b,virtual", upstream));
     expect(output.Items.map((item) => item.Id)).toEqual(["real-a", "virtual"]);
-    expect(upstream).toHaveBeenCalledTimes(2);
+    expect(upstream).toHaveBeenCalledTimes(1);
   });
 
   it("preserves filtering for real queries and filters virtual DTOs by name and type", async () => {
@@ -177,14 +180,13 @@ describe("virtual library discovery endpoints", () => {
     expect(movieOnly.Items).toEqual([]);
   });
 
-  it("sorts the combined MediaFolders list before pagination", async () => {
+  it("delegates MediaFolders sorting and paging unchanged", async () => {
     const output = body(await run("/Library/MediaFolders?SortBy=Name&SortOrder=Descending&Limit=1", fixture()));
-    const names = [...real.map((item) => item.Name), library.name].sort((a, b) => b.localeCompare(a));
-    expect(output.Items[0].Name).toBe(names[0]);
+    expect(output.Items).toEqual([real[0]]);
     expect(output.TotalRecordCount).toBe(3);
   });
 
-  it("uses per-user order and hidden libraries for MediaFolders", async () => {
+  it("never hides or displaces upstream MediaFolders using local preferences", async () => {
     const upstream = fixture();
     const base = upstream.getMockImplementation()!;
     upstream.mockImplementation(async (url, timeout) =>
@@ -193,8 +195,8 @@ describe("virtual library discovery endpoints", () => {
         : base(url, timeout),
     );
     const output = body(await run("/Library/MediaFolders?UserId=u&Limit=1", upstream));
-    expect(output.Items.map((item) => item.Id)).toEqual(["virtual"]);
-    expect(output.TotalRecordCount).toBe(2);
+    expect(output.Items).toEqual([real[0]]);
+    expect(output.TotalRecordCount).toBe(3);
     expect(body(await run("/Library/MediaFolders?UserId=u&IncludeHidden=true", upstream)).TotalRecordCount).toBe(3);
   });
 

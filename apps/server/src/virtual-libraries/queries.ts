@@ -1,11 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
-  checked,
-  integerParameter,
   listBody,
   parameter,
   result,
-  setParameter,
   sendJson,
   UpstreamQueryError,
   type QueryUpstream,
@@ -13,7 +10,7 @@ import {
 } from "./query-helpers";
 import { authenticate, queryScope } from "./query-scope";
 import { facetQuery } from "./query-facets";
-import { orderUserViews } from "./view-order";
+import { overlayLibraries } from "./owned-library-overlay";
 import { libraryDto as dto } from "./library-dto";
 import { homeSectionItems } from "./home-sections";
 import { discoveryItems } from "./discovery-items";
@@ -28,42 +25,9 @@ interface QueryContext {
   homeSections?: unknown;
 }
 
-function rootQuery(url: URL) {
-  if (!/^\/(Users\/[^/]+\/)?Items\/?$/i.test(url.pathname)) return false;
-  if (parameter(url, "ParentId")) return false;
-  if (parameter(url, "Ids") !== undefined || parameter(url, "Recursive")?.toLowerCase() === "true") return false;
-  const types = parameter(url, "IncludeItemTypes");
-  return !types || types.split(",").some((type) => /^(CollectionFolder|Folder)$/i.test(type));
-}
-
 async function appendLibraries(context: QueryContext) {
   const { url, store, upstream } = context;
-  const views = /^\/Users\/[^/]+\/Views\/?$/i.test(url.pathname);
-  const source = new URL(url);
-  if (views) {
-    setParameter(source, "StartIndex");
-    setParameter(source, "Limit");
-  }
-  const response = await checked(upstream, source);
-  const original = listBody(response.body);
-  const serverId = original.Items.find((item) => item.ServerId)?.ServerId;
-  let additions = store.list().map((library) => dto(store, library.id, serverId));
-  const search = parameter(url, "SearchTerm")?.toLocaleLowerCase();
-  if (search) additions = additions.filter((item) => String(item.Name).toLocaleLowerCase().includes(search));
-  const start = integerParameter(url, "StartIndex", 0);
-  const total = original.TotalRecordCount ?? original.Items.length;
-  const limit = integerParameter(url, "Limit", Number.MAX_SAFE_INTEGER);
-  if (views) {
-    const ordered = await orderUserViews(url, [...original.Items, ...additions], upstream);
-    return {
-      ...response,
-      body: { ...original, Items: ordered.slice(start, start + limit), TotalRecordCount: ordered.length },
-    };
-  }
-  const available = Math.max(0, limit - original.Items.length);
-  const offset = Math.max(0, start - total);
-  const items = [...original.Items, ...additions.slice(offset, offset + available)];
-  return { ...response, body: { ...original, Items: items, TotalRecordCount: total + additions.length } };
+  return overlayLibraries({ url, store, upstream, reply: await upstream(url) });
 }
 
 export async function handleVirtualQuery(context: QueryContext): Promise<boolean> {
@@ -78,7 +42,6 @@ export async function handleVirtualQuery(context: QueryContext): Promise<boolean
   const scoped =
     /^\/(?:Users\/[^/]+\/)?Items(?:\/(?:Latest|Resume))?\/?$/i.test(path) || /^\/Shows\/NextUp\/?$/i.test(path);
   const views = /^\/Users\/[^/]+\/Views\/?$/i.test(path);
-  const root = rootQuery(url);
   try {
     if (!library && !parentLibrary) {
       const discovery = (await homeSectionItems(context)) ?? (await discoveryItems(context));
@@ -87,7 +50,7 @@ export async function handleVirtualQuery(context: QueryContext): Promise<boolean
         return true;
       }
     }
-    if (!library && !parentLibrary && !views && !root) return false;
+    if (!library && !parentLibrary && !views) return false;
     if (library) {
       const probe = await authenticate(upstream, url);
       const serverId = listBody(probe.body).Items[0]?.ServerId;

@@ -12,11 +12,13 @@
 pnpm exec vitest run apps/server/src/virtual-libraries apps/server/src/routes/virtual-libraries.test.ts packages/database/src/schema-drift.test.ts
 ```
 
+`upstream-preservation.test.ts` 和 `owned-library-overlay.test.ts` 验证上游 DTO、扩展字段、相对顺序和原始查询参数保留，只有自有新增条目参与隐藏与插入；混合 ID 请求保留上游返回结果。
+
 这些用例覆盖关联持久化、选片查询仅包含电影和整部剧、新增季与分集的整批拒绝、类型匹配、历史关联保留、查询映射、完整分页、默认关闭无监听、普通请求与链接透传、Range/HEAD、真实删除结果、WebSocket 和配置失败回退。前端另覆盖作品过滤、禁选与提示、历史告警及类型修改校验。媒体库作品归组测试另覆盖同库内按类型与有效 TMDB ID 识别、缺失 ID 兜底及完整详情。仅使用临时数据库和本地 HTTP 上游，不替代 TgtoDrive 与实际客户端联调。
 
 关联恢复回归覆盖 TMDB 身份持久化、旧库加列升级、原 ID 失效或复用、唯一候选恢复、多来源歧义、身份缺失、401/网络失败及并发移除保护。真实本地 HTTP 代理测试验证原客户端凭据、播放 DTO 与普通请求透传；前端覆盖关联告警和切库后的旧响应隔离。
 
-`queries-view-order.test.ts` 和 `view-order-proxy.test.ts` 验证原库与虚拟库按 Emby 用户偏好混排、排序后分页、偏好失败回退、原配置写入及凭据透传、用户隔离和代理重启后恢复。仅使用临时 SQLite 与本地 HTTP 上游，不修改真实 Emby 用户设置。
+`queries-view-order.test.ts` 和 `view-order-proxy.test.ts` 验证仅移动自有虚拟库、保留上游顺序及分页、偏好失败回退、原配置写入及凭据透传、用户隔离和代理重启后恢复。仅使用临时 SQLite 与本地 HTTP 上游，不修改真实 Emby 用户设置。
 
 `modern-discovery-proxy.test.ts` 使用真实本地 HTTP 与临时数据库，按 Emby 4.10 的动态首页分区、真实 Id 与 Guid 不同、`text/plain` 的 Partial 配置保存，以及上游错误返回无关条目的行为验证发现链路。首页分类缓存只存分区 ID 和类型，并验证凭据隔离、内容继续鉴权及未知分区透传。`home-sections`、`discovery-items` 和 `home-section-cache` 的聚焦用例补充分页、隐藏后数量、缓存过期和父范围约束。
 

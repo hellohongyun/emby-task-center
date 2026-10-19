@@ -39,7 +39,12 @@ describe("virtual library order through real HTTP proxy", () => {
         return;
       }
       const result = path.endsWith("/Views")
-        ? { Items: [{ Id: "original-a" }, { Id: "original-b" }], TotalRecordCount: 2 }
+        ? {
+            Items: ((configurations.get(user)?.OrderedViews as string[]) ?? ["original-a", "original-b"])
+              .filter((id) => id.startsWith("original-"))
+              .map((Id) => ({ Id })),
+            TotalRecordCount: 2,
+          }
         : { Id: user, Configuration: configurations.get(user) ?? {} };
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(result));
     });

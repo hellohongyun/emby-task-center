@@ -37,7 +37,7 @@ async function browse(upstream: QueryUpstream, path = "/Users/u/Views") {
     store,
     upstream,
   });
-  return JSON.parse(body) as { Items: typeof original; TotalRecordCount: number };
+  return body ? (JSON.parse(body) as { Items: typeof original; TotalRecordCount: number }) : undefined!;
 }
 
 function fixture(configuration: unknown) {
@@ -54,7 +54,7 @@ describe("Emby user library order with virtual views", () => {
   it.each([
     ["virtual-a", "real-a", "real-b", "virtual-b"],
     ["real-a", "virtual-a", "virtual-b", "real-b"],
-    ["real-b", "virtual-b", "real-a", "virtual-a"],
+    ["real-a", "virtual-a", "real-b", "virtual-b"],
   ])("uses saved order %j without changing original DTOs", async (...order) => {
     const body = await browse(fixture({ OrderedViews: order }));
     expect(ids(body)).toEqual(order);
@@ -64,7 +64,7 @@ describe("Emby user library order with virtual views", () => {
 
   it("ignores deleted and duplicate IDs, keeping unspecified libraries in their default order", async () => {
     const upstream = fixture({ OrderedViews: ["deleted", "virtual-b", "virtual-b", 123, null, "real-b"] });
-    expect(ids(await browse(upstream))).toEqual(["virtual-b", "real-b", "real-a", "virtual-a"]);
+    expect(ids(await browse(upstream))).toEqual(["real-a", "virtual-b", "real-b", "virtual-a"]);
   });
 
   it.each([undefined, null, {}, { OrderedViews: null }, { OrderedViews: "virtual-a" }, { OrderedViews: [] }])(
@@ -74,14 +74,14 @@ describe("Emby user library order with virtual views", () => {
     },
   );
 
-  it("applies paging after ordering the complete combined list", async () => {
+  it("preserves upstream page and appends only into remaining capacity", async () => {
     const upstream = fixture({ OrderedViews: ["virtual-a", "real-b", "virtual-b", "real-a"] });
     const body = await browse(upstream, "/Users/u/Views?startindex=1&limit=2&api_key=client-key");
-    expect(ids(body)).toEqual(["real-b", "virtual-b"]);
+    expect(ids(body)).toEqual(["real-b", "virtual-a"]);
     expect(body.TotalRecordCount).toBe(4);
     const viewsUrl = upstream.mock.calls[0][0];
-    expect(parameter(viewsUrl, "StartIndex")).toBeUndefined();
-    expect(parameter(viewsUrl, "Limit")).toBeUndefined();
+    expect(parameter(viewsUrl, "StartIndex")).toBe("1");
+    expect(parameter(viewsUrl, "Limit")).toBe("2");
     expect(viewsUrl.searchParams.get("api_key")).toBe("client-key");
   });
 
@@ -119,9 +119,8 @@ describe("Emby user library order with virtual views", () => {
   it("preserves root Items pagination and avoids any preference lookup there", async () => {
     const upstream = fixture({ OrderedViews: ["virtual-a"] });
     const body = await browse(upstream, "/Users/u/Items?StartIndex=1&Limit=2");
-    expect(ids(body)).toEqual(["real-b", "virtual-a"]);
-    expect(upstream).toHaveBeenCalledTimes(1);
-    expect(parameter(upstream.mock.calls[0][0], "StartIndex")).toBe("1");
+    expect(body).toBeUndefined();
+    expect(upstream).not.toHaveBeenCalled();
   });
 
   it("matches the Guid used by Emby settings even when a library has a different Id", async () => {
@@ -135,7 +134,7 @@ describe("Emby user library order with virtual views", () => {
         TotalRecordCount: 2,
       }),
     );
-    expect(ids(await browse(upstream))).toEqual(["real-a", "virtual-a", "real-b", "virtual-b"]);
+    expect(ids(await browse(upstream))).toEqual(["virtual-a", "real-b", "real-a", "virtual-b"]);
   });
 
   it("matches compact GUID order values to hyphenated GUIDs", async () => {
@@ -146,14 +145,14 @@ describe("Emby user library order with virtual views", () => {
         TotalRecordCount: 2,
       }),
     );
-    expect(ids(await browse(upstream)).slice(0, 2)).toEqual(["real-a", "virtual-a"]);
+    expect(ids(await browse(upstream))).toEqual(["real-b", "real-a", "virtual-a", "virtual-b"]);
   });
 
-  it("counts visible libraries after applying hidden Ids, and lists them in settings", async () => {
+  it("applies hidden preferences only to owned libraries", async () => {
     const upstream = fixture({ OrderedViews: [], MyMediaExcludes: ["real-a", "virtual-b"] });
     const body = await browse(upstream);
-    expect(ids(body)).toEqual(["real-b", "virtual-a"]);
-    expect(body.TotalRecordCount).toBe(2);
+    expect(ids(body)).toEqual(["real-a", "real-b", "virtual-a"]);
+    expect(body.TotalRecordCount).toBe(3);
     expect((await browse(upstream, "/Users/u/Views?IncludeHidden=true")).TotalRecordCount).toBe(4);
   });
 });

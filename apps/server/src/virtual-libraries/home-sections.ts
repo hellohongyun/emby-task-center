@@ -1,15 +1,5 @@
-import { libraryDto } from "./library-dto";
-import {
-  authenticationUrl,
-  integerParameter,
-  listBody,
-  parameter,
-  setParameter,
-  type QueryUpstream,
-  type UpstreamJson,
-  type VirtualQueryStore,
-} from "./query-helpers";
-import { orderUserViews } from "./view-order";
+import { authenticationUrl, type QueryUpstream, type UpstreamJson, type VirtualQueryStore } from "./query-helpers";
+import { overlayLibraries } from "./owned-library-overlay";
 
 interface HomeSectionContext {
   url: URL;
@@ -42,28 +32,5 @@ export async function homeSectionItems({
     return undefined;
   }
 
-  const source = new URL(url);
-  setParameter(source, "StartIndex");
-  setParameter(source, "Limit");
-  const response = await upstream(source);
-  if (response.status < 200 || response.status >= 300) return response;
-  const original = listBody(response.body);
-  const serverId = original.Items.find((item) => item.ServerId)?.ServerId;
-  const existing = new Set(original.Items.map((item) => item.Id));
-  const search = parameter(url, "SearchTerm")?.toLocaleLowerCase();
-  const additions = store
-    .list()
-    .filter((library) => !existing.has(library.id) && (!search || library.name.toLocaleLowerCase().includes(search)))
-    .map((library) => libraryDto(store, library.id, serverId));
-  const ordered = await orderUserViews(url, [...original.Items, ...additions], upstream);
-  const start = integerParameter(url, "StartIndex", 0);
-  const limit = integerParameter(url, "Limit", Number.MAX_SAFE_INTEGER);
-  return {
-    ...response,
-    body: {
-      ...original,
-      Items: ordered.slice(start, start + limit),
-      TotalRecordCount: ordered.length,
-    },
-  };
+  return overlayLibraries({ url, store, upstream, reply: await upstream(url) });
 }

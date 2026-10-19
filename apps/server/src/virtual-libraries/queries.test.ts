@@ -86,13 +86,13 @@ describe("virtual library Emby queries", () => {
     expect(response.body.TotalRecordCount).toBe(2);
   });
 
-  it("appends to top-level Items with pagination across original and virtual entries", async () => {
+  it("leaves unscoped top-level Items entirely upstream", async () => {
     const upstream = vi
       .fn<QueryUpstream>()
       .mockResolvedValue({ status: 200, headers: {}, body: { Items: [], TotalRecordCount: 4 } });
     const response = await run("/Users/u/Items?StartIndex=4&Limit=1", upstream);
-    expect(response.body.Items.map((item: Item) => item.Id)).toEqual(["virtual"]);
-    expect(response.body.TotalRecordCount).toBe(5);
+    expect(response.handled).toBe(false);
+    expect(upstream).not.toHaveBeenCalled();
   });
 
   it.each(["/Users/u/Items?ParentId=root", "/Users/u/Items?ParentId=original", "/Items?parentid=original&UserId=u"])(

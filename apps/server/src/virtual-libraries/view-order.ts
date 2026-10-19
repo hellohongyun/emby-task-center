@@ -1,42 +1,48 @@
-import { authenticationUrl, parameter, type Item, type QueryUpstream } from "./query-helpers";
+import type { Item } from "./query-helpers";
 
-function identity(value: string) {
+function identity(value: unknown): string {
+  if (typeof value !== "string") return "";
   return /^(?:[a-f\d]{32}|[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12})$/i.test(value)
     ? value.replaceAll("-", "").toLowerCase()
     : value;
 }
 
-/** Emby stores the complete view order in the user's Configuration.OrderedViews. */
-export async function orderUserViews(url: URL, items: Item[], upstream: QueryUpstream): Promise<Item[]> {
-  const user = /^\/Users\/([^/]+)\//i.exec(url.pathname)?.[1] ?? parameter(url, "UserId");
-  if (!user) return items;
-  try {
-    const path = `/Users/${encodeURIComponent(decodeURIComponent(user))}`;
-    const response = await upstream(authenticationUrl(url, path), 1_500);
-    if (response.status < 200 || response.status >= 300) return items;
-    const body = response.body as { Configuration?: { OrderedViews?: unknown; MyMediaExcludes?: unknown } } | null;
-    const order = body?.Configuration?.OrderedViews;
-    const positions = new Map<string, number>();
-    for (const id of Array.isArray(order) ? order : []) {
-      if (typeof id === "string" && !positions.has(identity(id))) positions.set(identity(id), positions.size);
+function keys(item: Item) {
+  return [identity(item.Id), identity(item.Guid)].filter(Boolean);
+}
+
+/** Insert only owned entries; upstream objects and their relative order are authoritative. */
+export function anchorOwnedViews(original: Item[], additions: Item[], order: string[]) {
+  const positions = new Map(order.map((id, index) => [id, index]));
+  const rank = (item: Item) =>
+    keys(item)
+      .map((key) => positions.get(key))
+      .find((value) => value !== undefined);
+  const sorted = [...additions].sort((a, b) => (rank(a) ?? order.length) - (rank(b) ?? order.length));
+  const buckets = Array.from({ length: original.length + 1 }, () => [] as Item[]);
+  for (const item of sorted) {
+    const position = rank(item);
+    let slot = original.length;
+    if (position !== undefined) {
+      // Locate the next configured upstream anchor without sorting upstream entries.
+      for (const key of order.slice(position + 1)) {
+        const next = original.findIndex((entry) => keys(entry).includes(key));
+        if (next >= 0) {
+          slot = next;
+          break;
+        }
+      }
+      if (slot === original.length) {
+        for (const key of order.slice(0, position).reverse()) {
+          const previous = original.findIndex((entry) => keys(entry).includes(key));
+          if (previous >= 0) {
+            slot = previous + 1;
+            break;
+          }
+        }
+      }
     }
-    const position = (item: Item) =>
-      (typeof item.Guid === "string" ? positions.get(identity(item.Guid)) : undefined) ??
-      positions.get(identity(item.Id ?? "")) ??
-      positions.size;
-    const excludes = body?.Configuration?.MyMediaExcludes;
-    const hidden = Array.isArray(excludes)
-      ? new Set(excludes.filter((id): id is string => typeof id === "string").map(identity))
-      : new Set<string>();
-    const includeHidden = parameter(url, "IncludeHidden")?.toLowerCase() === "true";
-    return items
-      .filter(
-        (item) =>
-          includeHidden || ![item.Guid, item.Id].some((id) => typeof id === "string" && hidden.has(identity(id))),
-      )
-      .sort((a, b) => position(a) - position(b));
-  } catch {
-    // A missing/unavailable preferences endpoint must not break otherwise valid browsing.
-    return items;
+    buckets[slot].push(item);
   }
+  return original.flatMap((item, index) => [...buckets[index], item]).concat(buckets[original.length]);
 }

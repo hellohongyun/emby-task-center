@@ -32,7 +32,7 @@ it.each(cases)("provides Emby client subviews for $type libraries at every entry
     body: { Items: [original], TotalRecordCount: 1 },
   });
 
-  for (const path of ["/Users/u/Views", "/Users/u/Items", "/Users/u/Items/virtual"]) {
+  for (const path of ["/Users/u/Views", "/Users/u/Items?Ids=virtual,original", "/Users/u/Items/virtual"]) {
     let body = "";
     const response = {
       setHeader: () => {},

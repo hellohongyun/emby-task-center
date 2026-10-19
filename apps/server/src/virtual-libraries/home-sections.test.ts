@@ -63,13 +63,13 @@ describe("Emby 4.10 home section library discovery", () => {
     });
   });
 
-  it("removes paging upstream, then sorts the combined row before paging", async () => {
+  it("preserves upstream paging without trimming its returned row", async () => {
     const upstream = fixture();
     const response = await browse(upstream, `${path}?startindex=1&limit=1&RandomSeed=99&api_key=client`);
     expect(response?.body).toMatchObject({ Items: [real], TotalRecordCount: 2 });
     const itemsUrl = upstream.mock.calls[1][0];
-    expect(parameter(itemsUrl, "StartIndex")).toBeUndefined();
-    expect(parameter(itemsUrl, "Limit")).toBeUndefined();
+    expect(parameter(itemsUrl, "StartIndex")).toBe("1");
+    expect(parameter(itemsUrl, "Limit")).toBe("1");
     expect(itemsUrl.searchParams.get("RandomSeed")).toBe("99");
     expect(itemsUrl.searchParams.get("api_key")).toBe("client");
   });

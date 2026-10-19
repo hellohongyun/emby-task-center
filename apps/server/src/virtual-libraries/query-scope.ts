@@ -95,7 +95,7 @@ export async function queryScope(
     setParameter(url, "Recursive", "true");
     setParameter(url, "EnableTotalRecordCount", "true");
     const response = await checked(upstream, url);
-    return { ...response, body: latest ? listBody(response.body).Items : response.body };
+    return latest ? { ...response, raw: undefined, body: listBody(response.body).Items } : response;
   }
   // 分批限定原始 ID，在每批完整应用上游筛选后合并排序，避免扫描上游全库。
   sortingFields(url);

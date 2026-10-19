@@ -8,6 +8,7 @@ export function libraryDto(store: VirtualQueryStore, id: string, serverId?: unkn
     Guid: library.id,
     Name: library.name,
     SortName: library.name,
+    PresentationUniqueKey: library.id,
     Type: "CollectionFolder",
     IsFolder: true,
     CollectionType: library.collectionType === "mixed" ? null : library.collectionType,
@@ -21,6 +22,18 @@ export function libraryDto(store: VirtualQueryStore, id: string, serverId?: unkn
     DisplayPreferencesId: library.id,
     DateCreated: library.createdAt,
     ImageTags: cover?.imageTag ? { Primary: cover.imageTag } : {},
+    HasPrimaryImage: Boolean(cover?.imageTag),
+    ...(cover?.imageTag ? { PrimaryImageTag: cover.imageTag } : {}),
+    PrimaryImageAspectRatio: 16 / 9,
+    // This logical folder has no independent playback history. Never copy a
+    // source item's user state or another user's preferences onto the library.
+    UserData: {
+      Key: library.id,
+      PlaybackPositionTicks: 0,
+      PlayCount: 0,
+      IsFavorite: false,
+      Played: false,
+    },
     ...(serverId ? { ServerId: serverId } : {}),
   };
 }

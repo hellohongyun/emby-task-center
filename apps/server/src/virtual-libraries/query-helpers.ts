@@ -77,7 +77,7 @@ export async function allPages(upstream: QueryUpstream, source: URL): Promise<It
 }
 export function sendJson(response: ServerResponse, result: UpstreamJson) {
   response.statusCode = result.status;
-  if ((result.status < 200 || result.status >= 300) && result.raw) {
+  if (result.raw) {
     for (const [key, value] of Object.entries(proxyHeaders(result.headers))) {
       if (value !== undefined) response.setHeader(key, value);
     }

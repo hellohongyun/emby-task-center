@@ -154,13 +154,13 @@ describe("modern Emby library discovery through real HTTP", () => {
     expect((await ids("/Users/u/Sections/dynamic-row-917/Items")).ids).toEqual(["101", virtualId]);
   });
 
-  it("paginates the combined home row after applying user order", async () => {
+  it("preserves original home query paging and upstream returned items", async () => {
     const row = await ids("/Users/u/Sections/dynamic-row-917/Items?Limit=1&StartIndex=1");
     expect(row.ids).toEqual(["101"]);
     expect(row.TotalRecordCount).toBe(2);
     const itemsRequest = observed.find((request) => request.path.includes("/Sections/dynamic-row-917/Items"));
-    expect(itemsRequest?.path).not.toContain("Limit");
-    expect(itemsRequest?.path).not.toContain("StartIndex");
+    expect(itemsRequest?.path).toContain("Limit=1");
+    expect(itemsRequest?.path).toContain("StartIndex=1");
   });
 
   it("exposes the same virtual library through MediaFolders", async () => {
@@ -169,13 +169,14 @@ describe("modern Emby library discovery through real HTTP", () => {
     expect(folders.TotalRecordCount).toBe(2);
   });
 
-  it.each(["/Items", "/Users/u/Items"])("filters ignored upstream Ids responses for mixed lookup %s", async (path) => {
+  it.each(["/Items", "/Users/u/Items"])("preserves every upstream DTO for mixed lookup %s", async (path) => {
     const items = await ids(`${path}?Ids=${virtualId},101&UserId=u`);
-    expect(items.ids).toEqual([virtualId, "101"]);
-    expect(items.TotalRecordCount).toBe(2);
+    expect(items.ids).toEqual(["101", ...Array.from({ length: 25 }, (_, i) => `unrelated-${i}`), virtualId]);
+    expect(items.TotalRecordCount).toBe(27);
     const upstreamLookup = observed.find((request) => new URL(request.path, "http://fixture").searchParams.has("Ids"));
     expect(new URL(upstreamLookup!.path, "http://fixture").searchParams.get("Ids")).toBe("101");
-    expect(items.Items.some((item: { Id: string }) => item.Id.startsWith("unrelated-"))).toBe(false);
+    expect(items.Items[0]).toEqual(real);
+    expect(items.Items.filter((item: { Id: string }) => item.Id.startsWith("unrelated-"))).toHaveLength(25);
   });
 
   it("authenticates virtual-only lookup without asking upstream to resolve virtual IDs", async () => {
