@@ -74,6 +74,17 @@ function fixture(configuration: Record<string, unknown> = {}, expectedListUrl?: 
 }
 
 describe("virtual libraries preserve upstream ownership", () => {
+  it("adds owned libraries to the confirmed root discovery used by Popcorn", async () => {
+    const path = "/Users/alice/Items?ExcludeItemTypes=Audio,Book,MusicVideo,Game,MusicAlbum,Photo";
+    const { upstream, listCalls } = fixture();
+    const response = await run(path, upstream);
+    expect(response.handled).toBe(true);
+    expect(response.body?.Items.filter((item) => item.Id !== library.id)).toEqual(originals);
+    expect(response.body?.Items.map((item) => item.Id)).toContain(library.id);
+    expect(listCalls).toHaveLength(1);
+    expect(listCalls[0].search).toBe(new URL(path, "http://proxy.test").search);
+  });
+
   it("removes only owned IDs from mixed lookup and retains opaque TTD parameters and DTOs", async () => {
     const requested = new URL(
       "/Users/alice/Items?ids=local-virtual,unknown-ttd-alias,native-first&limit=80&startindex=0&Fields=A&Fields=B&OpaqueTtdOption=keep%2Bthis",
@@ -141,8 +152,8 @@ describe("virtual libraries preserve upstream ownership", () => {
   it.each([
     "/Users/alice/Items?ParentId=ttd-root&Limit=50",
     "/Items?Ids=ttd-virtual,native-first&UserId=alice",
-    "/Users/alice/Items?IncludeItemTypes=CollectionFolder&Limit=50",
-    "/Users/alice/Items?Limit=50",
+    "/Users/alice/Items?IncludeItemTypes=Movie&Limit=50",
+    "/Users/alice/Items?Recursive=true&Limit=50",
     "/Items?UserId=alice&IncludeItemTypes=Folder&StartIndex=0",
   ])("leaves nonlocal Hills and root Items requests untouched: %s", async (path) => {
     const { upstream } = fixture();

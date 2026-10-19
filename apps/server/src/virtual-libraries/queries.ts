@@ -14,6 +14,7 @@ import { overlayLibraries } from "./owned-library-overlay";
 import { libraryDto as dto } from "./library-dto";
 import { homeSectionItems } from "./home-sections";
 import { discoveryItems } from "./discovery-items";
+import { isRootLibraryDiscovery, rootLibraryDiscovery } from "./root-library-discovery";
 import type { OwnedViewAnchor } from "./owned-view-preferences";
 export type { UpstreamJson } from "./query-helpers";
 
@@ -49,6 +50,10 @@ export async function handleVirtualQuery(context: QueryContext): Promise<boolean
       const discovery = (await homeSectionItems(context)) ?? (await discoveryItems(context));
       if (discovery) {
         sendJson(response, discovery);
+        return true;
+      }
+      if (isRootLibraryDiscovery(url)) {
+        sendJson(response, await rootLibraryDiscovery({ ...context, reply: await upstream(url) }));
         return true;
       }
     }

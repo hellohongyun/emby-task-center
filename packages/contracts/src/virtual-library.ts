@@ -39,6 +39,8 @@ export interface VirtualLibrary {
   itemCount: number;
   createdAt: string;
   updatedAt: string;
+  posterImageTag?: string | null;
+  posterAspectRatio?: number | null;
 }
 
 export interface VirtualLibraryItem {

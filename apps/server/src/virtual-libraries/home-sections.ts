@@ -1,6 +1,16 @@
-import { authenticationUrl, type QueryUpstream, type UpstreamJson, type VirtualQueryStore } from "./query-helpers";
+import {
+  authenticationUrl,
+  parameter,
+  result,
+  setParameter,
+  type QueryUpstream,
+  type UpstreamJson,
+  type VirtualQueryStore,
+} from "./query-helpers";
 import { overlayLibraries } from "./owned-library-overlay";
 import type { OwnedViewAnchor } from "./owned-view-preferences";
+import { ownedLatestLibraryId, ownHomeConfiguration } from "./owned-home-sections";
+import { queryScope } from "./query-scope";
 
 interface HomeSectionContext {
   url: URL;
@@ -20,6 +30,20 @@ export async function homeSectionItems({
 }: HomeSectionContext): Promise<UpstreamJson | undefined> {
   const match = /^\/Users\/([^/]+)\/Sections\/([^/]+)\/Items\/?$/i.exec(url.pathname);
   if (!match || !store.list().length) return undefined;
+  const ownLibrary = ownedLatestLibraryId(decodeURIComponent(match[2]), store);
+  if (ownLibrary) {
+    const latest = new URL(url);
+    latest.pathname = `/Users/${match[1]}/Items/Latest`;
+    setParameter(latest, "ParentId", ownLibrary);
+    if (parameter(latest, "IsPlayed") === undefined) {
+      const config = await ownHomeConfiguration(url, upstream);
+      if (config.HidePlayedInLatest === true) setParameter(latest, "IsPlayed", "false");
+    }
+    const reply = await queryScope(store, ownLibrary, latest, upstream);
+    if (reply.status < 200 || reply.status >= 300) return reply;
+    const items = reply.body;
+    return Array.isArray(items) ? result({ Items: items, TotalRecordCount: items.length }) : reply;
+  }
   try {
     const sections = Array.isArray(homeSections)
       ? { status: 200, body: homeSections }

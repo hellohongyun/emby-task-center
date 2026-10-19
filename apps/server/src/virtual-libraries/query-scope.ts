@@ -81,13 +81,26 @@ export async function queryScope(
     parameter(url, "GroupItems")?.toLowerCase() !== "false" &&
     (!types?.length || types.every((type) => ["movie", "series", "episode"].includes(type))) &&
     store.listItems(id).every((item) => /^(Movie|Series)$/i.test(item.type));
-  if (wholeWorks && types?.includes("episode")) {
+  const groupedVideo =
+    wholeWorks &&
+    parameter(url, "MediaTypes")
+      ?.split(",")
+      .some((type) => type.trim().toLowerCase() === "video");
+  if (groupedVideo) {
+    // Native Latest filters video leaves before grouping them into Series.
+    // Our direct work lookup already represents those groups, so filtering
+    // Series containers by leaf MediaType would incorrectly remove every show.
+    setParameter(url, "MediaTypes");
+  }
+  if (wholeWorks && (types?.includes("episode") || groupedVideo)) {
     setParameter(
       url,
       "IncludeItemTypes",
-      [...new Set(types.map((type) => (type === "episode" ? "Series" : type === "movie" ? "Movie" : "Series")))].join(
-        ",",
-      ),
+      [
+        ...new Set(
+          (types?.length ? types : ["movie", "series"]).map((type) => (type === "movie" ? "Movie" : "Series")),
+        ),
+      ].join(","),
     );
   }
   const { ids, seriesParents } = await scopedIds(store, id, url, upstream, wholeWorks);

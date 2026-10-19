@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { virtualLibraries, virtualLibraryItems } from "./virtual-libraries-schema";
-export { virtualLibraries, virtualLibraryItems } from "./virtual-libraries-schema";
+import { virtualLibraries, virtualLibraryItems, virtualLibraryPosters } from "./virtual-libraries-schema";
+export { virtualLibraries, virtualLibraryItems, virtualLibraryPosters } from "./virtual-libraries-schema";
 
 const mediaTypes = ["movie", "tv"] as const;
 const rootMediaTypes = ["movie", "tv", "mixed"] as const;
@@ -926,6 +926,7 @@ export const memberUsageSegments = sqliteTable(
 );
 
 export const schema = {
+  virtualLibraryPosters,
   virtualLibraries,
   virtualLibraryItems,
   cardKeys,

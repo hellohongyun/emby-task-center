@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { and, asc, count, eq, max, sql } from "drizzle-orm";
 import type { AppDatabase } from "@emby-task-center/database/client";
-import { virtualLibraries, virtualLibraryItems } from "@emby-task-center/database/schema";
+import { virtualLibraries, virtualLibraryItems, virtualLibraryPosters } from "@emby-task-center/database/schema";
 import {
   CreateVirtualLibrarySchema,
   UpdateVirtualLibrarySchema,
@@ -12,6 +12,7 @@ import {
   type VirtualLibraryItem,
 } from "@emby-task-center/contracts/virtual-library";
 import { validateVirtualLibraryItems } from "./type-validation";
+import { createPosterStore } from "./poster-store";
 
 export class VirtualLibraryNotFoundError extends Error {
   constructor() {
@@ -30,9 +31,14 @@ export function createVirtualLibraryStore(database: AppDatabase) {
         createdAt: virtualLibraries.createdAt,
         updatedAt: virtualLibraries.updatedAt,
         itemCount: count(virtualLibraryItems.itemId),
+        posterImageTag: virtualLibraryPosters.imageTag,
+        posterAspectRatio: sql<
+          number | null
+        >`CAST(${virtualLibraryPosters.width} AS REAL) / ${virtualLibraryPosters.height}`,
       })
       .from(virtualLibraries)
       .leftJoin(virtualLibraryItems, eq(virtualLibraries.id, virtualLibraryItems.libraryId))
+      .leftJoin(virtualLibraryPosters, eq(virtualLibraries.id, virtualLibraryPosters.libraryId))
       .groupBy(virtualLibraries.id)
       .orderBy(asc(virtualLibraries.sortOrder), asc(virtualLibraries.createdAt), asc(virtualLibraries.id))
       .all();
@@ -71,6 +77,7 @@ export function createVirtualLibraryStore(database: AppDatabase) {
   }
 
   return {
+    ...createPosterStore(database, requireLibrary, touch),
     list,
     get,
     listItems,
@@ -79,7 +86,7 @@ export function createVirtualLibraryStore(database: AppDatabase) {
       const now = new Date().toISOString();
       const row = { ...parsed, id: randomBytes(16).toString("hex"), createdAt: now, updatedAt: now };
       database.insert(virtualLibraries).values(row).run();
-      return { ...row, itemCount: 0 };
+      return get(row.id)!;
     },
     update(id: string, input: UpdateVirtualLibraryInput): VirtualLibrary {
       const parsed = UpdateVirtualLibrarySchema.parse(input);

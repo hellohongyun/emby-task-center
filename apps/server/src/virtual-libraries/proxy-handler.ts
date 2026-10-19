@@ -7,6 +7,9 @@ import { createProxyMappingRepair } from "./proxy-mapping-repair";
 import { parameter, sendJson } from "./query-helpers";
 import { createHomeSectionCache } from "./home-section-cache";
 import type { OwnedViewPreferences } from "./owned-view-preferences";
+import { serveOwnedPoster } from "./proxy-poster";
+import { appendOwnedHomeSections, ownedLatestLibraryId } from "./owned-home-sections";
+import { isRootLibraryDiscovery } from "./root-library-discovery";
 
 export function createVirtualProxyHandler(
   store: VirtualLibraryStore,
@@ -32,8 +35,9 @@ export function createVirtualProxyHandler(
       const user = /^\/Users\/([^/]+)\//i.exec(url.pathname)?.[1] ?? parameter(url, "UserId");
       const orderedDiscovery =
         request.method === "GET" &&
-        (/^\/Users\/[^/]+\/(?:Views|Sections\/[^/]+\/Items)\/?$/i.test(url.pathname) ||
-          /^\/Library\/MediaFolders\/?$/i.test(url.pathname));
+        (/^\/Users\/[^/]+\/(?:Views|HomeSections|Sections\/[^/]+\/Items)\/?$/i.test(url.pathname) ||
+          /^\/Library\/MediaFolders\/?$/i.test(url.pathname) ||
+          isRootLibraryDiscovery(url));
       const ownedOrder =
         user && orderedDiscovery && store.list().length
           ? preferences?.read(context.upstream, decodeURIComponent(user))
@@ -54,7 +58,13 @@ export function createVirtualProxyHandler(
           )
           .digest("hex");
         if (homeUser[2].toLowerCase() === "homesections") {
-          const reply = await upstreamJson(context, url);
+          const reply = await appendOwnedHomeSections({
+            url,
+            store,
+            upstream: (target, timeout) => upstreamJson(context, target, timeout),
+            reply: await upstreamJson(context, url),
+            ownedOrder,
+          });
           if (reply.status >= 200 && reply.status < 300) homeSections.write(scope, homeUser[1], reply.body);
           sendJson(response, reply);
           return;
@@ -62,8 +72,14 @@ export function createVirtualProxyHandler(
         knownSections = homeSections.read(scope, homeUser[1]);
       }
       const image = /^\/Items\/([^/]+)\/Images\/(Primary|Thumb|Backdrop)(?:\/\d+)?$/i.exec(url.pathname);
+      if (image && (await serveOwnedPoster(context, url, store))) return;
       const detail = /^\/(?:Users\/[^/]+\/)?Items\/([^/]+)\/?$/i.exec(url.pathname);
-      const virtualId = parameter(url, "ParentId") ?? image?.[1] ?? detail?.[1];
+      const section = /^\/Users\/[^/]+\/Sections\/([^/]+)\/Items\/?$/i.exec(url.pathname);
+      const virtualId =
+        parameter(url, "ParentId") ??
+        image?.[1] ??
+        detail?.[1] ??
+        (section ? ownedLatestLibraryId(decodeURIComponent(section[1]), store) : undefined);
       if (request.method === "GET" && virtualId && store.get(virtualId)) {
         await repairMappings(
           virtualId,

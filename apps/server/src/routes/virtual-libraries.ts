@@ -10,6 +10,7 @@ import { createVirtualLibraryStore, VirtualLibraryNotFoundError } from "../virtu
 import { createVirtualLibrarySource, VirtualLibrarySourceError } from "../virtual-libraries/source";
 import { VirtualLibraryTypeMismatchError } from "../virtual-libraries/type-validation";
 import { repairVirtualMappings } from "../virtual-libraries/mapping-repair";
+import { registerVirtualLibraryPosterRoutes } from "./virtual-library-posters";
 
 const sourceQuerySchema = z.object({
   searchTerm: z.string().optional(),
@@ -28,6 +29,7 @@ export function registerVirtualLibraryRoutes(
   },
 ): void {
   const store = createVirtualLibraryStore(options.database);
+  registerVirtualLibraryPosterRoutes(app, store);
   const source = options.source ?? createVirtualLibrarySource(options.database);
   const base = "/api/virtual-libraries";
   function fail(response: Response, error: unknown) {

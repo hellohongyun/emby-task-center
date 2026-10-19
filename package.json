@@ -1,6 +1,6 @@
 {
   "name": "emby-task-center",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "private": true,
   "packageManager": "pnpm@11.16.0",
   "scripts": {

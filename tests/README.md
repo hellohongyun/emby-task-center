@@ -14,6 +14,8 @@ pnpm exec vitest run apps/server/src/virtual-libraries apps/server/src/routes/vi
 
 `upstream-preservation.test.ts` 和 `owned-library-overlay.test.ts` 验证上游 DTO、扩展字段、相对顺序和原始查询参数保留，只有自有新增条目参与隐藏与插入；混合 ID 请求保留上游返回结果。
 
+`root-library-discovery.test.ts` 覆盖网易爆米花实际使用的根级媒体库查询，仅在确认上游返回纯媒体库列表时追加自有库；验证非库、空结果、鉴权失败、递归和其他内容筛选不被改写。
+
 这些用例覆盖关联持久化、选片查询仅包含电影和整部剧、新增季与分集的整批拒绝、类型匹配、历史关联保留、查询映射、完整分页、默认关闭无监听、普通请求与链接透传、Range/HEAD、真实删除结果、WebSocket 和配置失败回退。前端另覆盖作品过滤、禁选与提示、历史告警及类型修改校验。媒体库作品归组测试另覆盖同库内按类型与有效 TMDB ID 识别、缺失 ID 兜底及完整详情。仅使用临时数据库和本地 HTTP 上游，不替代 TgtoDrive 与实际客户端联调。
 
 关联恢复回归覆盖 TMDB 身份持久化、旧库加列升级、原 ID 失效或复用、唯一候选恢复、多来源歧义、身份缺失、401/网络失败及并发移除保护。真实本地 HTTP 代理测试验证原客户端凭据、播放 DTO 与普通请求透传；前端覆盖关联告警和切库后的旧响应隔离。
@@ -81,3 +83,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests/docker-smoke.ps1
 冒烟检查覆盖构建产物、健康检查、SPA、生产镜像 HTTP 管理员会话（Cookie 无 `Secure`、响应无 HSTS）、数据库重建持久化和容器文件系统边界。应用通过 Emby API 读取媒体库，不挂载 STRM 目录。真实上游及生产数据库另行验证。
 
 `ttd-order-roundtrip.test.ts` 模拟上游保存排序时丢弃 TTD 条目 ID，验证本项目库仍可跨 TTD 调整位置、配置原字节透传、用户隔离和重启恢复。`query-latest-content.test.ts` 与性能用例验证默认首页仅返回作品和原海报、113 条映射仅用两次批量查询，并保留显式分集与继续观看行为；自动测试本身不代替 Hills 实机验收；本次发布另由使用者完成本地测试确认。
+
+自定义虚拟库海报回归覆盖独立存储、数据库重开与旧表升级、格式结构／尺寸／大小验证、替换更新 tag、移除仅影响自定义图、当前 tag 图片免 Token 读取、缺失／旧 tag 使用客户端原凭据鉴权、GET／HEAD／ETag 和原媒体图片透传。前端组件覆盖预览、保存、错误与切库取消；另用隔离临时数据库和实际管理端 HTTP 完成桌面／320px 浏览器上传、刷新及移除验证。该验证不代表所有第三方客户端均已实机验收。
+
+`owned-home-sections.test.ts` 覆盖标准首页展开行、仅新增本项目分区、隐藏设置、拒绝凭据、未知上游原样返回，以及自有分区内容使用原用户凭据；隔离 HTTP 联调验证原有分区字段和顺序保留。
+
+`query-latest-media-types.test.ts` 模拟 Series 无 MediaType、电影和分集为 Video 的上游行为，验证首页分组视频请求保留整部剧及原海报，同时保留音频、显式分集和普通浏览筛选。

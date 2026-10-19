@@ -1,4 +1,4 @@
-import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { blob, index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const virtualLibraries = sqliteTable("virtual_libraries", {
   id: text("id").primaryKey(),
@@ -30,3 +30,15 @@ export const virtualLibraryItems = sqliteTable(
     index("virtual_library_items_item_idx").on(table.itemId),
   ],
 );
+
+export const virtualLibraryPosters = sqliteTable("virtual_library_posters", {
+  libraryId: text("library_id")
+    .primaryKey()
+    .references(() => virtualLibraries.id, { onDelete: "cascade" }),
+  content: blob("content", { mode: "buffer" }).notNull(),
+  contentType: text("content_type", { enum: ["image/jpeg", "image/png", "image/webp"] }).notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  imageTag: text("image_tag").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});

@@ -6,6 +6,8 @@ import VirtualLibraryForm from "../components/virtual-libraries/VirtualLibraryFo
 import VirtualLibraryItems from "../components/virtual-libraries/VirtualLibraryItems.vue";
 import VirtualProxySettings from "../components/virtual-libraries/VirtualProxySettings.vue";
 import VirtualSourcePicker from "../components/virtual-libraries/VirtualSourcePicker.vue";
+import VirtualLibraryPoster from "../components/virtual-libraries/VirtualLibraryPoster.vue";
+import type { VirtualLibrary } from "@emby-task-center/contracts/virtual-library";
 
 const services = useAppServices();
 const api = useVirtualLibraries(services.requireAuth);
@@ -76,6 +78,9 @@ async function removeLibrary() {
 }
 async function addItems() {
   if (await api.addItems()) notice.value = "已选内容已加入虚拟媒体库";
+}
+function updatePoster(library: VirtualLibrary) {
+  libraries.value = libraries.value.map((current) => (current.id === library.id ? library : current));
 }
 </script>
 
@@ -158,6 +163,13 @@ async function addItems() {
             ><button type="button" :disabled="saving" @click="deleteConfirm = false">取消</button>
           </div>
         </section>
+        <VirtualLibraryPoster
+          :key="selectedLibrary.id"
+          :library="selectedLibrary"
+          :require-auth="services.requireAuth"
+          :auth-required="services.ui?.authRequired?.value"
+          @saved="updatePoster"
+        />
         <VirtualLibraryItems
           :items="items"
           :issues="issues"
