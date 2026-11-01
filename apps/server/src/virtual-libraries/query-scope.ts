@@ -53,6 +53,10 @@ async function scopedIds(store: VirtualQueryStore, id: string, url: URL, upstrea
     setParameter(children, "ParentId", item.itemId);
     setParameter(children, "Recursive", "true");
     setParameter(children, "Fields", "ParentId");
+    // Only matching descendants can survive the final query. Keep the original
+    // type filter here too, without filtering playback state or other metadata.
+    const includedTypes = parameter(url, "IncludeItemTypes");
+    if (includedTypes?.trim()) setParameter(children, "IncludeItemTypes", includedTypes);
     for (const child of await allPages(upstream, children)) {
       if (!child.Id) continue;
       ids.add(child.Id);

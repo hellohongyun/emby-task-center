@@ -2,6 +2,8 @@
 
 ## 单元与组件回归
 
+`query-descendant-types.test.ts` 验证 SenPlayer 类型组合的子项读取范围、合法视频子项、分集、未限定类型展开及原剧归组海报，使用隔离上游夹具，不代替播放器实测。
+
 在项目根目录运行 `pnpm test`。服务端使用 Vitest，前端使用 Vue 组件和请求夹具；这些测试不代表真实 Emby、TMDB、SMTP 或反向代理已经验证。
 
 名单逐项选片通过 `useVirtualNameQueue.test.ts`、`VirtualNameQueue.test.ts` 和 `VirtualLibrariesPage.test.ts` 验证：仅自动填入搜索词，成功加入后推进，失败保留选择，跳过不写关联，切库后的旧请求不推进新名单。
