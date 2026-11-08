@@ -34,6 +34,7 @@ async function apply(
     configuration?: Record<string, unknown>;
     onlyIds?: string[];
     upstream?: QueryUpstream;
+    adminOrder?: string[];
   } = {},
 ) {
   const upstream = options.upstream ?? fixture(options.configuration);
@@ -44,6 +45,7 @@ async function apply(
     upstream,
     reply,
     onlyIds: options.onlyIds,
+    adminOrder: options.adminOrder,
   });
   return { response, upstream, body: response.body as { Items: Item[]; TotalRecordCount: number } };
 }
@@ -86,6 +88,48 @@ describe("owned library insertion", () => {
     expect(url.pathname).toBe("/Users/alice");
     expect([...url.searchParams]).toEqual([["api_key", "client"]]);
     expect(timeout).toBe(1_500);
+  });
+
+  it("uses the administrator order for all visible libraries and retains unknown upstream DTOs", async () => {
+    const { body } = await apply({
+      adminOrder: ["native-b", "local-a", "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", "not-visible"],
+      configuration: { OrderedViews: ["local-c", "native-a", "native-b"], MyMediaExcludes: ["local-b"] },
+    });
+    expect(body.Items.map((item) => item.Id)).toEqual(["native-b", "local-a", "native-a", "ttd", "local-c"]);
+    expect(body.Items[3]).toBe(originals[1]);
+    expect(body).toMatchObject({ Extra: "keep", TotalRecordCount: 5 });
+  });
+
+  it("sorts the complete filtered list before slicing the requested page", async () => {
+    const upstream = fixture();
+    upstream.mockResolvedValueOnce(result({ Items: originals, TotalRecordCount: 3 }));
+    const { body } = await apply({
+      query: "?Limit=2&StartIndex=2&Fields=Private&api_key=client&Opaque=keep",
+      reply: result({ Items: [originals[2]], TotalRecordCount: 3, Extra: "keep" }),
+      upstream,
+      adminOrder: ["local-b", "native-b", "ttd", "native-a", "local-a", "local-c"],
+    });
+    expect(body.Items.map((item) => item.Id)).toEqual(["ttd", "native-a"]);
+    expect(body).toMatchObject({ Extra: "keep", TotalRecordCount: 6 });
+    expect([...upstream.mock.calls[0][0].searchParams]).toEqual([
+      ["Fields", "Private"],
+      ["api_key", "client"],
+      ["Opaque", "keep"],
+    ]);
+  });
+
+  it("retains the original page when the upstream cannot supply a complete library list", async () => {
+    const reply = result({ Items: [originals[0]], TotalRecordCount: 3 });
+    const upstream = vi.fn<QueryUpstream>().mockResolvedValue(reply);
+    const { response } = await apply({ query: "?Limit=1", reply, upstream, adminOrder: ["local-b", "native-b"] });
+    expect(response).toBe(reply);
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
+
+  it("sorts an entire upstream list when the upstream ignores the requested limit", async () => {
+    const { body, upstream } = await apply({ query: "?Limit=1", adminOrder: ["native-b", "local-c"] });
+    expect(body.Items.map((item) => item.Id)).toEqual(["native-b", "local-c", "native-a", "ttd", "local-a", "local-b"]);
+    expect(upstream).toHaveBeenCalledTimes(1);
   });
 
   it("keeps browsing operational when preferences fail", async () => {

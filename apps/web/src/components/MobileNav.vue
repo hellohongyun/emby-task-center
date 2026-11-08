@@ -11,6 +11,7 @@ import {
   mdiMonitorDashboard,
   mdiPlaylistRemove,
   mdiPlaylistPlus,
+  mdiSortVariant,
   mdiTicketConfirmationOutline,
   mdiTune,
   mdiViewDashboardOutline,
@@ -24,6 +25,7 @@ const moreOpen = ref(false);
 const moreItems: { key: AppView; label: string; icon: string }[] = [
   { key: "virtualLibraries", label: "虚拟媒体库", icon: mdiDatabaseSearchOutline },
   { key: "submissions", label: "会员与运营", icon: mdiAccountGroup },
+  { key: "libraryOrder", label: "媒体库顺序", icon: mdiSortVariant },
   { key: "mediaRequests", label: "求片与补集", icon: mdiPlaylistPlus },
   { key: "cardKeys", label: "卡密", icon: mdiTicketConfirmationOutline },
   { key: "system", label: "系统状态", icon: mdiMonitorDashboard },

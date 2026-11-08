@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { Socket } from "node:net";
 import type { AppDatabase } from "@emby-task-center/database/client";
+import { createEmbyLibraryOrderStore, expandLibraryOrder } from "../integrations/emby-library-order-store";
+import { readSettings } from "../settings/store";
 import { createVirtualLibraryStore } from "./store";
 import { createVirtualProxyHandler } from "./proxy-handler";
 import { createOwnedViewPreferences } from "./owned-view-preferences";
@@ -25,7 +27,13 @@ export function createVirtualLibraryProxy(options: {
   report?: (message: string) => void;
 }) {
   const store = createVirtualLibraryStore(options.database);
+  const libraryOrders = createEmbyLibraryOrderStore(options.database);
   const preferences = createOwnedViewPreferences(options.database, store);
+  const readAdminOrder = (upstream: string) => {
+    const embyUrl = readSettings(options.database).values["emby.baseUrl"];
+    const active = libraryOrders.readActive(embyUrl || upstream, upstream);
+    return active ? expandLibraryOrder(active.order, active.aliases) : undefined;
+  };
   const marker = randomUUID();
   let active: { server: Server; sockets: Set<Socket>; config: VirtualProxyConfig } | undefined;
   let error: string | null = null;
@@ -71,6 +79,7 @@ export function createVirtualLibraryProxy(options: {
             () => virtualProxyUpstream(options.database, instance.config),
             marker,
             preferences,
+            readAdminOrder,
           ),
         );
         instance.server.on("connection", (socket) => {

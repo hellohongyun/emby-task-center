@@ -1,15 +1,28 @@
 import type { Item } from "./query-helpers";
-import type { OwnedViewAnchor } from "./owned-view-preferences";
+import { viewIdentity, type OwnedViewAnchor } from "./owned-view-preferences";
 
 function identity(value: unknown): string {
-  if (typeof value !== "string") return "";
-  return /^(?:[a-f\d]{32}|[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12})$/i.test(value)
-    ? value.replaceAll("-", "").toLowerCase()
-    : value;
+  return typeof value === "string" ? viewIdentity(value) : "";
 }
 
 function keys(item: Item) {
   return [identity(item.Id), identity(item.Guid)].filter(Boolean);
+}
+
+export function applyAdminLibraryOrder<T>(
+  items: readonly T[],
+  order: readonly string[],
+  ids: (item: T) => readonly unknown[],
+): T[] {
+  const positions = new Map(order.map((id, index) => [viewIdentity(id), index]));
+  const ranked = items.map((item) => ({
+    item,
+    rank:
+      ids(item)
+        .map((id) => positions.get(identity(id)))
+        .find((position) => position !== undefined) ?? order.length,
+  }));
+  return ranked.sort((left, right) => left.rank - right.rank).map(({ item }) => item);
 }
 
 /** Insert only owned entries; upstream objects and their relative order are authoritative. */

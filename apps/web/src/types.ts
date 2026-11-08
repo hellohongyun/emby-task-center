@@ -23,6 +23,7 @@ export type AppView =
   | "logs"
   | "config"
   | "submissions"
+  | "libraryOrder"
   | "cardKeys";
 
 /** 配置项来源：db=后台已保存，env=首次启动从环境变量种子导入，default=注册表默认值。 */

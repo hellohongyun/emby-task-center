@@ -9,6 +9,7 @@ import {
   mdiMonitorDashboard,
   mdiPlaylistRemove,
   mdiPlaylistPlus,
+  mdiSortVariant,
   mdiTicketConfirmationOutline,
   mdiTune,
   mdiViewDashboardOutline,
@@ -71,6 +72,13 @@ const emit = defineEmits<{ view: [view: AppView]; logout: [] }>();
         @click="emit('view', 'submissions')"
       >
         <SvgIcon type="mdi" :path="mdiAccountGroup" :size="20" />会员与运营
+      </button>
+      <button
+        :class="['primary', { active: view === 'libraryOrder' }]"
+        type="button"
+        @click="emit('view', 'libraryOrder')"
+      >
+        <SvgIcon type="mdi" :path="mdiSortVariant" :size="20" />媒体库顺序
       </button>
       <button :class="['primary', { active: view === 'cardKeys' }]" type="button" @click="emit('view', 'cardKeys')">
         <SvgIcon type="mdi" :path="mdiTicketConfirmationOutline" :size="20" />卡密

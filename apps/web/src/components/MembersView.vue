@@ -21,11 +21,10 @@ import { groupSessions } from "../library/session-groups";
 import SessionPlaybackCard from "./SessionPlaybackCard.vue";
 import MemberExpiryCleanupDialog from "./MemberExpiryCleanupDialog.vue";
 import MemberRenewalDialog from "./MemberRenewalDialog.vue";
-import EmbyLibraryOrderDialog from "./EmbyLibraryOrderDialog.vue";
 import MembershipDriveExpirySettings from "./MembershipDriveExpirySettings.vue";
 import { formatMembershipDuration } from "../composables/membership-duration";
 
-const props = defineProps<{ requireAuth: () => void }>();
+const props = defineProps<{ requireAuth: () => void; goToLibraryOrder?: () => void }>();
 
 const admin = useAdminSubmissions(props.requireAuth);
 const eu = useEmbyUsers(props.requireAuth);
@@ -36,7 +35,6 @@ const pageError = computed(() => {
 const busy = ref(false);
 const message = ref("");
 const renewingMember = ref<SubmissionUser | null>(null);
-const libraryOrderOpen = ref(false);
 const expiryCleanupOpen = ref(false);
 const driveExpiry = ref<MembershipDriveExpiry | null>();
 const driveSettings = ref<InstanceType<typeof MembershipDriveExpirySettings>>();
@@ -346,8 +344,8 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
         <button type="button" class="refresh" :disabled="busy" @click="syncEmbyAccounts">
           <SvgIcon type="mdi" :path="mdiAccountMultiple" :size="18" />同步 Emby 账号
         </button>
-        <button type="button" class="refresh" @click="libraryOrderOpen = true">
-          <SvgIcon type="mdi" :path="mdiSort" :size="18" />统一媒体库顺序
+        <button v-if="goToLibraryOrder" type="button" class="refresh" @click="goToLibraryOrder">
+          <SvgIcon type="mdi" :path="mdiSort" :size="18" />媒体库顺序
         </button>
         <button type="button" class="refresh" @click="expiryCleanupOpen = true">
           <SvgIcon type="mdi" :path="mdiDelete" :size="18" />过期自动删除
@@ -635,7 +633,6 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
       </div>
     </section>
 
-    <EmbyLibraryOrderDialog v-if="libraryOrderOpen" :require-auth="requireAuth" @close="libraryOrderOpen = false" />
     <MemberExpiryCleanupDialog
       v-if="expiryCleanupOpen"
       :require-auth="requireAuth"

@@ -1,11 +1,5 @@
 import { overlayLibraries } from "./owned-library-overlay";
-import {
-  parameter,
-  setParameter,
-  type UpstreamJson,
-  type QueryUpstream,
-  type VirtualQueryStore,
-} from "./query-helpers";
+import { parameter, type UpstreamJson, type QueryUpstream, type VirtualQueryStore } from "./query-helpers";
 import type { OwnedViewAnchor } from "./owned-view-preferences";
 
 // Root item queries can also be media searches. Restrict this compatibility
@@ -58,24 +52,20 @@ interface RootDiscoveryContext {
   upstream: QueryUpstream;
   reply: UpstreamJson;
   ownedOrder?: OwnedViewAnchor[];
+  adminOrder?: readonly string[];
 }
 
 /** Preserve every upstream item; append owned libraries only to confirmed root folder lists. */
 export async function rootLibraryDiscovery(context: RootDiscoveryContext): Promise<UpstreamJson> {
-  const { url, reply } = context;
+  const { url, reply, adminOrder } = context;
   if (!isRootLibraryDiscovery(url) || reply.status < 200 || reply.status >= 300) return reply;
-  const body = reply.body as { Items?: unknown } | null;
+  const body = reply.body as { Items?: unknown; TotalRecordCount?: unknown } | null;
   if (
     !body ||
     !Array.isArray(body.Items) ||
-    !body.Items.length ||
+    (!body.Items.length && !(adminOrder && typeof body.TotalRecordCount === "number" && body.TotalRecordCount > 0)) ||
     body.Items.some((item) => !item || typeof item !== "object" || item.Type !== "CollectionFolder")
   )
     return reply;
-  const overlayUrl = new URL(url);
-  // Normalize whitespace only for the owned overlay predicate, after the
-  // original URL has already reached upstream without changes.
-  if (parameter(url, "IncludeItemTypes") !== undefined)
-    setParameter(overlayUrl, "IncludeItemTypes", "CollectionFolder");
-  return overlayLibraries({ ...context, url: overlayUrl });
+  return overlayLibraries({ ...context, collectionFoldersOnly: true });
 }

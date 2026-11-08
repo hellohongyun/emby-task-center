@@ -10,6 +10,7 @@ const mobileTitles: Partial<Record<AppView, string>> = {
   virtualLibraries: "虚拟媒体库",
   mediaRequests: "求片与补集",
   submissions: "会员与运营",
+  libraryOrder: "媒体库顺序",
   cardKeys: "卡密",
   library: "媒体库",
   missingEpisodes: "缺集总览",

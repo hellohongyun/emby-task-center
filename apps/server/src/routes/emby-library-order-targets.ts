@@ -1,0 +1,108 @@
+import type { Account } from "../integrations/emby-library-order-catalog";
+import type { EmbyLibraryOrderSession } from "../integrations/emby-library-order-client";
+import {
+  matchesLibraryOrder,
+  planLibraryOrderFromTokens,
+  readLibraryOrder,
+  viewIdentity,
+  type LibraryOrderSnapshot,
+} from "../integrations/emby-library-order-plan";
+import type { OwnedViewAnchor } from "../virtual-libraries/owned-view-preferences";
+import { anchorOwnedViews, applyAdminLibraryOrder } from "../virtual-libraries/view-order";
+
+type Library = { id: string; name: string };
+type ProxyPreview = {
+  before?: string[];
+  after: string[];
+  owned: Library[];
+  readAnchors: () => OwnedViewAnchor[];
+};
+type PreviewRow = Account & {
+  status: "change" | "unchanged" | "failed";
+  before: string[];
+  after: string[];
+  proxyBefore?: string[];
+  proxyAfter?: string[];
+  reason?: string;
+};
+type ApplyRow = Account & { status: "updated" | "unchanged" | "skipped" | "failed"; reason?: string };
+type Plan = ReturnType<typeof planLibraryOrderFromTokens>;
+export type Target = { account: Account; row: PreviewRow; snapshot?: string; plan?: Plan };
+
+function proxyOrders(target: LibraryOrderSnapshot, proxy: ProxyPreview) {
+  const original = target.visible.map(({ id, guid, name }) => ({ Id: id, Guid: guid, Name: name }));
+  const hidden = new Set(target.hiddenViews.map(viewIdentity));
+  const additions = proxy.owned
+    .filter(({ id }) => !hidden.has(viewIdentity(id)))
+    .map(({ id, name }) => ({ Id: id, Name: name }));
+  const mixed = [...original, ...additions];
+  const keys = (item: (typeof mixed)[number]) => [item.Id, "Guid" in item ? item.Guid : undefined];
+  const before = proxy.before
+    ? applyAdminLibraryOrder(mixed, proxy.before, keys)
+    : anchorOwnedViews(original, additions, target.personalOrder.map(viewIdentity), proxy.readAnchors());
+  return {
+    proxyBefore: before.map((item) => String(item.Name)),
+    proxyAfter: applyAdminLibraryOrder(mixed, proxy.after, keys).map((item) => item.Name),
+  };
+}
+
+export function previewTarget(
+  account: Account,
+  target: LibraryOrderSnapshot | undefined,
+  nativeOrder: string[],
+  proxy?: ProxyPreview,
+): Target {
+  if (!target) {
+    return {
+      account,
+      row: { ...account, status: "failed", before: [], after: [], reason: "library_order_read_failed" },
+    };
+  }
+  const plan = planLibraryOrderFromTokens(nativeOrder, target);
+  return {
+    account,
+    row: {
+      ...account,
+      status: plan.update ? "change" : "unchanged",
+      before: plan.before,
+      after: plan.after,
+      ...(proxy ? proxyOrders(target, proxy) : {}),
+    },
+    snapshot: target.fingerprint,
+    plan,
+  };
+}
+
+export async function applyTarget(
+  session: EmbyLibraryOrderSession,
+  { account, snapshot, plan }: Target,
+  ownedIds: ReadonlySet<string>,
+  isCurrent: () => boolean,
+): Promise<ApplyRow> {
+  const { id } = account;
+  const skipped = (reason: string): ApplyRow => ({ ...account, status: "skipped", reason });
+  const failed = (reason: string): ApplyRow => ({ ...account, status: "failed", reason });
+  if (!snapshot || !plan) return failed("library_order_read_failed");
+  if (!isCurrent()) return skipped("library_order_connection_changed");
+  try {
+    const current = await readLibraryOrder(session, id, ownedIds);
+    if (current.fingerprint !== snapshot) return skipped("library_order_user_changed");
+  } catch {
+    return failed("library_order_read_failed");
+  }
+  if (!isCurrent()) return skipped("library_order_connection_changed");
+  if (!plan.update) return { ...account, status: "unchanged" };
+  try {
+    await session.updateOrder(id, plan.update);
+  } catch {
+    return failed("library_order_write_failed");
+  }
+  try {
+    if (matchesLibraryOrder(await readLibraryOrder(session, id, ownedIds), plan)) {
+      return { ...account, status: "updated" };
+    }
+  } catch {
+    // The write may already have succeeded. Generate a new preview before retrying.
+  }
+  return failed("library_order_verify_failed");
+}

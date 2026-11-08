@@ -28,9 +28,9 @@ pnpm exec vitest run apps/server/src/virtual-libraries apps/server/src/routes/vi
 
 `modern-discovery-proxy.test.ts` 使用真实本地 HTTP 与临时数据库，按 Emby 4.10 的动态首页分区、真实 Id 与 Guid 不同、`text/plain` 的 Partial 配置保存，以及上游错误返回无关条目的行为验证发现链路。首页分类缓存只存分区 ID 和类型，并验证凭据隔离、内容继续鉴权及未知分区透传。`home-sections`、`discovery-items` 和 `home-section-cache` 的聚焦用例补充分页、隐藏后数量、缓存过期和父范围约束。
 
-`emby-library-order.test.ts` 使用真实管理端 HTTP 和模拟 Emby 会话，验证鉴权、只读预览、逐账号可见库顺序、过期与重复提交、并发批次、预览冲突及单账号失败。`emby-library-order-client.test.ts` 使用本地 HTTP 验证仅通过 Emby 部分配置接口提交 `OrderedViews` 及连接隔离。`EmbyLibraryOrderDialog.test.ts` 覆盖预览与确认交互。另以构建后的网页、本地 HTTP 上游及内存数据库验收 320／390／1440 像素下的预览、确认、结果展示和弹窗边界。
+`emby-library-order.test.ts` 使用真实管理端 HTTP 和模拟 Emby 会话，验证鉴权、草稿与审计、直连和反代预览、全量及单账号范围、可见库顺序、未知令牌保留、新增媒体库和过期草稿冲突。`emby-library-order-client.test.ts` 使用本地 HTTP 验证仅通过 Emby 部分配置接口提交 `OrderedViews`。`emby-library-order-plan.test.ts` 验证 GUID 归一化、未知令牌保留，以及写入后必须回读到显式保存的顺序。`LibraryOrderPage.test.ts` 验证排序、搜索、草稿、双预览、仅反代变化时的确认和部分成功结果。
 
-`emby-library-order-proxy-linkage.test.ts` 使用真实管理 API、本地 Emby HTTP 与播放器反代，核对确认前没有写入、同步后实际可见列表、自有虚拟库锚点、隐藏与音轨设置、客户端鉴权及 206 分段读取。单元回归还验证上游保存成功但实际顺序未变时报告核对失败。
+`emby-library-order-proxy-linkage.test.ts` 使用真实管理 API、本地 Emby HTTP 与播放器反代，验证单账号测试与全量启用的边界、直连和反代返回的顺序、已有个人排序无法覆盖管理员的反代模板、客户端鉴权及 206 分段读取。反代聚焦用例还覆盖不同上游地址、不同 ID 表示、未匹配条目和排序分页。上游和 SQLite 均为测试夹具。
 
 缺集聚焦回归覆盖合并集闭区间持久化与重扫、所选启用库独立计算、停用库历史保留、公开 Emby 库 ID（含 GUID）与本地行号碰撞、删除前真实库存复核、当前库 Emby 跳转、只读 worker 一致快照与生命周期。前端覆盖切库清除选择、空库切换、待核对提示、迟到响应、401、超时和离页取消。只在临时数据库与本地上游中执行删除；真实库核对仅执行只读查询。
 

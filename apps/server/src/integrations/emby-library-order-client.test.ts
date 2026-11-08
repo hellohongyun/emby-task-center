@@ -54,11 +54,15 @@ describe("native Emby library order connector", () => {
       const data =
         path === "/emby/Users"
           ? [user]
-          : path === `/emby/Users/${userId}`
-            ? detail
-            : path.startsWith(`/emby/Users/${userId}/Views?`)
-              ? views
-              : undefined;
+          : path === "/emby/Library/VirtualFolders"
+            ? [{ ItemId: "101", Name: "剧集", CollectionType: "tvshows" }]
+            : path === "/emby/Library/MediaFolders"
+              ? { Items: [{ Id: "101", Name: "剧集", Guid: dramaGuid }] }
+              : path === `/emby/Users/${userId}`
+                ? detail
+                : path.startsWith(`/emby/Users/${userId}/Views?`)
+                  ? views
+                  : undefined;
       response.writeHead(data === undefined ? 404 : 200, { "content-type": "application/json" });
       response.end(JSON.stringify(data));
     });
@@ -89,6 +93,10 @@ describe("native Emby library order connector", () => {
       { id: "101", guid: dramaGuid, name: "剧集" },
       { id: "102", guid: filmsGuid, name: "电影" },
     ]);
+    await expect(session.listServerLibraries()).resolves.toEqual([
+      { id: "101", name: "剧集", collectionType: "tvshows" },
+    ]);
+    await expect(session.listMediaFolders()).resolves.toEqual([{ id: "101", name: "剧集", guid: dramaGuid }]);
     expect(requests[2]?.path).toBe(
       `/emby/Users/${userId}/Views?IncludeExternalContent=false&IncludeHidden=false&AllowDynamicChildren=false`,
     );

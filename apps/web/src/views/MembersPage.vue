@@ -62,7 +62,11 @@ function select(next: TabKey) {
         </button>
       </nav>
     </header>
-    <MembersView v-if="activeTab === 'members'" :require-auth="services.requireAuth" />
+    <MembersView
+      v-if="activeTab === 'members'"
+      :require-auth="services.requireAuth"
+      :go-to-library-order="() => router.push('/login/library-order')"
+    />
     <MemberUsageView v-else :require-auth="services.requireAuth" />
   </div>
 </template>

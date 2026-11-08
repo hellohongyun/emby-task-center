@@ -26,17 +26,17 @@ interface QueryContext {
   upstream: QueryUpstream;
   homeSections?: unknown;
   ownedOrder?: OwnedViewAnchor[];
+  adminOrder?: readonly string[];
 }
 
 async function appendLibraries(context: QueryContext) {
-  const { url, store, upstream } = context;
-  return overlayLibraries({ url, store, upstream, reply: await upstream(url), ownedOrder: context.ownedOrder });
+  return overlayLibraries({ ...context, reply: await context.upstream(context.url) });
 }
 
 export async function handleVirtualQuery(context: QueryContext): Promise<boolean> {
   if (context.request.method !== "GET") return false;
   const { url, store, upstream, response } = context;
-  if (store.list().length === 0) return false;
+  if (!context.adminOrder && store.list().length === 0) return false;
   const path = url.pathname;
   const detail = /^\/(?:Users\/[^/]+\/)?Items\/([^/]+)\/?$/i.exec(path);
   const library = detail ? store.get(decodeURIComponent(detail[1])) : undefined;

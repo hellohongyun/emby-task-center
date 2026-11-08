@@ -230,7 +230,7 @@ export function createApp(options: AppOptions) {
     services: options.integrationServices,
   });
   registerEmbyUserRoutes(app, options.integrationServices?.emby, options.database);
-  registerEmbyLibraryOrderRoutes(app, options.integrationServices?.emby);
+  registerEmbyLibraryOrderRoutes(app, options.integrationServices?.emby, options.database);
   registerMemberExpiryCleanupRoutes(app, options.database, options.integrationServices?.emby);
   // 会员使用记录（登录/播放/时段）：数据由后台采样器与 Emby 活动日志回填写入，这里只读 + 手动刷新。
   registerMemberUsageRoutes(app, {

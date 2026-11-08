@@ -32,7 +32,7 @@ async function close(server: Server) {
   });
 }
 
-it("links management confirmation to native views and the player proxy with independent virtual-library placement", async () => {
+it("applies one management template to native views and the player proxy", async () => {
   const database = createDatabase(":memory:");
   const owned = createVirtualLibraryStore(database.db).create({ name: "本地虚拟库" }).id;
   const memberPreferences = {
@@ -52,6 +52,20 @@ it("links management confirmation to native views and the player proxy with inde
       return;
     }
     if (path === "/Users" && token === managementToken) return void json([admin, member]);
+    if (path === "/Library/VirtualFolders" && token === managementToken) {
+      return void json(
+        [films, series, privateLibrary, hidden].map(({ Id, Name }) => ({
+          ItemId: Id,
+          Name,
+          CollectionType: "movies",
+        })),
+      );
+    }
+    if (path === "/Library/MediaFolders" && token === managementToken) {
+      return void json({
+        Items: [films, series, privateLibrary, hidden].map(({ Id, Name, Guid }) => ({ Id, Name, Guid })),
+      });
+    }
     const id = /^\/Users\/([^/]+)/.exec(path)?.[1];
     if (!id || (token !== managementToken && (id !== member.Id || token !== playbackToken))) {
       response.writeHead(401).end();
@@ -116,43 +130,104 @@ it("links management confirmation to native views and the player proxy with inde
       expect(response.status).toBe(200);
       return (await response.json()).Items.map((view: { Id: string }) => view.Id);
     };
+    const nativeViews = async () => {
+      const response = await fetch(`${upstreamUrl}/emby/Users/member/Views`, { headers: playbackHeaders });
+      return (await response.json()).Items.map((view: { Id: string }) => view.Id);
+    };
     expect(await playerViews()).toEqual([owned, films.Id, privateLibrary.Id, series.Id]);
 
-    const adminPost = (path: string, payload: unknown, cookie = "") =>
+    const adminRequest = (path: string, method: string, payload: unknown, cookie = "") =>
       fetch(`${appUrl}${path}`, {
-        method: "POST",
+        method,
         headers: { cookie, "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-    const login = await adminPost("/api/auth/login", { password: "order-fixture-password" });
+    const login = await adminRequest("/api/auth/login", "POST", { password: "order-fixture-password" });
     expect(login.status).toBe(200);
     const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
-    const preview = await adminPost(`${endpoint}/preview`, { sourceUserId: admin.Id }, cookie);
+    const catalog = await adminRequest(endpoint, "GET", undefined, cookie);
+    expect(await catalog.json()).toMatchObject({
+      active: false,
+      libraries: expect.arrayContaining([expect.objectContaining({ id: owned, kind: "owned" })]),
+    });
+    const savedOrder = await adminRequest(
+      endpoint,
+      "PUT",
+      { order: [series.Guid, films.Guid, owned, privateLibrary.Guid] },
+      cookie,
+    );
+    expect(savedOrder.status).toBe(200);
+    const single = await adminRequest(`${endpoint}/preview`, "POST", { userIds: [admin.Id] }, cookie);
+    const singlePreview = await single.json();
+    expect(singlePreview.proxyChanged).toBe(false);
+    const singleApply = await adminRequest(
+      `${endpoint}/apply`,
+      "POST",
+      { previewToken: singlePreview.previewToken },
+      cookie,
+    );
+    expect(await singleApply.json()).toMatchObject({ proxyActivated: false });
+    expect(await playerViews()).toEqual([owned, films.Id, privateLibrary.Id, series.Id]);
+
+    const preview = await adminRequest(`${endpoint}/preview`, "POST", {}, cookie);
     expect(preview.status).toBe(200);
-    const { previewToken, users } = await preview.json();
+    const { previewToken, users, proxyChanged } = await preview.json();
+    expect(proxyChanged).toBe(true);
     expect(users).toEqual([
+      {
+        id: admin.Id,
+        name: admin.Name,
+        isAdministrator: true,
+        isDisabled: false,
+        status: "unchanged",
+        before: [series.Name, films.Name],
+        after: [series.Name, films.Name],
+        proxyBefore: [series.Name, films.Name, "本地虚拟库"],
+        proxyAfter: [series.Name, films.Name, "本地虚拟库"],
+      },
       {
         id: member.Id,
         name: member.Name,
+        isAdministrator: false,
+        isDisabled: false,
         status: "change",
         before: [films.Name, privateLibrary.Name, series.Name],
         after: [series.Name, films.Name, privateLibrary.Name],
+        proxyBefore: ["本地虚拟库", films.Name, privateLibrary.Name, series.Name],
+        proxyAfter: [series.Name, films.Name, "本地虚拟库", privateLibrary.Name],
       },
     ]);
     expect(managementWrites).toEqual([]);
+    expect(await nativeViews()).toEqual([films.Id, privateLibrary.Id, series.Id]);
+    expect(await playerViews()).toEqual([owned, films.Id, privateLibrary.Id, series.Id]);
 
-    const applied = await adminPost(`${endpoint}/apply`, { previewToken }, cookie);
+    const applied = await adminRequest(`${endpoint}/apply`, "POST", { previewToken }, cookie);
     expect(applied.status).toBe(200);
-    expect(await applied.json()).toEqual({ users: [{ id: member.Id, name: member.Name, status: "updated" }] });
+    const appliedBody = await applied.json();
+    expect(appliedBody.proxyActivated).toBe(true);
+    expect(appliedBody.users).toEqual([
+      { id: admin.Id, name: admin.Name, isAdministrator: true, isDisabled: false, status: "unchanged" },
+      { id: member.Id, name: member.Name, isAdministrator: false, isDisabled: false, status: "updated" },
+    ]);
+    expect(appliedBody.order).toEqual([series.Guid, films.Guid, owned, privateLibrary.Guid, hidden.Guid]);
     expect(managementWrites).toEqual([
       {
         user: member.Id,
-        body: { OrderedViews: [owned, series.Guid, hidden.Guid, films.Guid, privateLibrary.Guid] },
+        body: { OrderedViews: [series.Guid, hidden.Guid, films.Guid, privateLibrary.Guid] },
       },
     ]);
     expect(memberPreferences.MyMediaExcludes).toEqual([hidden.Guid]);
     expect(memberPreferences.AudioLanguagePreference).toBe("zho");
-    expect(await playerViews()).toEqual([series.Id, owned, films.Id, privateLibrary.Id]);
+    expect(await nativeViews()).toEqual([series.Id, films.Id, privateLibrary.Id]);
+    expect(await playerViews()).toEqual([series.Id, films.Id, owned, privateLibrary.Id]);
+
+    const personal = await fetch(`${playerUrl}/Users/member/Configuration/Partial?reqformat=json`, {
+      method: "POST",
+      headers: { ...playbackHeaders, "content-type": "text/plain" },
+      body: JSON.stringify({ OrderedViews: [owned, films.Guid, series.Guid, privateLibrary.Guid] }),
+    });
+    expect(personal.status).toBe(204);
+    expect(await playerViews()).toEqual([series.Id, films.Id, owned, privateLibrary.Id]);
 
     const denied = await fetch(`${playerUrl}/Users/member/Views`, { headers: { "x-emby-token": "wrong" } });
     expect(denied.status).toBe(401);

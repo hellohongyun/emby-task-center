@@ -1,5 +1,7 @@
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { eq } from "drizzle-orm";
+import { appSettings, auditLogs } from "@emby-task-center/database/schema";
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app";
@@ -17,21 +19,22 @@ const tv = { id: "102", guid: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB", name: "剧
 const anime = { id: "103", guid: "cccccccccccccccccccccccccccccccc", name: "动漫" };
 const extras = { id: "104", guid: "dddddddddddddddddddddddddddddddd", name: "独享" };
 const hidden = { id: "105", guid: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", name: "已隐藏" };
+const virtual = { id: "106", guid: "ffffffff-ffff-ffff-ffff-ffffffffffff", name: "虚拟库" };
 
 type Preferences = Awaited<ReturnType<EmbyLibraryOrderSession["getUserPreferences"]>>;
 type PreviewResult = {
   previewToken: string;
   libraries: string[];
-  users: { id: string; status: string; before: string[]; after: string[] }[];
+  proxyChanged: boolean;
+  users: {
+    id: string;
+    status: string;
+    before: string[];
+    after: string[];
+    proxyBefore?: string[];
+    proxyAfter?: string[];
+  }[];
 };
-
-function latch() {
-  let release!: () => void;
-  const promise = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return { promise, release };
-}
 
 describe("Emby library order admin HTTP flow", () => {
   let database: DatabaseHandle;
@@ -41,12 +44,18 @@ describe("Emby library order admin HTTP flow", () => {
   let connection: object | undefined;
   let preferences: Record<string, Preferences>;
   let views: Record<string, (typeof films)[]>;
-  let accountsIgnoringOrder: Set<string>;
+  let mediaFolderItems: Array<{ id: string; name: string; guid: string }>;
+  let failUsers: Set<string>;
   const updateOrder = vi.fn<EmbyLibraryOrderSession["updateOrder"]>();
 
   async function request(path: string, payload?: unknown, auth = cookie, status = 200) {
     const response = await fetch(`${base}${path}`, {
-      method: payload === undefined ? "GET" : "POST",
+      method:
+        payload === undefined
+          ? "GET"
+          : typeof payload === "object" && payload !== null && "order" in payload && !("previewToken" in payload)
+            ? "PUT"
+            : "POST",
       headers: { cookie: auth, "content-type": "application/json" },
       body: payload === undefined ? undefined : JSON.stringify(payload),
       signal: AbortSignal.timeout(5000),
@@ -55,57 +64,71 @@ describe("Emby library order admin HTTP flow", () => {
     return response;
   }
 
-  async function preview(): Promise<PreviewResult> {
-    return (await request(`${endpoint}/preview`, { sourceUserId: "admin" })).json();
+  async function preview(payload: object = {}): Promise<PreviewResult> {
+    return (await request(`${endpoint}/preview`, payload)).json();
   }
 
   async function apply(previewToken: string, status = 200) {
     return (await request(`${endpoint}/apply`, { previewToken }, cookie, status)).json();
   }
 
+  async function save(order: string[]) {
+    return (await request(endpoint, { order })).json();
+  }
+
   beforeEach(async () => {
     connection = {};
-    accountsIgnoringOrder = new Set();
+    failUsers = new Set();
     preferences = {
-      admin: { isAdministrator: true, orderedViews: [tv.guid, films.id, anime.guid], hiddenViews: [] },
-      otherAdmin: { isAdministrator: true, orderedViews: [], hiddenViews: [] },
+      admin: { isAdministrator: true, orderedViews: [tv.guid, films.guid], hiddenViews: [] },
+      otherAdmin: { isAdministrator: true, orderedViews: [films.guid, tv.guid, virtual.guid], hiddenViews: [] },
       member: {
         isAdministrator: false,
-        orderedViews: [films.guid, hidden.guid, extras.id, tv.id, "unavailable"],
+        orderedViews: [films.guid, hidden.guid, extras.id, "unavailable"],
         hiddenViews: [hidden.id],
       },
-      another: { isAdministrator: false, orderedViews: [films.guid, tv.id], hiddenViews: [] },
-      same: { isAdministrator: false, orderedViews: [], hiddenViews: [] },
-      changedRole: { isAdministrator: true, orderedViews: [], hiddenViews: [] },
+      disabled: { isAdministrator: false, orderedViews: [films.guid], hiddenViews: [] },
     };
     views = {
-      admin: [films, tv, anime],
-      member: [films, extras, { ...tv, guid: tv.guid.replaceAll("-", "").toLowerCase() }, hidden],
-      another: [films, tv],
-      same: [tv, films],
+      admin: [films, tv, anime, virtual],
+      otherAdmin: [films, tv, virtual],
+      member: [films, extras, tv, hidden],
+      disabled: [films],
     };
+    mediaFolderItems = [films, tv, anime, virtual, extras, hidden].map((view) => ({
+      id: view.id,
+      name: view.name,
+      guid: view.guid,
+    }));
     updateOrder.mockReset().mockImplementation(async (id, orderedViews) => {
       preferences[id]!.orderedViews = orderedViews;
     });
+    const native = [films, tv, anime, extras, hidden].map((view) => ({
+      id: view.id,
+      name: view.name,
+      collectionType: null,
+    }));
     const openLibraryOrderSession = () =>
       connection &&
       ({
         identity: connection,
+        baseUrl: "https://emby.test",
         listUsers: async () =>
           Object.keys(preferences).map((id) => ({
             Id: id,
             Name: id,
-            Policy: { IsAdministrator: id === "admin" || id === "otherAdmin" },
+            Policy: {
+              IsAdministrator: id === "admin" || id === "otherAdmin",
+              IsDisabled: id === "disabled",
+            },
           })),
-        getUserPreferences: async (id) => structuredClone(preferences[id]!),
-        listUserViews: async (id) => {
-          const listed = views[id]!;
-          if (accountsIgnoringOrder.has(id)) return structuredClone(listed);
-          const preferred = preferences[id]!.orderedViews.flatMap((key) =>
-            listed.filter((view) => view.id === key || view.guid === key),
-          );
-          return structuredClone([...new Set([...preferred, ...listed])]);
+        listServerLibraries: async () => native,
+        listMediaFolders: async () => mediaFolderItems,
+        getUserPreferences: async (id) => {
+          if (failUsers.has(id)) throw new Error("fixture_user_read_failed");
+          return structuredClone(preferences[id]!);
         },
+        listUserViews: async (id) => structuredClone(views[id]!),
         updateOrder,
       } satisfies EmbyLibraryOrderSession);
 
@@ -138,134 +161,221 @@ describe("Emby library order admin HTTP flow", () => {
     database.close();
   });
 
-  it("requires admin auth and a preview token, and accepts only an Emby administrator template", async () => {
+  it("requires admin auth and exposes a read-only catalog before an order is saved", async () => {
     const member = createPublicSessionManager(secret).issueCookie("member@example.com").split(";")[0]!;
     for (const auth of ["", member]) {
       await request(endpoint, undefined, auth, 401);
-      await request(`${endpoint}/preview`, { sourceUserId: "admin" }, auth, 401);
-      await request(`${endpoint}/apply`, {}, auth, 401);
+      await request(`${endpoint}/preview`, {}, auth, 401);
     }
-    expect(await (await request(endpoint)).json()).toEqual({
-      admins: [
-        { id: "admin", name: "admin" },
-        { id: "otherAdmin", name: "otherAdmin" },
-      ],
-    });
-    await request(`${endpoint}/preview`, { sourceUserId: "member" }, cookie, 400);
-    await request(`${endpoint}/apply`, { sourceUserId: "admin" }, cookie, 400);
-    expect(updateOrder).not.toHaveBeenCalled();
-  });
-
-  it("previews without writes, preserves hidden and opaque tokens, and updates only changed ordinary accounts", async () => {
-    const result = await preview();
-    expect(result.libraries).toEqual(["剧集", "电影", "动漫"]);
-    expect(result.users).toContainEqual({
-      id: "member",
-      name: "member",
-      status: "change",
-      before: ["电影", "独享", "剧集"],
-      after: ["剧集", "电影", "独享"],
-    });
-    expect(result.users).not.toContainEqual(expect.objectContaining({ id: "otherAdmin" }));
-    expect(updateOrder).not.toHaveBeenCalled();
-    const applied = await apply(result.previewToken);
-    expect(applied.users).toEqual([
-      { id: "member", name: "member", status: "updated" },
-      { id: "another", name: "another", status: "updated" },
-      { id: "same", name: "same", status: "unchanged" },
-      { id: "changedRole", name: "changedRole", status: "skipped", reason: "library_order_role_unknown" },
+    const body = await (await request(endpoint)).json();
+    expect(body.saved).toBe(false);
+    expect(body.savedOrder).toEqual([]);
+    expect(body.order).toEqual(
+      [tv.guid, films.guid, anime.guid, virtual.guid, extras.guid, hidden.guid].map((id) =>
+        id.replaceAll("-", "").toLowerCase(),
+      ),
+    );
+    expect(body.users).toEqual([
+      { id: "admin", name: "admin", isAdministrator: true, isDisabled: false },
+      { id: "otherAdmin", name: "otherAdmin", isAdministrator: true, isDisabled: false },
+      { id: "member", name: "member", isAdministrator: false, isDisabled: false },
+      { id: "disabled", name: "disabled", isAdministrator: false, isDisabled: true },
     ]);
-    expect(updateOrder).toHaveBeenCalledTimes(2);
-    expect(updateOrder).toHaveBeenCalledWith("member", [tv.id, hidden.guid, films.guid, extras.id, "unavailable"]);
-    expect(await apply(result.previewToken, 409)).toEqual({ error: "library_order_preview_expired" });
-    expect((await preview()).users.every((user) => user.status !== "change")).toBe(true);
-  });
-
-  it("rejects a changed template or integration and an expired token", async () => {
-    const staleSource = await preview();
-    preferences.admin!.orderedViews.reverse();
-    expect(await apply(staleSource.previewToken, 409)).toEqual({ error: "library_order_source_changed" });
-    const staleConnection = await preview();
-    connection = {};
-    expect(await apply(staleConnection.previewToken, 409)).toEqual({ error: "library_order_connection_changed" });
-    vi.useFakeTimers({ toFake: ["Date"] });
-    const expired = await preview();
-    vi.setSystemTime(Date.now() + 5 * 60 * 1000);
-    expect(await apply(expired.previewToken, 409)).toEqual({ error: "library_order_preview_expired" });
-    connection = undefined;
-    await request(endpoint, undefined, cookie, 503);
-    expect(updateOrder).not.toHaveBeenCalled();
-  });
-
-  it("skips changes since preview and does not include new accounts in the approved batch", async () => {
-    const result = await preview();
-    preferences.member!.hiddenViews = [extras.id];
-    preferences.joined = { isAdministrator: false, orderedViews: [films.id, tv.id], hiddenViews: [] };
-    views.joined = [films, tv];
-    const applied = await apply(result.previewToken);
-    expect(applied.users).toContainEqual({
-      id: "member",
-      name: "member",
-      status: "skipped",
-      reason: "library_order_user_changed",
-    });
-    expect(updateOrder).toHaveBeenCalledExactlyOnceWith("another", [tv.id, films.guid]);
-    expect((await preview()).users).toContainEqual(expect.objectContaining({ id: "joined", status: "change" }));
-  });
-
-  it("reports refused and unverified writes without retrying either", async () => {
-    updateOrder.mockImplementation(async (id) => {
-      if (id === "member") throw new Error("sensitive upstream failure");
-    });
-    const result = await preview();
-    expect((await apply(result.previewToken)).users).toEqual(
+    expect(body.libraries).toEqual(
       expect.arrayContaining([
-        { id: "member", name: "member", status: "failed", reason: "library_order_write_failed" },
-        { id: "another", name: "another", status: "failed", reason: "library_order_verify_failed" },
+        expect.objectContaining({ name: "电影", kind: "native", visibleUsers: 4 }),
+        expect.objectContaining({ name: "虚拟库", kind: "virtual", visibleUsers: 2 }),
+        expect.objectContaining({ name: "已隐藏", kind: "native", visibleUsers: 1 }),
       ]),
     );
+    expect(body.warnings.join(" ")).toContain("非原生媒体库");
+    await request(`${endpoint}/preview`, {}, cookie, 409);
+  });
+
+  it("saves an order, previews every account including admins, and preserves unknown tokens", async () => {
+    const saved = await save([anime.guid, films.guid, tv.guid, virtual.guid]);
+    expect(saved.order).toEqual([
+      "cccccccccccccccccccccccccccccccc",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "ffffffffffffffffffffffffffffffff",
+      "dddddddddddddddddddddddddddddddd",
+      "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    ]);
+    const previewBody = await preview();
+    expect(previewBody.proxyChanged).toBe(true);
+    expect(previewBody.libraries).toEqual(["动漫", "电影", "剧集", "虚拟库", "独享", "已隐藏"]);
+    expect(previewBody.users).toEqual([
+      {
+        id: "admin",
+        name: "admin",
+        isAdministrator: true,
+        isDisabled: false,
+        status: "change",
+        before: ["剧集", "电影", "动漫", "虚拟库"],
+        after: ["动漫", "电影", "剧集", "虚拟库"],
+        proxyBefore: ["电影", "剧集", "动漫", "虚拟库"],
+        proxyAfter: ["动漫", "电影", "剧集", "虚拟库"],
+      },
+      {
+        id: "otherAdmin",
+        name: "otherAdmin",
+        isAdministrator: true,
+        isDisabled: false,
+        status: "unchanged",
+        before: ["电影", "剧集", "虚拟库"],
+        after: ["电影", "剧集", "虚拟库"],
+        proxyBefore: ["电影", "剧集", "虚拟库"],
+        proxyAfter: ["电影", "剧集", "虚拟库"],
+      },
+      {
+        id: "member",
+        name: "member",
+        isAdministrator: false,
+        isDisabled: false,
+        status: "change",
+        before: ["电影", "已隐藏", "独享", "剧集"],
+        after: ["电影", "剧集", "独享", "已隐藏"],
+        proxyBefore: ["电影", "独享", "剧集", "已隐藏"],
+        proxyAfter: ["电影", "剧集", "独享", "已隐藏"],
+      },
+      {
+        id: "disabled",
+        name: "disabled",
+        isAdministrator: false,
+        isDisabled: true,
+        status: "unchanged",
+        before: ["电影"],
+        after: ["电影"],
+        proxyBefore: ["电影"],
+        proxyAfter: ["电影"],
+      },
+    ]);
+    expect(updateOrder).not.toHaveBeenCalled();
+    const applied = await apply(previewBody.previewToken);
+    expect(applied.proxyActivated).toBe(true);
+    expect(applied.users).toEqual([
+      { id: "admin", name: "admin", isAdministrator: true, isDisabled: false, status: "updated" },
+      { id: "otherAdmin", name: "otherAdmin", isAdministrator: true, isDisabled: false, status: "unchanged" },
+      { id: "member", name: "member", isAdministrator: false, isDisabled: false, status: "updated" },
+      { id: "disabled", name: "disabled", isAdministrator: false, isDisabled: true, status: "unchanged" },
+    ]);
     expect(updateOrder).toHaveBeenCalledTimes(2);
+    expect(updateOrder).toHaveBeenCalledWith("admin", [anime.guid, films.guid, tv.guid, virtual.guid]);
+    expect(updateOrder).toHaveBeenCalledWith("member", [films.guid, tv.guid, extras.id, "unavailable", hidden.guid]);
+    const actions = database.db
+      .select({ action: auditLogs.action })
+      .from(auditLogs)
+      .all()
+      .map((row) => row.action);
+    expect(actions).toContain("emby_library_order.saved");
+    expect(actions).toContain("emby_library_order.applied");
+    await apply(previewBody.previewToken, 409);
   });
 
-  it("reports an unverified update when the saved preferences do not change the visible list", async () => {
-    accountsIgnoringOrder.add("member");
-    const result = await preview();
-    const applied = await apply(result.previewToken);
-    expect(preferences.member!.orderedViews[0]).toBe(tv.id);
-    expect(applied.users).toContainEqual({
-      id: "member",
-      name: "member",
-      status: "failed",
-      reason: "library_order_verify_failed",
+  it("supports a single-account test preview and rejects a changed global order", async () => {
+    await save([anime.guid, films.guid, tv.guid, virtual.guid]);
+    const previewBody = await preview({ userIds: ["member"] });
+    expect(previewBody.users.map((user) => user.id)).toEqual(["member"]);
+    await save([films.guid, anime.guid, tv.guid, virtual.guid]);
+    expect(await apply(previewBody.previewToken, 409)).toEqual({ error: "library_order_order_changed" });
+    expect(updateOrder).not.toHaveBeenCalled();
+  });
+
+  it("rejects an older preview when the saved draft is a longer version of the same order", async () => {
+    const { order } = await save([films.guid, tv.guid]);
+    const older = await preview();
+    mediaFolderItems.push({
+      id: "107",
+      name: "新增库",
+      guid: "11111111-1111-4111-8111-111111111111",
     });
-    expect(updateOrder.mock.calls.filter(([id]) => id === "member")).toHaveLength(1);
-    expect((await preview()).users).toContainEqual(
-      expect.objectContaining({ id: "member", status: "change", before: ["电影", "独享", "剧集"] }),
+    const latest = await save(order);
+    expect(latest.order.slice(0, -1)).toEqual(order);
+    expect(await apply(older.previewToken, 409)).toEqual({ error: "library_order_order_changed" });
+    expect(updateOrder).not.toHaveBeenCalled();
+  });
+
+  it("writes disabled accounts too", async () => {
+    preferences.disabled = { isAdministrator: false, orderedViews: [tv.guid], hiddenViews: [] };
+    views.disabled = [films, tv];
+    await save([anime.guid, films.guid, tv.guid, virtual.guid]);
+    const previewBody = await preview();
+    expect(previewBody.users).toContainEqual(
+      expect.objectContaining({
+        id: "disabled",
+        isDisabled: true,
+        status: "change",
+        before: ["剧集", "电影"],
+        after: ["电影", "剧集"],
+      }),
     );
-  });
-
-  it("allows only one batch to write at a time and rechecks the other batch afterward", async () => {
-    const first = await preview();
-    const second = await preview();
-    const entered = latch();
-    const pendingWrite = latch();
-    updateOrder.mockImplementation(async (id, order) => {
-      entered.release();
-      await pendingWrite.promise;
-      preferences[id]!.orderedViews = order;
-    });
-    const active = apply(first.previewToken);
-    try {
-      await entered.promise;
-      expect(await apply(second.previewToken, 409)).toEqual({ error: "library_order_busy" });
-    } finally {
-      pendingWrite.release();
-      await active;
-    }
-    const applied = await apply(second.previewToken);
+    const applied = await apply(previewBody.previewToken);
     expect(applied.users).toContainEqual(
-      expect.objectContaining({ id: "member", status: "skipped", reason: "library_order_user_changed" }),
+      expect.objectContaining({ id: "disabled", isDisabled: true, status: "updated" }),
     );
-    expect(updateOrder).toHaveBeenCalledTimes(2);
+    expect(updateOrder).toHaveBeenCalledWith("disabled", [films.guid, tv.guid]);
+  });
+
+  it("includes a library discovered between saving and previewing", async () => {
+    await save([anime.guid, films.guid, tv.guid, virtual.guid]);
+    mediaFolderItems.push({
+      id: "107",
+      name: "新增库",
+      guid: "11111111-1111-4111-8111-111111111111",
+    });
+    const previewBody = await preview();
+    expect(previewBody.libraries).toContain("新增库");
+    const applied = await apply(previewBody.previewToken);
+    expect(applied.users.every((user: { status: string }) => user.status !== "failed")).toBe(true);
+    const row = database.db.select().from(appSettings).where(eq(appSettings.key, "emby.libraryOrder")).get();
+    expect(JSON.parse(row!.value!).order).toContain("11111111111141118111111111111111");
+  });
+
+  it("blocks order saves and new previews while an apply is running", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    updateOrder.mockImplementation(async (id, orderedViews) => {
+      await gate;
+      preferences[id]!.orderedViews = orderedViews;
+    });
+    await save([anime.guid, films.guid, tv.guid, virtual.guid]);
+    const previewBody = await preview();
+    const running = apply(previewBody.previewToken);
+    await vi.waitFor(() => expect(updateOrder).toHaveBeenCalled());
+    await request(endpoint, { order: [films.guid, anime.guid, tv.guid, virtual.guid] }, cookie, 409);
+    await request(`${endpoint}/preview`, {}, cookie, 409);
+    release();
+    const done = await running;
+    expect(done.users).toContainEqual(expect.objectContaining({ id: "admin", status: "updated" }));
+  });
+
+  it("marks an unreadable account as failed and never writes it", async () => {
+    failUsers.add("member");
+    const body = await (await request(endpoint)).json();
+    expect(body.warnings.join(" ")).toContain("1 个 Emby 账号的媒体库顺序读取失败");
+    await save([anime.guid, films.guid, tv.guid, virtual.guid]);
+    const previewBody = await preview();
+    expect(previewBody.users).toContainEqual(
+      expect.objectContaining({ id: "member", status: "failed", reason: "library_order_read_failed" }),
+    );
+    const applied = await apply(previewBody.previewToken);
+    expect(applied.users).toContainEqual(
+      expect.objectContaining({ id: "member", status: "failed", reason: "library_order_read_failed" }),
+    );
+    expect(updateOrder).not.toHaveBeenCalledWith("member", expect.anything());
+  });
+
+  it("rejects an unknown test account", async () => {
+    await save([anime.guid, films.guid, tv.guid, virtual.guid]);
+    await request(`${endpoint}/preview`, { userIds: ["missing"] }, cookie, 400);
+  });
+
+  it("rejects unknown, duplicate and empty orders", async () => {
+    await request(endpoint, { order: [] }, cookie, 400);
+    await request(endpoint, { order: ["missing"] }, cookie, 400);
+    await request(endpoint, { order: [films.guid, films.id] }, cookie, 400);
   });
 });

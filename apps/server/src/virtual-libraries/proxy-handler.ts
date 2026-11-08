@@ -16,6 +16,7 @@ export function createVirtualProxyHandler(
   upstream: () => string,
   marker: string,
   preferences?: OwnedViewPreferences,
+  readAdminOrder?: (upstream: string) => readonly string[] | undefined,
 ) {
   const repairMappings = createProxyMappingRepair(store);
   const homeSections = createHomeSectionCache();
@@ -38,13 +39,14 @@ export function createVirtualProxyHandler(
         (/^\/Users\/[^/]+\/(?:Views|HomeSections|Sections\/[^/]+\/Items)\/?$/i.test(url.pathname) ||
           /^\/Library\/MediaFolders\/?$/i.test(url.pathname) ||
           isRootLibraryDiscovery(url));
+      const adminOrder = orderedDiscovery ? readAdminOrder?.(context.upstream) : undefined;
       const ownedOrder =
-        user && orderedDiscovery && store.list().length
+        !adminOrder && user && orderedDiscovery && store.list().length
           ? preferences?.read(context.upstream, decodeURIComponent(user))
           : undefined;
       const homeUser = /^\/Users\/([^/]+)\/(HomeSections|Sections\/[^/]+\/Items)\/?$/i.exec(url.pathname);
       let knownSections: unknown;
-      if (request.method === "GET" && homeUser && store.list().length) {
+      if (request.method === "GET" && homeUser && (adminOrder || store.list().length)) {
         const scope = createHash("sha256")
           .update(
             JSON.stringify([
@@ -113,6 +115,7 @@ export function createVirtualProxyHandler(
           store,
           homeSections: knownSections,
           ownedOrder,
+          adminOrder,
           upstream: (target, timeoutMs) => upstreamJson(context, target, timeoutMs),
         })
       )

@@ -4,7 +4,10 @@ import type { EmbyUser } from "./emby-client";
 
 export interface EmbyLibraryOrderSession {
   readonly identity: object;
+  readonly baseUrl: string;
   listUsers(): Promise<EmbyUser[]>;
+  listServerLibraries(): Promise<Array<{ id: string; name: string; collectionType: string | null }>>;
+  listMediaFolders(): Promise<Array<{ id: string; name: string; guid?: string }>>;
   getUserPreferences(userId: string): Promise<{
     isAdministrator: boolean;
     orderedViews: string[];
@@ -23,7 +26,7 @@ const userIdSchema = z
 const userSchema = z.object({
   Id: userIdSchema,
   Name: z.string().min(1),
-  Policy: z.object({ IsAdministrator: z.boolean().optional() }).nullish(),
+  Policy: z.object({ IsAdministrator: z.boolean().optional(), IsDisabled: z.boolean().optional() }).nullish(),
 });
 const preferenceIds = z.array(z.string().min(1)).nullish();
 const userPreferencesSchema = z.object({
@@ -34,6 +37,16 @@ const userPreferencesSchema = z.object({
 const userViewsSchema = z.object({
   Items: z.array(z.object({ Id: z.string().min(1), Name: z.string().min(1), Guid: z.string().nullish() })),
   TotalRecordCount: z.number().int().nonnegative().optional(),
+});
+const serverLibrariesSchema = z.array(
+  z.object({
+    ItemId: z.string().min(1),
+    Name: z.string().min(1),
+    CollectionType: z.string().nullish(),
+  }),
+);
+const mediaFoldersSchema = z.object({
+  Items: z.array(z.object({ Id: z.string().min(1), Name: z.string().min(1), Guid: z.string().nullish() })),
 });
 
 function userPath(userId: string): string {
@@ -69,10 +82,27 @@ export function createEmbyLibraryOrderSessionFactory(
 
     return {
       identity,
+      baseUrl,
       async listUsers() {
         const users = z.array(userSchema).parse(await request("/Users"));
         if (new Set(users.map(({ Id }) => Id)).size !== users.length) throw new Error("emby_duplicate_user");
         return users;
+      },
+      async listServerLibraries() {
+        const libraries = serverLibrariesSchema.parse(await request("/Library/VirtualFolders"));
+        return libraries.map(({ ItemId, Name, CollectionType }) => ({
+          id: ItemId,
+          name: Name,
+          collectionType: CollectionType ?? null,
+        }));
+      },
+      async listMediaFolders() {
+        const folders = mediaFoldersSchema.parse(await request("/Library/MediaFolders"));
+        return folders.Items.map(({ Id, Name, Guid }) => ({
+          id: Id,
+          name: Name,
+          ...(Guid ? { guid: Guid } : {}),
+        }));
       },
       async getUserPreferences(userId) {
         const user = userPreferencesSchema.parse(await request(userPath(userId)));

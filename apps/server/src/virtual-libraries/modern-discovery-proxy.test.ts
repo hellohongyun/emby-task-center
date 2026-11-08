@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
+import { createEmbyLibraryOrderStore } from "../integrations/emby-library-order-store";
 import { writeSettings } from "../settings/store";
 import { createVirtualLibraryProxy, type VirtualLibraryProxy } from "./proxy";
 import { createVirtualLibraryStore } from "./store";
@@ -26,7 +27,9 @@ describe("modern Emby library discovery through real HTTP", () => {
   let proxy: VirtualLibraryProxy;
   let server: Server;
   let base: string;
+  let upstreamBase: string;
   let virtualId: string;
+  let visibleLibraries: object[];
   let configuration: Record<string, unknown>;
   const sockets = new Set<Socket>();
   const observed: { path: string; method: string; body: string; contentType: string; token: string }[] = [];
@@ -35,6 +38,7 @@ describe("modern Emby library discovery through real HTTP", () => {
     observed.length = 0;
     database = createDatabase(":memory:");
     virtualId = createVirtualLibraryStore(database.db).create({ name: "Virtual library" }).id;
+    visibleLibraries = [real];
     configuration = { OrderedViews: [virtualId, real.Guid], MyMediaExcludes: [] };
     server = createServer(async (request, response) => {
       const url = new URL(request.url!, "http://fixture");
@@ -71,7 +75,7 @@ describe("modern Emby library discovery through real HTTP", () => {
           Items: [real, ...Array.from({ length: 25 }, (_, i) => ({ Id: `unrelated-${i}`, Type: "Movie" }))],
           TotalRecordCount: 26,
         };
-      } else result = { Items: [real], TotalRecordCount: 1, UpstreamMarker: true };
+      } else result = { Items: visibleLibraries, TotalRecordCount: visibleLibraries.length, UpstreamMarker: true };
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(result));
     });
     server.on("connection", (socket) => {
@@ -79,14 +83,14 @@ describe("modern Emby library discovery through real HTTP", () => {
       socket.once("close", () => sockets.delete(socket));
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const upstream = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    writeSettings(database.db, { "emby.baseUrl": upstream, "emby.apiKey": "admin-key-never-forwarded" });
+    upstreamBase = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    writeSettings(database.db, { "emby.baseUrl": upstreamBase, "emby.apiKey": "admin-key-never-forwarded" });
     const reservation = createServer();
     await new Promise<void>((resolve) => reservation.listen(0, "127.0.0.1", resolve));
     const port = (reservation.address() as AddressInfo).port;
     await new Promise<void>((resolve) => reservation.close(() => resolve()));
     proxy = createVirtualLibraryProxy({ database: database.db, appPort: 3000 });
-    await proxy.configure({ enabled: true, upstream, port });
+    await proxy.configure({ enabled: true, upstream: upstreamBase, port });
     base = `http://127.0.0.1:${port}/emby`;
   });
 
@@ -167,6 +171,41 @@ describe("modern Emby library discovery through real HTTP", () => {
     const folders = await ids("/Library/MediaFolders?UserId=u");
     expect(folders.ids).toEqual([virtualId, "101"]);
     expect(folders.TotalRecordCount).toBe(2);
+  });
+
+  it("applies the active administrator order on all library lists for a separate proxy upstream", async () => {
+    const native = "http://native-emby.invalid";
+    writeSettings(database.db, { "emby.baseUrl": native });
+    const numericReal = { ...real, Guid: undefined };
+    visibleLibraries = [numericReal, { ...numericReal, Id: "ttd-only" }, { ...numericReal, Id: "102" }];
+    configuration.OrderedViews = ["101", "ttd-only", virtualId, "102"];
+    const orders = createEmbyLibraryOrderStore(database.db);
+    orders.activate(native, upstreamBase, ["102", virtualId, real.Guid, "not-visible"], {}, { [real.Guid]: ["101"] });
+    orders.save(native, ["101", "102", virtualId], {});
+
+    for (const path of [
+      "/Users/u/Views",
+      "/Users/u/Views?IncludeHidden=true",
+      "/Library/MediaFolders?UserId=u",
+      "/Users/u/Sections/dynamic-row-917/Items",
+      "/Users/u/Items?ExcludeItemTypes=Audio",
+    ]) {
+      expect((await ids(path)).ids).toEqual(["102", virtualId, "101", "ttd-only"]);
+    }
+    expect((await ids("/Users/u/Sections/resume-dynamic/Items")).ids).toEqual(["upstream-content"]);
+    expect((await get("/Users/u/Views", "invalid-token")).status).toBe(401);
+    expect(observed.every((request) => request.token !== "admin-key-never-forwarded")).toBe(true);
+
+    writeSettings(database.db, { "emby.baseUrl": "http://another-emby.invalid" });
+    expect((await ids("/Users/u/Views")).ids).toEqual(["101", "ttd-only", virtualId, "102"]);
+  });
+
+  it("applies the active order when the server contains only upstream libraries", async () => {
+    createVirtualLibraryStore(database.db).remove(virtualId);
+    visibleLibraries = [real, { ...real, Id: "102", Guid: undefined }];
+    createEmbyLibraryOrderStore(database.db).activate(upstreamBase, upstreamBase, ["102", real.Guid], {});
+    expect((await ids("/Users/u/Sections/dynamic-row-917/Items")).ids).toEqual(["102", "101"]);
+    expect(observed.every((request) => request.path !== "/emby/Users/u")).toBe(true);
   });
 
   it.each(["/Items", "/Users/u/Items"])("preserves every upstream DTO for mixed lookup %s", async (path) => {

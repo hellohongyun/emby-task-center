@@ -30,6 +30,7 @@ export const VIEW_SEGMENTS: ReadonlyArray<{ view: AppView; segment: string; labe
   { view: "logs", segment: "logs", label: "日志" }, // 含「操作审计」Tab
   { view: "config", segment: "config", label: "系统设置" },
   { view: "submissions", segment: "submissions", label: "会员与运营" },
+  { view: "libraryOrder", segment: "library-order", label: "媒体库顺序" },
   { view: "cardKeys", segment: "cardKeys", label: "卡密" },
 ];
 
@@ -107,6 +108,7 @@ export function createAppRouter(): Router {
           { path: "logs", component: () => import("./views/LogsPage.vue") },
           { path: "config", component: () => import("./views/SystemSettingsPage.vue") },
           { path: "submissions", component: () => import("./views/MembersPage.vue") },
+          { path: "library-order", component: () => import("./views/LibraryOrderPage.vue") },
           { path: "cardKeys", component: () => import("./components/CardKeysView.vue") },
           ...VIEW_REDIRECTS.map((item) => ({
             path: item.segment,
