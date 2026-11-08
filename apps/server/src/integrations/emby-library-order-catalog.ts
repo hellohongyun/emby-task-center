@@ -1,36 +1,18 @@
 import type { EmbyLibraryOrderSession } from "./emby-library-order-client";
-import { libraryOrderSnapshot, viewIdentity, type LibraryOrderSnapshot } from "./emby-library-order-plan";
+import { viewIdentity, type LibraryOrderSnapshot } from "./emby-library-order-plan";
+import { aliasesFor, readLibraryOrderSide, type CatalogEntry } from "./emby-library-order-side";
 
-type LibraryKind = "native" | "virtual" | "unknown" | "owned";
 export type Account = { id: string; name: string; isAdministrator: boolean; isDisabled: boolean };
-type CatalogEntry = {
-  id: string;
-  guid?: string;
-  name: string;
-  kind: LibraryKind;
-  aliases: Set<string>;
-  visibleUsers: Set<string>;
-  inOrderedViews: boolean;
-};
 type Catalog = {
   entries: CatalogEntry[];
   users: Account[];
   warnings: string[];
   suggestedOrder: string[];
   snapshots: Map<string, LibraryOrderSnapshot>;
+  proxySnapshots: Map<string, LibraryOrderSnapshot>;
+  incomplete: boolean;
+  proxyUnavailable: boolean;
 };
-
-export async function inBatches<T, R>(items: T[], process: (item: T) => Promise<R>): Promise<R[]> {
-  const result: R[] = [];
-  for (let offset = 0; offset < items.length; offset += 4) {
-    result.push(...(await Promise.all(items.slice(offset, offset + 4).map(process))));
-  }
-  return result;
-}
-
-function aliasesFor(view: { id: string; guid?: string }): string[] {
-  return [...new Set([view.id, view.guid || view.id].map(viewIdentity).filter(Boolean))];
-}
 
 export function aliasMap(entries: CatalogEntry[]): Map<string, CatalogEntry> {
   const map = new Map<string, CatalogEntry>();
@@ -38,11 +20,11 @@ export function aliasMap(entries: CatalogEntry[]): Map<string, CatalogEntry> {
   return map;
 }
 
-export function resolveOrder(savedOrder: string[], entries: CatalogEntry[]): string[] {
+export function resolveOrder(savedOrder: string[], entries: CatalogEntry[], fallbackOrder: string[] = []): string[] {
   const aliases = aliasMap(entries);
   const seen = new Set<string>();
   const order: string[] = [];
-  for (const token of savedOrder) {
+  for (const token of [...savedOrder, ...fallbackOrder]) {
     const entry = aliases.get(viewIdentity(token));
     if (!entry || seen.has(entry.id)) continue;
     seen.add(entry.id);
@@ -57,134 +39,86 @@ export function resolveOrder(savedOrder: string[], entries: CatalogEntry[]): str
 export async function readCatalog(
   session: EmbyLibraryOrderSession,
   ownedVirtualLibraries: Array<{ id: string; name: string }>,
+  proxySession: EmbyLibraryOrderSession | null,
 ): Promise<Catalog> {
   const users = await session.listUsers();
-  const ownedIds = new Set(ownedVirtualLibraries.map(({ id }) => viewIdentity(id)));
-  const warnings: string[] = [];
-  let native: Awaited<ReturnType<EmbyLibraryOrderSession["listServerLibraries"]>> | null = null;
-  try {
-    native = await session.listServerLibraries();
-  } catch {
-    warnings.push("无法读取 Emby 原生媒体库列表，暂时无法区分原生库和虚拟库。");
-  }
-  let mediaFolders: Awaited<ReturnType<EmbyLibraryOrderSession["listMediaFolders"]>> | null = null;
-  try {
-    mediaFolders = await session.listMediaFolders();
-  } catch {
-    warnings.push("无法读取 Emby 媒体库合集，部分未分配给任何账号的库可能不会显示。");
-  }
+  const [direct, proxy] = await Promise.all([
+    readLibraryOrderSide(session, users, ownedVirtualLibraries, true),
+    proxySession ? readLibraryOrderSide(proxySession, users, ownedVirtualLibraries, false) : undefined,
+  ]);
+  const proxyUnavailable = !proxy || (proxy.warnings.length > 0 && proxy.snapshots.size === 0);
+  const warnings = [...direct.warnings, ...(proxy?.warnings ?? [])];
+  if (proxyUnavailable) warnings.push("无法确认反代上游的媒体库顺序，请检查反代上游后重试。");
 
-  const reads = await inBatches(users, async (user) => {
-    try {
-      const [preferences, views] = await Promise.all([
-        session.getUserPreferences(user.Id),
-        session.listUserViews(user.Id),
-      ]);
-      const snapshot = libraryOrderSnapshot(preferences, views, ownedIds);
-      return { user, snapshot };
-    } catch {
-      return { user, snapshot: null };
-    }
-  });
-  const failedUsers = reads.filter((item) => !item.snapshot).length;
-  if (failedUsers) warnings.push(`${failedUsers} 个 Emby 账号的媒体库顺序读取失败，预览时会单独标注。`);
-
-  const entries: CatalogEntry[] = [];
-  const byAlias = new Map<string, CatalogEntry>();
-  for (const { user, snapshot } of reads) {
-    if (!snapshot) continue;
-    const ordered = new Set(snapshot.orderedViews.map(viewIdentity));
-    for (const view of snapshot.visible) {
-      const aliases = aliasesFor(view);
-      let entry = aliases.map((alias) => byAlias.get(alias)).find((item) => item !== undefined);
-      if (!entry) {
-        entry = {
-          id: view.guid ? viewIdentity(view.guid) : viewIdentity(view.id),
-          ...(view.guid ? { guid: view.guid } : {}),
-          name: view.name,
-          kind: "unknown",
-          aliases: new Set(aliases),
-          visibleUsers: new Set<string>(),
-          inOrderedViews: false,
-        };
-        entries.push(entry);
-      } else if (!entry.guid && view.guid) {
-        entry.guid = view.guid;
-        entry.id = viewIdentity(view.guid);
+  const entries = [...direct.entries];
+  const byAlias = aliasMap(entries);
+  if (proxy && !proxyUnavailable) {
+    for (const proxyEntry of proxy.entries) {
+      const directEntry = [...proxyEntry.aliases]
+        .map((alias) => byAlias.get(alias))
+        .find((entry) => entry !== undefined);
+      if (!directEntry) {
+        entries.push(proxyEntry);
+        for (const alias of proxyEntry.aliases) byAlias.set(alias, proxyEntry);
+        continue;
       }
-      for (const alias of aliases) {
-        entry.aliases.add(alias);
-        byAlias.set(alias, entry);
+      directEntry.proxy = true;
+      if (!directEntry.guid && proxyEntry.guid) {
+        directEntry.guid = proxyEntry.guid;
+        directEntry.id = viewIdentity(proxyEntry.guid);
       }
-      if (aliases.some((alias) => ordered.has(alias))) entry.inOrderedViews = true;
-      entry.visibleUsers.add(user.Id);
+      for (const alias of proxyEntry.aliases) {
+        directEntry.aliases.add(alias);
+        byAlias.set(alias, directEntry);
+      }
+      for (const user of proxyEntry.visibleUsers) directEntry.visibleUsers.add(user);
     }
   }
+  for (const entry of entries) if (!entry.direct) entry.kind = "proxy";
 
-  // Include libraries that no account currently sees. They still belong to the
-  // server catalog and must be orderable for future accounts.
-  for (const folder of mediaFolders ?? []) {
-    const aliases = aliasesFor(folder);
-    if (aliases.some((id) => ownedIds.has(id))) continue;
-    let entry = aliases.map((alias) => byAlias.get(alias)).find((item) => item !== undefined);
-    if (!entry) {
-      entry = {
-        id: folder.guid ? viewIdentity(folder.guid) : viewIdentity(folder.id),
-        ...(folder.guid ? { guid: folder.guid } : {}),
-        name: folder.name,
-        kind: "unknown",
-        aliases: new Set(aliases),
-        visibleUsers: new Set<string>(),
-        inOrderedViews: false,
-      };
-      entries.push(entry);
-    } else if (!entry.guid && folder.guid) {
-      entry.guid = folder.guid;
-      entry.id = viewIdentity(folder.guid);
-    }
-    for (const alias of aliases) {
-      entry.aliases.add(alias);
-      byAlias.set(alias, entry);
-    }
-  }
-
-  const nativeIds = new Set((native ?? []).map((library) => viewIdentity(library.id)));
-  for (const entry of entries) {
-    if ([...entry.aliases].some((alias) => nativeIds.has(alias))) {
-      entry.kind = "native";
-      for (const alias of entry.aliases) nativeIds.add(alias);
-    } else {
-      entry.kind = native ? "virtual" : "unknown";
-    }
-  }
-  for (const library of native ?? []) {
-    const id = viewIdentity(library.id);
-    if (ownedIds.has(id)) continue;
-    if (entries.some((entry) => entry.aliases.has(id))) continue;
-    entries.push({
-      id,
-      name: library.name,
-      kind: "native",
-      aliases: new Set([id]),
-      visibleUsers: new Set<string>(),
-      inOrderedViews: false,
-    });
-  }
-
-  const virtualCount = entries.filter((entry) => entry.kind === "virtual").length;
+  const virtualCount = entries.filter((entry) => entry.direct && entry.kind === "virtual").length;
   if (virtualCount) {
     warnings.push(
-      `${virtualCount} 个非原生媒体库不在 Emby Library/VirtualFolders 中，写入 OrderedViews 后可能不生效。`,
+      `${virtualCount} 个非原生媒体库不在 Emby Library/VirtualFolders 中，写入 OrderedViews 后可能不生效；反代会按模板排序。`,
+    );
+  }
+  const proxyOnly = entries.filter((entry) => entry.proxy && !entry.direct && entry.kind !== "owned").length;
+  if (proxyOnly) {
+    warnings.push(
+      `${proxyOnly} 个媒体库只存在于反代上游，Emby 直连不会保存它们的顺序；请让客户端使用本项目反代，反代会按同一份模板排序。`,
     );
   }
 
-  // Start a first-time user from the administrator's actual OrderedViews rather
-  // than the raw /Views fallback order. The saved global order always wins later.
-  const adminRead = reads.find(({ user, snapshot }) => user.Policy?.IsAdministrator === true && snapshot);
+  for (const library of ownedVirtualLibraries) {
+    const id = viewIdentity(library.id);
+    entries.push({
+      id,
+      name: library.name,
+      kind: "owned",
+      aliases: new Set([id]),
+      visibleUsers: new Set(
+        [...direct.snapshots.entries()]
+          .filter(([, snapshot]) => !snapshot.hiddenViews.some((key) => viewIdentity(key) === id))
+          .map(([userId]) => userId),
+      ),
+      inOrderedViews: false,
+      direct: false,
+      proxy: true,
+    });
+  }
+
+  // Start a first-time user from the client-facing order, not the raw Emby list:
+  // that is the order the administrator sees in Emby Web and it includes upstream
+  // proxy-injected libraries. The saved global order always wins later.
+  const adminRead = users.find((user) => user.Policy?.IsAdministrator === true);
   const suggestedOrder: string[] = [];
   const suggested = new Set<string>();
-  if (adminRead?.snapshot) {
-    for (const view of adminRead.snapshot.templateOrder) {
+  if (adminRead) {
+    const adminViews =
+      (proxySession !== session ? proxy?.snapshots.get(adminRead.Id)?.visible : undefined) ??
+      direct.snapshots.get(adminRead.Id)?.templateOrder ??
+      [];
+    for (const view of adminViews) {
       const entry = aliasesFor(view)
         .map((alias) => byAlias.get(alias))
         .find((item) => item !== undefined);
@@ -201,23 +135,17 @@ export async function readCatalog(
     isAdministrator: user.Policy?.IsAdministrator === true,
     isDisabled: user.Policy?.IsDisabled === true,
   }));
-  for (const library of ownedVirtualLibraries) {
-    const id = viewIdentity(library.id);
-    entries.push({
-      id,
-      name: library.name,
-      kind: "owned",
-      aliases: new Set([id]),
-      visibleUsers: new Set(
-        reads.flatMap(({ user, snapshot }) =>
-          snapshot && !snapshot.hiddenViews.some((key) => viewIdentity(key) === id) ? [user.Id] : [],
-        ),
-      ),
-      inOrderedViews: false,
-    });
-  }
-  const snapshots = new Map(reads.flatMap(({ user, snapshot }) => (snapshot ? [[user.Id, snapshot]] : [])));
-  return { entries, users: accounts, warnings, suggestedOrder, snapshots };
+
+  return {
+    entries,
+    users: accounts,
+    warnings,
+    suggestedOrder,
+    snapshots: direct.snapshots,
+    proxySnapshots: proxy?.snapshots ?? new Map(),
+    incomplete: proxyUnavailable || direct.warnings.length > 0 || Boolean(proxy?.warnings.length),
+    proxyUnavailable,
+  };
 }
 
 export function publicLibraries(entries: CatalogEntry[], order: string[]) {
@@ -232,6 +160,8 @@ export function publicLibraries(entries: CatalogEntry[], order: string[]) {
         kind: entry.kind,
         visibleUsers: entry.visibleUsers.size,
         inOrderedViews: entry.inOrderedViews,
+        direct: entry.direct,
+        proxy: entry.proxy,
       },
     ];
   });

@@ -41,7 +41,7 @@ export function registerTaskSettingsRoutes(app: Express, options: TaskSettingsRo
         const mediaItem = database.select().from(mediaItems).where(eq(mediaItems.id, mediaItemId)).get();
         if (mediaItem) library?.matchInventory(mediaItem);
       }
-      void library?.scanEnabledRoots().catch(() => undefined);
+      void library?.scanEnabledRoots({ trigger: "task-alias" }).catch(() => undefined);
       response.json({ aliases });
     } catch (error) {
       response.status(400).json({ error: (error as Error).message });

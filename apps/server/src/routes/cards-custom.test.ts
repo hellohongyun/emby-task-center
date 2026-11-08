@@ -1,3 +1,4 @@
+import { activateCardForTest } from "../test-support/card-activation";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,13 +9,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
-import { cardKeys, submissionUsers, verificationCodes } from "@emby-task-center/database/schema";
+import { cardKeys, submissionUsers } from "@emby-task-center/database/schema";
 import { createApp } from "../app";
 import { staticCredentialVerifier } from "../auth/test-session";
 import { createLibraryService } from "../library/service";
 import type { TmdbClient } from "../tmdb/client";
 import type { EmbyClient } from "../integrations/emby-client";
-import type { EmailNotifier } from "../notifications/email-service";
 import { cardDisplayName, expiryDisplay, formatExpiryDate, normalizeExpiryDate } from "../subscriptions/cards";
 import { writeSettings } from "../settings/store";
 
@@ -59,7 +59,12 @@ describe("自定义卡密：固定到期日、名称与彩蛋文案", () => {
       tmdb,
       library: createLibraryService([]),
       integrationServices: {
-        email: { configured: false } as EmailNotifier,
+        email: {
+          configured: true,
+          sendNotification: async () => undefined,
+          sendTest: async () => undefined,
+          retryPending: async () => undefined,
+        },
         emby: { configured: false } as EmbyClient,
       },
     });
@@ -92,26 +97,8 @@ describe("自定义卡密：固定到期日、名称与彩蛋文案", () => {
     return { status: response.status, codes: body.codes ?? [], error: body.error };
   }
 
-  function seedVerificationCode(email: string, code = "123456") {
-    database.db
-      .insert(verificationCodes)
-      .values({
-        email,
-        code,
-        expiresAt: new Date(Date.now() + 600_000).toISOString(),
-        consumed: false,
-        createdAt: new Date().toISOString(),
-      })
-      .run();
-  }
-
   async function activate(email: string, cardCode: string) {
-    seedVerificationCode(email);
-    const response = await fetch(`${baseUrl}/api/public/subscriptions/activate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, code: "123456", cardCode }),
-    });
+    const response = await activateCardForTest(baseUrl, database.db, email, cardCode);
     return {
       status: response.status,
       body: (await response.json()) as {
@@ -158,8 +145,8 @@ describe("自定义卡密：固定到期日、名称与彩蛋文案", () => {
     expect(created.codes).toHaveLength(2);
 
     const expected = normalizeExpiryDate(date)!;
-    const first = await activate("early@example.com", created.codes[0]!);
-    const second = await activate("late@example.com", created.codes[1]!);
+    const first = await activate("100001011@qq.com", created.codes[0]!);
+    const second = await activate("100001012@qq.com", created.codes[1]!);
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     // 这就是"固定到期日"的全部意义：谁什么时候兑换，都在同一天到期
@@ -178,14 +165,14 @@ describe("自定义卡密：固定到期日、名称与彩蛋文案", () => {
 
   it("已有会员的原到期更晚时，固定到期日卡不会把会员期缩短", async () => {
     const longCard = await createCards({ kind: "year" });
-    const first = await activate("vip@example.com", longCard.codes[0]!);
+    const first = await activate("100001013@qq.com", longCard.codes[0]!);
     expect(first.status).toBe(200);
     const originalExpiry = first.body.member?.subscriptionExpiresAt;
     expect(originalExpiry).toBeTruthy();
 
     // 一张 30 天后到期的卡，给一个还有 365 天的会员兑换：只可能"不缩短"
     const shortCard = await createCards({ kind: "custom", expiresAt: futureDate(30), name: "短期卡" });
-    const second = await activate("vip@example.com", shortCard.codes[0]!);
+    const second = await activate("100001013@qq.com", shortCard.codes[0]!);
     expect(second.status).toBe(200);
     expect(second.body.member?.subscriptionExpiresAt).toBe(originalExpiry);
   });
@@ -209,11 +196,11 @@ describe("自定义卡密：固定到期日、名称与彩蛋文案", () => {
       })
       .run();
 
-    const check = await checkCard("newbie@example.com", code);
+    const check = await checkCard("100001014@qq.com", code);
     expect(check.status).toBe(400);
     expect(check.body.error).toBe("card_expired");
 
-    const redeem = await activate("newbie@example.com", code);
+    const redeem = await activate("100001014@qq.com", code);
     expect(redeem.status).toBe(400);
     expect(redeem.body.error).toBe("card_expired");
 
@@ -226,7 +213,7 @@ describe("自定义卡密：固定到期日、名称与彩蛋文案", () => {
   it("老卡（不带 expiresAt）行为一行不变：仍是 兑换日 + days", async () => {
     const before = Date.now();
     const created = await createCards({ kind: "month" });
-    const result = await activate("legacy@example.com", created.codes[0]!);
+    const result = await activate("100001015@qq.com", created.codes[0]!);
     expect(result.status).toBe(200);
     const expiry = Date.parse(result.body.member?.subscriptionExpiresAt ?? "");
     expect(Number.isFinite(expiry)).toBe(true);
@@ -244,7 +231,7 @@ describe("自定义卡密：固定到期日、名称与彩蛋文案", () => {
       name: "生日快乐卡密",
       expiryLabel: "2027 年春节结束到期",
     });
-    const result = await activate("birthday@example.com", created.codes[0]!);
+    const result = await activate("100001016@qq.com", created.codes[0]!);
     expect(result.status).toBe(200);
     expect(result.body.member?.membershipExpiryLabel).toBe("2027 年春节结束到期");
     // 开通响应也要告诉前端"用的是哪张卡"
@@ -254,11 +241,11 @@ describe("自定义卡密：固定到期日、名称与彩蛋文案", () => {
 
   it("续期换成不带名称的卡：旧的到期时间名称必须被清空，不能粘在新的到期时间上", async () => {
     const labeled = await createCards({ kind: "custom", expiresAt: futureDate(300), expiryLabel: "国庆假期结束到期" });
-    const first = await activate("switch@example.com", labeled.codes[0]!);
+    const first = await activate("100001017@qq.com", labeled.codes[0]!);
     expect(first.body.member?.membershipExpiryLabel).toBe("国庆假期结束到期");
 
     const plain = await createCards({ kind: "year" });
-    const second = await activate("switch@example.com", plain.codes[0]!);
+    const second = await activate("100001017@qq.com", plain.codes[0]!);
     expect(second.status).toBe(200);
     expect(second.body.member?.membershipExpiryLabel).toBeNull();
   });
@@ -269,8 +256,8 @@ describe("自定义卡密：固定到期日、名称与彩蛋文案", () => {
       expiresAt: futureDate(300),
       expiryLabel: "2027 年春节结束到期",
     });
-    const first = await activate("repeat@example.com", created.codes[0]!);
-    const second = await activate("repeat@example.com", created.codes[0]!);
+    const first = await activate("100001018@qq.com", created.codes[0]!);
+    const second = await activate("100001018@qq.com", created.codes[0]!);
     expect(second.status).toBe(200);
     expect(second.body.member?.subscriptionExpiresAt).toBe(first.body.member?.subscriptionExpiresAt);
     expect(second.body.member?.membershipExpiryLabel).toBe("2027 年春节结束到期");
@@ -284,7 +271,7 @@ describe("自定义卡密：固定到期日、名称与彩蛋文案", () => {
       expiryLabel: "国庆假期结束到期",
       blessing: "祝你国庆快乐，追剧愉快！",
     });
-    const check = await checkCard("newbie@example.com", created.codes[0]!);
+    const check = await checkCard("100001014@qq.com", created.codes[0]!);
     expect(check.status).toBe(200);
     // 名称优先：主文案是管理员写的名称，真实日期退到 detail 小字
     expect(check.body.card?.expiryText).toBe("国庆假期结束到期");
@@ -362,15 +349,11 @@ describe("自定义卡密：固定到期日、名称与彩蛋文案", () => {
       expiresAt: futureDate(300),
       expiryLabel: "2027 年春节结束到期",
     });
-    const activated = await activate("portal@example.com", created.codes[0]!);
+    const activated = await activate("100001019@qq.com", created.codes[0]!);
     expect(activated.status).toBe(200);
     const cookie = "x";
     void cookie;
-    const row = database.db
-      .select()
-      .from(submissionUsers)
-      .where(eq(submissionUsers.email, "portal@example.com"))
-      .get()!;
+    const row = database.db.select().from(submissionUsers).where(eq(submissionUsers.email, "100001019@qq.com")).get()!;
     expect(row.membershipExpiryLabel).toBe("2027 年春节结束到期");
   });
 

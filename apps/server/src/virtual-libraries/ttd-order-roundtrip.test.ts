@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
+import { createEmbyLibraryOrderStore } from "../integrations/emby-library-order-store";
 import { writeSettings } from "../settings/store";
 import { createVirtualLibraryProxy, type VirtualLibraryProxy } from "./proxy";
 import { createVirtualLibraryStore } from "./store";
@@ -135,5 +136,21 @@ describe("owned order across an upstream TTD library", () => {
     rejectSave = true;
     expect(await save([owned, ttd.Guid, native.Guid])).toBe(403);
     expect(await views()).toEqual([ttd.Id, owned, native.Id]);
+  });
+
+  it("sorts every upstream view with the active admin template", async () => {
+    const upstream = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    createEmbyLibraryOrderStore(database.db).activate(
+      upstream,
+      upstream,
+      [native.Guid, ttd.Guid],
+      { [native.Guid]: "Native", [ttd.Guid]: "TTD" },
+      { [native.Guid]: [native.Guid, native.Id], [ttd.Guid]: [ttd.Guid, ttd.Id] },
+    );
+    const response = await fetch(`${base}/alice/Views?IncludeHidden=true&AllowDynamicChildren=false`, {
+      headers: { "x-emby-token": "alice-token", connection: "close" },
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).Items.map((item: { Id: string }) => item.Id)).toEqual([native.Id, ttd.Id, owned]);
   });
 });

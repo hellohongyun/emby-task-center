@@ -3,6 +3,8 @@ import { fetchImage } from "../util/image-request";
 import { createEmbyLibraryOrderSessionFactory, type EmbyLibraryOrderSession } from "./emby-library-order-client";
 import { createEmbyMemberCleanupSessionFactory, type EmbyMemberCleanupSession } from "./emby-member-cleanup-client";
 import { createEmbyLibraryReader } from "./emby-library-reader";
+import type { EmbyPageProgress } from "./emby-pagination";
+import { createEmbyUserAvatarSession, type EmbyUserAvatarSession } from "./emby-user-avatar-client";
 export { normalizeEmbyDate } from "./emby-library-reader";
 
 export interface EmbyUserPolicy {
@@ -193,8 +195,13 @@ export interface EmbyClient {
   verify(input: { tmdbId: number; mediaType: "movie" | "tv"; episodes: number[] }): Promise<boolean>;
   /** 用户管理（可选能力，由支持用户管理的 Emby 客户端提供） */
   listUsers?(): Promise<EmbyUser[]>;
-  openLibraryOrderSession?(): EmbyLibraryOrderSession | undefined;
+  /**
+   * 打开媒体库顺序会话。`baseUrl` 可指定另一个 Emby 兼容端点（例如 TgtoDrive 反代上游），
+   * 用于读取客户端真正看到的媒体库目录；省略时使用系统 Emby 地址。
+   */
+  openLibraryOrderSession?(baseUrl?: string): EmbyLibraryOrderSession | undefined;
   openMemberCleanupSession?(): EmbyMemberCleanupSession | undefined;
+  openUserAvatarSession?(): EmbyUserAvatarSession | undefined;
   /**
    * 按 Id 取单个用户。**GUID 与内部数字 id 都接受** —— Emby 活动日志里的 `UserId` 给的是
    * 内部数字 id（线上实测：同一个账号在 /Sessions 是 GUID `01234567…`，在活动日志里是 `1`），
@@ -240,6 +247,7 @@ export interface EmbyClient {
     /** 每页大小（兼容旧参数名）；结果不会按它截断。 */
     limit?: number;
     libraryId?: string;
+    onPage?: EmbyPageProgress;
   }): Promise<EmbyLibraryItem[]>;
   /**
    * 删除一个 Emby 条目（Emby 官方的 `DELETE /Items/{Id}`：「Deletes an item from the library and file system」）。
@@ -294,6 +302,11 @@ export function createEmbyClient(options: {
 }): EmbyClient {
   let streamIdentity = {};
   let streamCredentials: string | undefined;
+  const libraryOrder = createEmbyLibraryOrderSessionFactory(credentials);
+  const upstreamLibraryOrder = createEmbyLibraryOrderSessionFactory((baseUrl) => ({
+    baseUrl: baseUrl?.replace(/\/+$/, ""),
+    apiKey: credentials().apiKey,
+  }));
   function credentials(): { baseUrl: string | undefined; apiKey: string | undefined } {
     if (options.resolve) {
       const live = options.resolve();
@@ -328,8 +341,11 @@ export function createEmbyClient(options: {
   }
 
   return {
-    openLibraryOrderSession: createEmbyLibraryOrderSessionFactory(credentials),
+    openLibraryOrderSession(baseUrl?: string) {
+      return baseUrl ? upstreamLibraryOrder(baseUrl) : libraryOrder();
+    },
     openMemberCleanupSession: createEmbyMemberCleanupSessionFactory(credentials),
+    openUserAvatarSession: () => createEmbyUserAvatarSession(credentials),
     get mediaStreamsCacheIdentity() {
       const live = credentials();
       const key = JSON.stringify([live.baseUrl, live.apiKey]);

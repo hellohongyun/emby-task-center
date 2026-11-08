@@ -14,6 +14,7 @@ import {
   type Catalog,
   type Library,
   type Preview,
+  type ProxyStatus,
 } from "./LibraryOrderPageData";
 
 export function useLibraryOrderPage() {
@@ -21,11 +22,13 @@ export function useLibraryOrderPage() {
   const endpoint = "/api/emby/library-order";
   const libraryRows = ref<Library[]>([]);
   const savedOrder = ref<string[]>([]);
+  const baselineOrder = ref<string[]>([]);
   const hasSavedOrder = ref(false);
   const activeOrder = ref<string[]>();
   const users = ref<Account[]>([]);
   const updatedAt = ref<string | null>(null);
   const catalogWarnings = ref<string[]>([]);
+  const proxyInfo = ref<ProxyStatus>();
   const preview = ref<Preview>();
   const results = ref<ApplyResult>();
   const operation = ref<"load" | "save" | "preview" | "apply">();
@@ -41,11 +44,20 @@ export function useLibraryOrderPage() {
 
   const currentOrder = computed(() => libraryRows.value.map((library) => library.id));
   const dirty = computed(() => !sameOrder(currentOrder.value, savedOrder.value));
+  const hasOrderEdits = computed(() => !sameOrder(currentOrder.value, baselineOrder.value));
   const proxyStatus = computed(() => {
-    if (!activeOrder.value) return "反代尚未启用管理员顺序";
-    return sameOrder(activeOrder.value, currentOrder.value) ? "反代已启用此顺序" : "反代当前使用上次确认的顺序";
+    const info = proxyInfo.value;
+    if (info && !info.enabled) {
+      return "本项目反代未启用";
+    }
+    if (info && !info.running) {
+      return "本项目反代已启用，尚未监听。请检查端口和上游配置";
+    }
+    if (!activeOrder.value) return info ? "反代已启用，但尚未确认管理员顺序" : "反代尚未启用管理员顺序";
+    return sameOrder(activeOrder.value, currentOrder.value) ? "反代正在使用此顺序" : "反代当前使用上次确认的顺序";
   });
   const dirtyReason = computed(() => {
+    if (hasOrderEdits.value) return "有未保存修改";
     if (!dirty.value) return "";
     const current = new Set(libraryRows.value.map((library) => library.id));
     const saved = new Set(savedOrder.value);
@@ -104,21 +116,33 @@ export function useLibraryOrderPage() {
 
   function applyCatalog(body: Catalog) {
     libraryRows.value = librariesInOrder(body.libraries, body.order);
+    baselineOrder.value = body.order;
     savedOrder.value = body.saved ? (body.savedOrder ?? body.order) : body.order;
     hasSavedOrder.value = body.saved;
     activeOrder.value = body.active ? body.activeOrder : undefined;
     users.value = body.users;
     updatedAt.value = body.updatedAt;
     catalogWarnings.value = body.warnings;
+    proxyInfo.value = body.proxy;
     if (!users.value.some((user) => user.id === testUserId.value)) {
       testUserId.value = users.value[0]?.id ?? "";
     }
     if (!users.value.length) scope.value = "all";
   }
 
+  function updateProxyInfo(body: Preview | ApplyResult) {
+    if (!proxyInfo.value) return;
+    proxyInfo.value = {
+      ...proxyInfo.value,
+      configured: body.proxyConfigured,
+      enabled: body.proxyEnabled,
+      running: body.proxyRunning,
+    };
+  }
+
   async function load() {
     if (operation.value) return;
-    if (dirty.value) {
+    if (hasOrderEdits.value) {
       message.value = "有未保存修改，请先保存或撤销后再刷新。";
       return;
     }
@@ -142,6 +166,7 @@ export function useLibraryOrderPage() {
     );
     if (!body) return false;
     libraryRows.value = librariesInOrder(body.libraries, body.order);
+    baselineOrder.value = body.order;
     savedOrder.value = body.order;
     hasSavedOrder.value = true;
     updatedAt.value = body.updatedAt;
@@ -161,7 +186,8 @@ export function useLibraryOrderPage() {
     operation.value = "preview";
     message.value = "";
     clearPreview();
-    if (dirty.value || !hasSavedOrder.value) {
+    const needsSave = !hasSavedOrder.value || (scope.value === "one" ? hasOrderEdits.value : dirty.value);
+    if (needsSave) {
       if (!(await persistOrder())) {
         operation.value = undefined;
         return;
@@ -181,7 +207,10 @@ export function useLibraryOrderPage() {
       },
       180_000,
     );
-    if (body) preview.value = body;
+    if (body) {
+      preview.value = body;
+      updateProxyInfo(body);
+    }
     operation.value = undefined;
   }
 
@@ -200,12 +229,15 @@ export function useLibraryOrderPage() {
     );
     if (body) {
       results.value = body;
+      updateProxyInfo(body);
       if (body.proxyActivated) {
         activeOrder.value = body.order;
         if (!sameOrder(currentOrder.value, body.order)) message.value = "同步使用了最新目录，刷新后可查看完整顺序。";
       }
       await nextTick();
       resultHeading.value?.focus();
+    } else {
+      clearPreview();
     }
     operation.value = undefined;
   }
@@ -221,11 +253,10 @@ export function useLibraryOrderPage() {
   }
 
   function resetOrder() {
-    if (operation.value || !savedOrder.value.length) return;
-    const restored = [...savedOrder.value, ...currentOrder.value.filter((id) => !savedOrder.value.includes(id))];
-    libraryRows.value = librariesInOrder(libraryRows.value, restored);
+    if (operation.value || !hasOrderEdits.value) return;
+    libraryRows.value = librariesInOrder(libraryRows.value, baselineOrder.value);
     clearPreview();
-    message.value = "已恢复到上次保存的顺序；新增媒体库保留在末尾。";
+    message.value = "已撤销未保存的调整。";
   }
 
   function dragStart(index: number, event: DragEvent) {
@@ -250,7 +281,7 @@ export function useLibraryOrderPage() {
   }
 
   function beforeUnload(event: BeforeUnloadEvent) {
-    if (!dirty.value && operation.value !== "apply") return;
+    if (!hasOrderEdits.value && operation.value !== "apply") return;
     event.preventDefault();
     event.returnValue = "";
   }
@@ -259,7 +290,7 @@ export function useLibraryOrderPage() {
     if (operation.value === "apply") {
       return window.confirm("同步正在进行，离开页面不会取消服务端写入，确定离开吗？");
     }
-    if (!dirty.value) return true;
+    if (!hasOrderEdits.value) return true;
     return window.confirm("还有未保存的媒体库顺序，确定离开吗？");
   });
 
@@ -289,12 +320,14 @@ export function useLibraryOrderPage() {
     dragging,
     resultHeading,
     dirty,
+    hasOrderEdits,
     dirtyReason,
     filtering,
     filteredRows,
     syncAction,
     previewWarnings,
     previewRows,
+    proxyInfo,
     proxyStatus,
     isNew,
     clearPreview,

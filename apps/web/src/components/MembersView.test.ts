@@ -7,6 +7,66 @@ function json(status: number, body: unknown) {
 }
 
 describe("MembersView", () => {
+  it("searches member profiles and replaces an existing Emby avatar only by explicit action", async () => {
+    const profile = {
+      qqNumber: "00123456",
+      joinSource: "影视群",
+      avatarUrl: "https://q1.qlogo.cn/g?b=qq&nk=00123456&s=100",
+      avatarSyncStatus: "preserved",
+    };
+    const request = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url === "/api/submission-users")
+        return json(200, {
+          users: [
+            { id: 1, email: "member@example.com", status: "active", profile },
+            { id: 2, email: "other@example.com", status: "active" },
+          ],
+        });
+      if (url === "/api/emby/users") return json(200, { users: [] });
+      if (url === "/api/emby/sessions") return json(200, { sessions: [] });
+      if (url === "/api/submission-users/1/profile/avatar")
+        return json(200, { profile: { ...profile, avatarSyncStatus: "synced" } });
+      return json(404, {});
+    });
+    vi.stubGlobal("fetch", request);
+    const view = render(MembersView, { props: { requireAuth: vi.fn() } });
+    try {
+      await screen.findByText("other@example.com");
+      const search = screen.getByRole("searchbox", { name: "搜索会员" });
+      await fireEvent.update(search, "00123456");
+      expect(screen.queryByText("other@example.com")).toBeNull();
+      expect(screen.getByRole("button", { name: "复制 QQ 号" })).toBeInTheDocument();
+      await fireEvent.update(search, "影视群");
+      await fireEvent.click(screen.getByRole("button", { name: "会员资料" }));
+      const detail = within(screen.getByRole("dialog", { name: "会员资料" }));
+      expect(detail.getByLabelText("联系 QQ")).toHaveValue("00123456");
+      expect(detail.getByLabelText("入会来源（选填）")).toHaveValue("影视群");
+      expect(detail.getByText("已保留现有的 Emby 自定义头像。")).toBeInTheDocument();
+
+      const replace = detail.getByRole("button", { name: "用 QQ 头像替换" });
+      await fireEvent.update(detail.getByLabelText("联系 QQ"), "00987654");
+      expect(replace).toBeDisabled();
+      await fireEvent.update(detail.getByLabelText("联系 QQ"), "00123456");
+      await fireEvent.click(replace);
+      expect(await detail.findByText("头像已同步到 Emby。")).toBeInTheDocument();
+      expect(request).toHaveBeenCalledWith(
+        "/api/submission-users/1/profile/avatar",
+        expect.objectContaining({ method: "POST", body: JSON.stringify({ replace: true }) }),
+      );
+      await fireEvent.click(detail.getByRole("button", { name: "立即刷新 QQ 头像" }));
+      await waitFor(() =>
+        expect(request).toHaveBeenCalledWith(
+          "/api/submission-users/1/profile/avatar",
+          expect.objectContaining({ method: "POST", body: JSON.stringify({ replace: false }) }),
+        ),
+      );
+    } finally {
+      view.unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("shows pending time and following memberships, and refreshes the cap without discarding the settings draft", async () => {
     const user = { status: "active", enabled: true, subscriptionExpiresAt: "2028-08-31T15:59:59.999Z" };
     let cap = { date: "2028-08-31", expiresAt: user.subscriptionExpiresAt };

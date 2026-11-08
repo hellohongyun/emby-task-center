@@ -21,7 +21,7 @@ import { registerPublicRoutes } from "./routes/public";
 import { registerPublicLibraryRoutes } from "./routes/public-library";
 import { registerPublicSubscriptionRoutes } from "./routes/public-subscriptions";
 import { registerMemberRoutes } from "./routes/members";
-import { registerMemberExpiryCleanupRoutes } from "./routes/member-expiry-cleanup";
+import { registerMemberCleanupRoutes } from "./routes/member-expiry-cleanup";
 import { registerAdminMediaRequestRoutes, registerPublicMediaRequestRoutes } from "./routes/media-requests";
 import { registerMemberUsageRoutes } from "./routes/member-usage";
 import { registerAdminContentRoutes } from "./routes/admin-content";
@@ -102,7 +102,7 @@ export function createApp(options: AppOptions) {
   app.use((_request, response, next) => {
     response.set({
       "Content-Security-Policy":
-        "default-src 'self'; base-uri 'self'; connect-src 'self'; frame-ancestors 'none'; frame-src https://www.youtube.com https://www.youtube-nocookie.com; form-action 'self'; img-src 'self' data: https://image.tmdb.org https://*.doubanio.com https://*.meituan.net https://*.maoyan.com https://*.pipi.cn https://dnm.nflximg.net https://*.nflximg.net; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+        "default-src 'self'; base-uri 'self'; connect-src 'self'; frame-ancestors 'none'; frame-src https://www.youtube.com https://www.youtube-nocookie.com; form-action 'self'; img-src 'self' data: https://image.tmdb.org https://*.doubanio.com https://*.meituan.net https://*.maoyan.com https://*.pipi.cn https://dnm.nflximg.net https://*.nflximg.net https://q1.qlogo.cn; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
       "Cross-Origin-Opener-Policy": "same-origin",
       "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
       "Referrer-Policy": "no-referrer",
@@ -188,6 +188,7 @@ export function createApp(options: AppOptions) {
     database: options.database,
     email: options.integrationServices?.email,
     emby: options.integrationServices?.emby,
+    logger: options.logger,
   });
   // 「内容与偏好」接口：原先被 submission 路由顺带挂载，现各自注册。
   // （追更任务管理 follow-tasks 已随追更功能整体下线，2026-09）
@@ -230,8 +231,8 @@ export function createApp(options: AppOptions) {
     services: options.integrationServices,
   });
   registerEmbyUserRoutes(app, options.integrationServices?.emby, options.database);
-  registerEmbyLibraryOrderRoutes(app, options.integrationServices?.emby, options.database);
-  registerMemberExpiryCleanupRoutes(app, options.database, options.integrationServices?.emby);
+  registerEmbyLibraryOrderRoutes(app, options.integrationServices?.emby, options.database, options.virtualLibraryProxy);
+  registerMemberCleanupRoutes(app, options.database, options.integrationServices?.emby);
   // 会员使用记录（登录/播放/时段）：数据由后台采样器与 Emby 活动日志回填写入，这里只读 + 手动刷新。
   registerMemberUsageRoutes(app, {
     database: options.database,

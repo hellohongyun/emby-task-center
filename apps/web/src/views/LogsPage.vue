@@ -14,7 +14,7 @@ import { useAppServices } from "../state/app-services";
  */
 type LogTab = "system" | "audit";
 const TABS: Array<{ key: LogTab; label: string; hint: string }> = [
-  { key: "system", label: "系统日志", hint: "前端请求与后端接口调用" },
+  { key: "system", label: "系统日志", hint: "任务步骤与接口执行记录" },
   { key: "audit", label: "操作审计", hint: "管理操作全量留痕" },
 ];
 

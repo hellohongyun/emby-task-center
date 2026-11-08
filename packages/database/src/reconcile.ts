@@ -19,6 +19,7 @@ import { sql } from "drizzle-orm";
 import type { AppDatabase } from "./client";
 import { reconcileLegacyArticleAddresses } from "./legacy-article-address";
 import { reconcileVirtualLibraries } from "./virtual-libraries-reconcile";
+import { reconcileLogMetadata } from "./log-metadata-reconcile";
 
 export function applyPostMigrationReconciliation(database: AppDatabase): void {
   reconcileVirtualLibraries(database);
@@ -26,6 +27,7 @@ export function applyPostMigrationReconciliation(database: AppDatabase): void {
   reconcileRenewalOutbox(database);
   reconcileDriveExpiry(database);
   reconcileMemberExpiryCleanup(database);
+  reconcileLogMetadata(database);
   // 已下线的表：老库（首次对账时建过）里可能还留着，直接丢掉，幂等可反复执行。
   database.run(sql`DROP TABLE IF EXISTS emby_proxy_settings`);
   // 并发超限升级策略（单行）。
@@ -660,5 +662,17 @@ export function applyPostMigrationReconciliation(database: AppDatabase): void {
   const memberCols = database.all<{ name: string }>(sql`PRAGMA table_info(submission_users)`);
   if (memberCols.length > 0 && !memberCols.some((column) => column.name === "membership_expiry_label")) {
     database.run(sql`ALTER TABLE submission_users ADD COLUMN membership_expiry_label TEXT`);
+  }
+  if (memberCols.length > 0) {
+    const columns = new Set(memberCols.map((column) => column.name));
+    for (const name of [
+      "qq_number",
+      "join_source",
+      "qq_avatar_sync_status",
+      "qq_avatar_synced_tag",
+      "qq_avatar_synced_emby_user_id",
+    ]) {
+      if (!columns.has(name)) database.run(sql`ALTER TABLE submission_users ADD COLUMN ${sql.identifier(name)} TEXT`);
+    }
   }
 }

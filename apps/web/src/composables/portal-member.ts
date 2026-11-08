@@ -76,6 +76,12 @@ export interface EntryCheck {
   /** 没注册过 → true：必须走注册页，凭卡密。 */
   needsCard: boolean;
   expired: boolean;
+  groupInvite?: { groupNumber: string } | null;
+}
+
+export interface RegistrationProof {
+  registrationToken: string;
+  qqNumber: string;
 }
 
 /**
@@ -103,6 +109,15 @@ export interface CardCheckInfo {
   expiryDays: number | null;
   /** 彩蛋祝福文案；为空表示这张卡不弹窗。 */
   blessing: string | null;
+}
+
+export interface CardBlessingInfo {
+  name: string;
+  expiryText: string;
+  detail?: string | null;
+  expiryDetail?: string | null;
+  expiryDays?: number | null;
+  blessing: string;
 }
 
 /** 卡密预检结果（`/card/check`）：只校验不消耗卡密。 */
@@ -159,6 +174,18 @@ export function friendlyError(code?: string): string {
       return "请先验证卡密，通过后再获取验证码。";
     case "card_mismatch":
       return "卡密与发送验证码时验证的不一致，请重新验证卡密。";
+    case "qq_email_required":
+      return "首次开通请使用数字 QQ 邮箱，例如 123456789@qq.com。";
+    case "group_invite_required":
+      return "请输入 QQ 群公告中的会员注册邀请码。";
+    case "invalid_group_invite":
+      return "群邀请码无效，请查看群公告中的最新邀请码。";
+    case "registration_verification_required":
+      return "注册验证已失效，请返回重新获取验证码。";
+    case "registration_unavailable":
+      return "暂时无法注册，请联系管理员。";
+    case "already_registered":
+      return "该邮箱已开通，请返回使用邮箱验证码登录。";
     case "email_send_failed":
       return "验证码发送失败，请稍后再试。";
     case "invalid_request":

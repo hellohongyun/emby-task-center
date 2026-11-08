@@ -13,6 +13,8 @@ import { createLibraryService } from "../library/service";
 import type { TmdbClient } from "../tmdb/client";
 import type { EmbyClient } from "../integrations/emby-client";
 import type { EmailNotifier } from "../notifications/email-service";
+import { writeSettings } from "../settings/store";
+import { postSubscription } from "../test-support/card-activation";
 
 /**
  * 卡密闸门：**发验证码之前必须先验证卡密**。
@@ -20,8 +22,6 @@ import type { EmailNotifier } from "../notifications/email-service";
  * 改造前 `/code` 只要给个邮箱就发信，卡密是到最后开通那一步才校验的——等于任何人都能拿
  * 别人的邮箱刷我们的发信量。这组用例守的就是「闸门不过 → 一封邮件都不发」。
  *
- * 单独成一个文件还有个现实原因：`/code` 有每 IP 5 次/分钟的限流，而限流器是模块级单例
- * （同文件所有用例共享预算）。给它自己的文件，预算才够用。
  */
 const sharedPassword = "family-password";
 const sessionSecret = "session-signing-secret";
@@ -113,7 +113,7 @@ describe("public subscription card gate (no card → no email)", () => {
   }
 
   it("新用户不给卡密就要验证码：拒绝，且不签发、不发送任何邮件", async () => {
-    const res = await postCode({ email: "gate@example.com" });
+    const res = await postCode({ email: "100001031@qq.com" });
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: "card_required" });
     expect(emailsSent).toHaveLength(0);
@@ -122,7 +122,7 @@ describe("public subscription card gate (no card → no email)", () => {
 
   it("卡密不对同样不发信（invalid_card），也不留下验证码", async () => {
     seedCard("CARDAAAA1111");
-    const res = await postCode({ email: "gate@example.com", cardCode: "WRONGCARD99" });
+    const res = await postCode({ email: "100001031@qq.com", cardCode: "WRONGCARD99" });
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: "invalid_card" });
     expect(emailsSent).toHaveLength(0);
@@ -132,10 +132,10 @@ describe("public subscription card gate (no card → no email)", () => {
   it("卡密正确才发信，并回执 needsCard 告诉前端提交要走「开通」", async () => {
     seedCard("CARDAAAA1111");
     // 卡密大小写与空格不敏感：用户手抄容易带上
-    const res = await postCode({ email: "gate@example.com", cardCode: " cardaaaa1111 " });
+    const res = await postCode({ email: "100001031@qq.com", cardCode: " cardaaaa1111 " });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ sent: true, registered: false, needsCard: true, expired: false });
-    expect(emailsSent.filter((mail) => mail.to === "gate@example.com")).toHaveLength(1);
+    expect(emailsSent.filter((mail) => mail.to === "100001031@qq.com")).toHaveLength(1);
     expect(verificationCodeCount()).toBe(1);
   });
 
@@ -145,5 +145,54 @@ describe("public subscription card gate (no card → no email)", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ sent: true, registered: true, needsCard: false });
     expect(emailsSent.filter((mail) => mail.to === "active@example.com")).toHaveLength(1);
+  });
+
+  it("只接受数字 QQ 邮箱用于首次注册，绕过发码接口也不能开通", async () => {
+    const cardCode = "CARDAAAA1111";
+    seedCard(cardCode);
+    const alias = await postCode({ email: "alias@qq.com", cardCode });
+    expect(await alias.json()).toEqual({ error: "qq_email_required" });
+    const activation = await postSubscription(baseUrl, "activate", {
+      email: "100001031@qq.com",
+      cardCode,
+      code: "123456",
+    });
+    expect(await activation.json()).toEqual({ error: "registration_verification_required" });
+    expect(emailsSent).toHaveLength(0);
+    expect(verificationCodeCount()).toBe(0);
+  });
+
+  it("群邀请码仅公开群号，校验通过才发码，更换邀请码会让已验证的凭证失效", async () => {
+    const email = "100001031@qq.com";
+    const cardCode = "CARDAAAA1111";
+    const inviteCode = "group-notice-code";
+    seedCard(cardCode);
+    writeSettings(database.db, {
+      "member.groupInviteEnabled": true,
+      "member.groupNumber": "123456789",
+      "member.groupInviteCode": inviteCode,
+    });
+
+    const entry = await postSubscription(baseUrl, "entry", { email });
+    const publicEntry = await entry.json();
+    expect(publicEntry).toMatchObject({ groupInvite: { groupNumber: "123456789" } });
+    expect(JSON.stringify(publicEntry)).not.toContain(inviteCode);
+    expect(await (await postCode({ email, cardCode })).json()).toEqual({ error: "group_invite_required" });
+    expect(await (await postCode({ email, cardCode, inviteCode: "wrong-code" })).json()).toEqual({
+      error: "invalid_group_invite",
+    });
+    expect(emailsSent).toHaveLength(0);
+    expect(verificationCodeCount()).toBe(0);
+
+    expect((await postCode({ email, cardCode, inviteCode })).status).toBe(200);
+    const code = emailsSent[0]?.text.match(/验证码：(\d{6})/)?.[1];
+    const verified = await postSubscription(baseUrl, "register/verify", { email, code, cardCode, inviteCode });
+    expect(verified.status).toBe(200);
+    const { registrationToken } = (await verified.json()) as { registrationToken: string };
+    writeSettings(database.db, { "member.groupInviteCode": "new-group-code" });
+    const activation = await postSubscription(baseUrl, "activate", { email, cardCode, registrationToken });
+    expect(await activation.json()).toEqual({ error: "registration_verification_required" });
+    expect(database.db.select().from(submissionUsers).all()).toEqual([]);
+    expect(database.db.select().from(cardKeys).get()?.status).toBe("unused");
   });
 });

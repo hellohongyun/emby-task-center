@@ -10,6 +10,7 @@ import {
   mdiLogin,
   mdiRefresh,
   mdiRestore,
+  mdiShieldAccountOutline,
   mdiSort,
 } from "@mdi/js";
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
@@ -20,8 +21,12 @@ import { useEmbyUsers } from "../composables/useEmbyUsers";
 import { groupSessions } from "../library/session-groups";
 import SessionPlaybackCard from "./SessionPlaybackCard.vue";
 import MemberExpiryCleanupDialog from "./MemberExpiryCleanupDialog.vue";
+import type { MemberCleanupMode } from "./member-cleanup-settings";
 import MemberRenewalDialog from "./MemberRenewalDialog.vue";
 import MembershipDriveExpirySettings from "./MembershipDriveExpirySettings.vue";
+import CopyTextButton from "./CopyTextButton.vue";
+import MemberAvatar from "./MemberAvatar.vue";
+import MemberProfileDialog from "./MemberProfileDialog.vue";
 import { formatMembershipDuration } from "../composables/membership-duration";
 
 const props = defineProps<{ requireAuth: () => void; goToLibraryOrder?: () => void }>();
@@ -35,7 +40,10 @@ const pageError = computed(() => {
 const busy = ref(false);
 const message = ref("");
 const renewingMember = ref<SubmissionUser | null>(null);
-const expiryCleanupOpen = ref(false);
+const profileMemberId = ref<number | null>(null);
+const profileMember = computed(() => admin.users.value.find((user) => user.id === profileMemberId.value));
+const memberSearch = ref("");
+const cleanupMode = ref<MemberCleanupMode>();
 const driveExpiry = ref<MembershipDriveExpiry | null>();
 const driveSettings = ref<InstanceType<typeof MembershipDriveExpirySettings>>();
 const refreshingPage = ref(false);
@@ -71,6 +79,15 @@ const rows = computed<UserRow[]>(() => {
   }
   for (const e of eu.users.value) if (!used.has(e.id)) out.push({ member: null, emby: e });
   return out;
+});
+const visibleRows = computed(() => {
+  const query = memberSearch.value.trim().toLowerCase();
+  if (!query) return rows.value;
+  return rows.value.filter(({ member, emby }) =>
+    [member?.email, member?.profile?.qqNumber, member?.profile?.joinSource, emby?.name].some((value) =>
+      value?.toLowerCase().includes(query),
+    ),
+  );
 });
 
 /* ---- 在线会话分组：默认只显示"正在播放"，挂在上面没播的折叠起来 ---- */
@@ -347,8 +364,11 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
         <button v-if="goToLibraryOrder" type="button" class="refresh" @click="goToLibraryOrder">
           <SvgIcon type="mdi" :path="mdiSort" :size="18" />媒体库顺序
         </button>
-        <button type="button" class="refresh" @click="expiryCleanupOpen = true">
+        <button type="button" class="refresh" @click="cleanupMode = 'expiry'">
           <SvgIcon type="mdi" :path="mdiDelete" :size="18" />过期自动删除
+        </button>
+        <button type="button" class="refresh" @click="cleanupMode = 'inactivity'">
+          <SvgIcon type="mdi" :path="mdiShieldAccountOutline" :size="18" />保号设置
         </button>
         <button
           type="button"
@@ -415,10 +435,18 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
     <!-- 统一用户表 -->
     <section class="panel member-list">
       <h3>
-        会员列表 <span class="count-chip">{{ rows.length }}</span>
+        会员列表 <span class="count-chip">{{ visibleRows.length }}</span>
       </h3>
+      <input
+        v-model="memberSearch"
+        class="member-search"
+        type="search"
+        aria-label="搜索会员"
+        placeholder="搜索邮箱、QQ 或入会来源"
+      />
       <div v-if="admin.loading.value || eu.loading.value" class="empty">正在读取…</div>
       <div v-else-if="!rows.length" class="empty">暂无用户。请先添加用户（邮箱即 Emby 用户名）。</div>
+      <div v-else-if="!visibleRows.length" class="empty">没有匹配的会员。</div>
       <div v-else class="table-wrap">
         <table class="users-table" role="table" aria-label="会员列表">
           <thead role="rowgroup">
@@ -439,16 +467,21 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
           </thead>
           <tbody role="rowgroup">
             <tr
-              v-for="row in rows"
+              v-for="row in visibleRows"
               :key="rowKey(row)"
               role="row"
               :class="{ expanded: expandedRows[rowKey(row)], orphan: !row.member }"
             >
               <td class="member-cell" role="cell">
-                <template v-if="row.member"
-                  ><b class="email">{{ row.member.email }}</b
-                  ><small v-if="row.member.note" class="email-note">{{ row.member.note }}</small></template
-                >
+                <template v-if="row.member">
+                  <b class="email">{{ row.member.email }}</b>
+                  <div v-if="row.member.profile?.qqNumber" class="member-contact">
+                    <MemberAvatar :src="row.member.profile.avatarUrl" />
+                    <span>QQ {{ row.member.profile.qqNumber }}</span>
+                    <CopyTextButton :text="row.member.profile.qqNumber" label="复制 QQ 号" />
+                  </div>
+                  <small v-if="row.member.note" class="email-note">{{ row.member.note }}</small>
+                </template>
                 <template v-else
                   ><span class="only-emby">仅 Emby 账号</span
                   ><small class="email-note">{{ unboundReason(row) }}</small></template
@@ -480,6 +513,7 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
               <td class="actions" role="cell">
                 <div class="row-actions">
                   <template v-if="row.member">
+                    <button type="button" @click="profileMemberId = row.member.id">会员资料</button>
                     <button
                       type="button"
                       class="primary renew-primary"
@@ -634,9 +668,11 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
     </section>
 
     <MemberExpiryCleanupDialog
-      v-if="expiryCleanupOpen"
+      v-if="cleanupMode"
+      :key="cleanupMode"
+      :mode="cleanupMode"
       :require-auth="requireAuth"
-      @close="expiryCleanupOpen = false"
+      @close="cleanupMode = undefined"
     />
     <MemberRenewalDialog
       v-if="renewingMember"
@@ -646,6 +682,14 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
       :require-auth="requireAuth"
       @close="renewingMember = null"
       @saved="renewalSaved"
+    />
+    <MemberProfileDialog
+      v-if="profileMember"
+      :key="profileMember.id"
+      :member="profileMember"
+      :save="admin.updateProfile"
+      :sync-avatar="admin.syncProfileAvatar"
+      @close="profileMemberId = null"
     />
     <!--
       在线会话：详情对齐 Emby 客户端的播放状态（片名/季节集/进度/设备/直连或转码/编码音轨）。
@@ -992,6 +1036,32 @@ button:disabled {
   color: var(--text-dim);
   font-size: 11px;
   margin-top: 3px;
+}
+.member-search {
+  box-sizing: border-box;
+  width: min(100%, 320px);
+  min-height: 36px;
+  margin: 0 0 12px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--input);
+  color: var(--text);
+  font: inherit;
+}
+.member-contact {
+  --avatar-size: 24px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.member-contact button {
+  min-height: 26px;
+  padding: 0 6px;
 }
 .only-emby {
   color: #8fb7e8;

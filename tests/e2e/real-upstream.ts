@@ -1,8 +1,13 @@
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createMissingFixtureHandler } from "./missing-fixture-data";
 
 /** Local Emby and TMDB HTTP fixtures; these are not real upstream services. */
-export async function startEmbyFixture(options: { missingEpisodes?: boolean } = {}) {
+export async function startEmbyFixture(
+  options: {
+    missingEpisodes?: boolean;
+    handle?: (request: IncomingMessage, response: ServerResponse, url: URL, path: string) => boolean;
+  } = {},
+) {
   const missingHandler = options.missingEpisodes ? createMissingFixtureHandler() : undefined;
   const hits: Array<{ method: string; path: string }> = [];
   const unexpected: string[] = [];
@@ -11,6 +16,7 @@ export async function startEmbyFixture(options: { missingEpisodes?: boolean } = 
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const path = url.pathname.replace(/^\/emby/, "");
     hits.push({ method: request.method ?? "GET", path });
+    if (options.handle?.(request, response, url, path)) return;
     const missingResult = missingHandler?.(url, request.method ?? "GET");
     if (missingResult) {
       response

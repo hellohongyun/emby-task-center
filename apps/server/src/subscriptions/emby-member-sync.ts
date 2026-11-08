@@ -30,6 +30,8 @@ import { syncEmbyStreamLimit } from "./emby-account";
 import { createDatabaseSingleFlight } from "../util/database-single-flight";
 import { applyDriveExpiry } from "./drive-expiry";
 import { embyAccessAllowed, syncMemberEmbyAccess } from "./emby-access";
+import { syncMemberQqAvatar } from "./member-qq-avatar";
+import type { WorkflowLogger } from "../logging/workflow-log";
 
 export type AutoLinkSkipReason = "administrator" | "not_email" | "disabled" | "already_linked" | "conflict";
 
@@ -62,6 +64,7 @@ async function linkOrphanRound(
   database: AppDatabase,
   emby: EmbyClient | undefined,
   now = new Date(),
+  logger?: WorkflowLogger,
 ): Promise<AutoLinkResult> {
   const result: AutoLinkResult = { linked: [], adopted: [], skipped: [] };
   if (!emby?.configured || !emby.listUsers) return result;
@@ -113,6 +116,7 @@ async function linkOrphanRound(
       await syncEmbyStreamLimit(database, emby, user.Id, existing.embyMaxStreams);
       if (!embyAccessAllowed(database, existing.id, false, now))
         await syncMemberEmbyAccess(database, emby, existing.id, false, now);
+      if (existing.qqNumber) void syncMemberQqAvatar(database, emby, existing.id, { logger }).catch(() => undefined);
       audit(database, "system", "member.auto_linked", "submission_user", existing.id, undefined, {
         email,
         embyUserId: user.Id,

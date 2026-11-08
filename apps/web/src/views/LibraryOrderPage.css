@@ -277,7 +277,8 @@
   border-color: rgb(104 189 104 / 35%);
 }
 .tag.virtual,
-.tag.owned {
+.tag.owned,
+.tag.proxy {
   color: #a9b9ff;
   border-color: rgb(150 170 255 / 35%);
 }

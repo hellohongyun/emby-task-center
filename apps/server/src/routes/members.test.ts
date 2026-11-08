@@ -154,6 +154,48 @@ describe("member (submission_users) admin API", () => {
     expect(await response.json()).toEqual({ linked: [], adopted: [], skipped: [] });
   });
 
+  it("keeps profile access scoped to the member and administrator even after expiry", async () => {
+    const member = addSubmissionUser(database.db, {
+      email: "profile@example.invalid",
+      note: "仅后台可见",
+      subscriptionExpiresAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+    const memberCookie = createPublicSessionManager(sessionSecret, () => member).issueCookie(member.email);
+    const profileUrl = `${baseUrl}/api/public/subscriptions/member/profile`;
+    const adminUrl = `${baseUrl}/api/submission-users/${member.id}/profile`;
+    const save = (url: string, cookie: string, profile: { qqNumber: string; joinSource: string }) =>
+      fetch(url, {
+        method: "PUT",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify(profile),
+      });
+
+    expect((await fetch(profileUrl)).status).toBe(401);
+    expect((await save(adminUrl, memberCookie, { qqNumber: "12345", joinSource: "" })).status).toBe(401);
+    expect((await save(profileUrl, memberCookie, { qqNumber: "not-qq", joinSource: "" })).status).toBe(400);
+
+    const updated = await save(profileUrl, memberCookie, { qqNumber: " 00123456 ", joinSource: " 群公告 " });
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toEqual({
+      profile: {
+        qqNumber: "00123456",
+        joinSource: "群公告",
+        avatarUrl: "https://q1.qlogo.cn/g?b=qq&nk=00123456&s=100",
+        avatarSyncStatus: "pending",
+      },
+    });
+
+    const cookie = await login();
+    const savedByAdmin = await save(adminUrl, cookie, { qqNumber: "23456", joinSource: "朋友推荐" });
+    expect(savedByAdmin.status).toBe(200);
+    const self = await fetch(profileUrl, { headers: { cookie: memberCookie } });
+    expect(await self.json()).toEqual(await savedByAdmin.json());
+    const list = await fetch(`${baseUrl}/api/submission-users`, { headers: { cookie } });
+    expect(await list.json()).toMatchObject({
+      users: [{ id: member.id, profile: { qqNumber: "23456", joinSource: "朋友推荐" } }],
+    });
+  });
+
   it("exposes a scoped TMDB search to the public page", async () => {
     const anonymous = await fetch(`${baseUrl}/api/public/tmdb/search?q=matrix`);
     expect(anonymous.status).toBe(401);

@@ -1,3 +1,4 @@
+import { activateCardForTest, postSubscription } from "../test-support/card-activation";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -127,7 +128,7 @@ describe("public subscription (card + verification code) API", () => {
     const codeRes = await fetch(`${baseUrl}/api/public/subscriptions/code`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "new@example.com", cardCode }),
+      body: JSON.stringify({ email: "100001021@qq.com", cardCode }),
     });
     expect(codeRes.status).toBe(200);
     const sent = (await codeRes.json()) as { registered: boolean; needsCard: boolean };
@@ -135,10 +136,18 @@ describe("public subscription (card + verification code) API", () => {
     expect(sent.needsCard).toBe(true);
     const code = latestCode();
 
+    const email = "100001021@qq.com";
+    const verified = await postSubscription(baseUrl, "register/verify", { email, code, cardCode });
+    expect(verified.status).toBe(200);
+    expect(verified.headers.get("set-cookie")).toBeNull();
+    const { registrationToken, qqNumber } = (await verified.json()) as { registrationToken: string; qqNumber: string };
+    expect(qqNumber).toBe("100001021");
+    expect(database.db.select().from(submissionUsers).where(eq(submissionUsers.email, email)).get()).toBeUndefined();
+
     const activate = await fetch(`${baseUrl}/api/public/subscriptions/activate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "new@example.com", code, cardCode }),
+      body: JSON.stringify({ email, registrationToken, cardCode, joinSource: " QQ 群 " }),
     });
     expect(activate.status).toBe(200);
     const body = (await activate.json()) as {
@@ -147,19 +156,19 @@ describe("public subscription (card + verification code) API", () => {
       emby: { serverAddress: string; onboardTitle: string; onboardNotice: string } | null;
     };
     expect(body.status).toBe("activated");
-    expect(body.member.email).toBe("new@example.com");
-    expect(createdEmbyUsers).toContain("new@example.com");
+    expect(body.member.email).toBe(email);
+    expect(createdEmbyUsers).toContain("100001021@qq.com");
     // 新注册会员**默认登记并发上限 1**（系统设置 →「会员」可改）：门户与后台都看得见这个值
     expect(body.member.embyMaxStreams).toBe(1);
     const created = database.db
       .select()
       .from(submissionUsers)
-      .where(eq(submissionUsers.email, "new@example.com"))
+      .where(eq(submissionUsers.email, "100001021@qq.com"))
       .get();
-    expect(created?.embyMaxStreams).toBe(1);
+    expect(created).toMatchObject({ embyMaxStreams: 1, qqNumber, joinSource: "QQ 群" });
     // 注册成功后在「我的」页显示的那块提示：整块文案由后台模板渲染下发（前端不写死）
     expect(body.emby?.onboardTitle).toContain("Emby 账号已开通");
-    expect(body.emby?.onboardNotice).toContain("new@example.com");
+    expect(body.emby?.onboardNotice).toContain("100001021@qq.com");
     expect(body.emby?.onboardNotice).not.toContain("{{");
     // 邮件：验证码 + Emby 初始账号（主题/正文同样来自后台模板）
     const embyMail = emailsSent.find((mail) => mail.subject.includes("Emby 账号"));
@@ -170,29 +179,20 @@ describe("public subscription (card + verification code) API", () => {
   it("logs in an existing member with just the verification code", async () => {
     // 先通过卡密开户
     const cardCode = await createCard("trial", 1);
-    await fetch(`${baseUrl}/api/public/subscriptions/code`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "member@example.com", cardCode }),
-    });
-    await fetch(`${baseUrl}/api/public/subscriptions/activate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "member@example.com", code: latestCode(), cardCode }),
-    });
+    expect((await activateCardForTest(baseUrl, database.db, "100001022@qq.com", cardCode)).status).toBe(200);
 
     // 老用户登录：只输验证码
     const codeRes = await fetch(`${baseUrl}/api/public/subscriptions/code`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "member@example.com" }),
+      body: JSON.stringify({ email: "100001022@qq.com" }),
     });
     const registered = ((await codeRes.json()) as { registered: boolean }).registered;
     expect(registered).toBe(true);
     const login = await fetch(`${baseUrl}/api/public/subscriptions/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "member@example.com", code: latestCode() }),
+      body: JSON.stringify({ email: "100001022@qq.com", code: latestCode() }),
     });
     expect(login.status).toBe(200);
     const body = (await login.json()) as { status: string; member: { status: string } };
@@ -203,24 +203,11 @@ describe("public subscription (card + verification code) API", () => {
   it("会员能看到自己的并发上限，以及被冻结时的解冻时间", async () => {
     // 开户拿会话
     const cardCode = await createCard("month", 1);
-    await fetch(`${baseUrl}/api/public/subscriptions/code`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "frozen@example.com", cardCode }),
-    });
-    const activate = await fetch(`${baseUrl}/api/public/subscriptions/activate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "frozen@example.com", code: latestCode(), cardCode }),
-    });
+    const activate = await activateCardForTest(baseUrl, database.db, "100001023@qq.com", cardCode);
     const cookie = (activate.headers.get("set-cookie") ?? "").split(";")[0];
 
     // 登记并发上限 + 造一条「已冻结、两小时后解冻」的状态
-    const user = database.db
-      .select()
-      .from(submissionUsers)
-      .where(eq(submissionUsers.email, "frozen@example.com"))
-      .get();
+    const user = database.db.select().from(submissionUsers).where(eq(submissionUsers.email, "100001023@qq.com")).get();
     expect(user).toBeTruthy();
     const until = new Date(Date.now() + 2 * 3_600_000).toISOString();
     database.db.update(submissionUsers).set({ embyMaxStreams: 1 }).where(eq(submissionUsers.id, user!.id)).run();
@@ -374,7 +361,7 @@ describe("public subscription (card + verification code) API", () => {
     const res = await fetch(`${baseUrl}/api/public/subscriptions/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "member@example.com", code: "000000" }),
+      body: JSON.stringify({ email: "100001022@qq.com", code: "000000" }),
     });
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({ error: "invalid_code" });
@@ -382,16 +369,7 @@ describe("public subscription (card + verification code) API", () => {
 
   it("lets a logged-in member change their own Emby password", async () => {
     const cardCode = await createCard("month", 1);
-    await fetch(`${baseUrl}/api/public/subscriptions/code`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "member@example.com", cardCode }),
-    });
-    const activate = await fetch(`${baseUrl}/api/public/subscriptions/activate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "member@example.com", code: latestCode(), cardCode }),
-    });
+    const activate = await activateCardForTest(baseUrl, database.db, "100001022@qq.com", cardCode);
     expect(activate.status).toBe(200);
     const cookie = (activate.headers.get("set-cookie") ?? "").split(";")[0];
     const res = await fetch(`${baseUrl}/api/public/subscriptions/member/emby/password`, {

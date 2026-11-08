@@ -8,6 +8,8 @@ export type LogSource = "server" | "web";
 
 export interface LogEvent {
   event?: string;
+  module?: string;
+  runId?: string;
   level?: LogLevel;
   source?: LogSource;
   message?: string;
@@ -53,6 +55,9 @@ export function createLogger(database: AppDatabase, options: LoggerOptions = {})
     const row = {
       level,
       source,
+      module: event.module ? truncate(redact(event.module), 80) : null,
+      runId: event.runId ? truncate(redact(event.runId), 128) : null,
+      event: event.event ? truncate(redact(event.event), 120) : null,
       message: truncate(redact(event.message ?? event.event ?? ""), maxMessageLength),
       method: event.method ?? null,
       path: event.path ?? null,
@@ -67,6 +72,9 @@ export function createLogger(database: AppDatabase, options: LoggerOptions = {})
       level,
       source,
       createdAt,
+      ...(event.module ? { module: row.module } : {}),
+      ...(event.runId ? { runId: row.runId } : {}),
+      ...(event.event ? { event: row.event } : {}),
       ...(event.message ? { message: redact(event.message) } : {}),
       ...(event.detail ? { detail: redact(event.detail) } : {}),
     };
@@ -77,7 +85,7 @@ export function createLogger(database: AppDatabase, options: LoggerOptions = {})
 
   const request: RequestHandler = (request, response, next) => {
     const requestPath = request.path;
-    if (requestPath === "/health" || requestPath === "/api/logs") return next();
+    if (requestPath === "/health" || requestPath === "/api/logs" || requestPath === "/api/logs/download") return next();
     if (!requestPath.startsWith("/api")) return next();
     const startedAt = Date.now();
     let recorded = false;
@@ -88,6 +96,7 @@ export function createLogger(database: AppDatabase, options: LoggerOptions = {})
       const level: LogLevel = status < 400 ? "info" : status < 500 ? "warn" : "error";
       write(level, {
         event: "request",
+        module: "http",
         source: "server",
         message: describeRequest(request.method, requestPath),
         method: request.method,
@@ -101,6 +110,7 @@ export function createLogger(database: AppDatabase, options: LoggerOptions = {})
       recorded = true;
       write("warn", {
         event: "request_aborted",
+        module: "http",
         source: "server",
         message: `请求连接中断：${describeRequest(request.method, requestPath)}`,
         method: request.method,

@@ -67,6 +67,8 @@ function actionLabel(action: string): string {
       "member.deleted": "删除会员",
       "member.expiry_cleanup_deleted": "自动删除过期会员",
       "member.expiry_cleanup_policy_changed": "更新过期账号自动删除规则",
+      "member.inactivity_cleanup_deleted": "保号规则自动删除会员",
+      "member.inactivity_cleanup_policy_changed": "更新保号规则",
       "member.mail_pref": "代设邮件偏好",
       // 追更已整体下线，但历史日志里还留着这几类动作：保留可读标签，别让旧记录变成裸 action 字符串。
       "follow.created": "新建追更任务（历史）",

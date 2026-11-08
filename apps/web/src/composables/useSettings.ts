@@ -58,7 +58,9 @@ export function useSettings(requireAuth?: (() => void) | undefined, fetchImpl: t
       requireAuth?.();
       throw new Error("unauthorized");
     }
-    if (!response.ok) {
+    const rejectedSettings =
+      init?.method === "PATCH" && response.status === 400 && body?.error === "invalid_settings" && "groups" in body;
+    if (!response.ok && !rejectedSettings) {
       throw new Error(body?.error ?? "request_failed");
     }
     if (!body) throw new Error("request_failed");
@@ -123,7 +125,7 @@ export function useSettings(requireAuth?: (() => void) | undefined, fetchImpl: t
       restartRequired.value = payload.restartRequired ?? [];
       message.value =
         rejected.length > 0
-          ? "部分配置未保存，请检查提示。"
+          ? `${payload.updated?.length ? "部分" : ""}配置未保存，请检查提示。`
           : restartRequired.value.length > 0
             ? `已保存 ${payload.updated?.length ?? 0} 项配置，其中 ${restartRequired.value.length} 项需要重启应用后生效。`
             : `已保存 ${payload.updated?.length ?? 0} 项配置。`;

@@ -1,4 +1,5 @@
 import { computed } from "vue";
+import { activateWithCard, verifyRegistration } from "./portal-card-activation";
 import { portalAccessError } from "./portal-access";
 import {
   friendlyError,
@@ -8,7 +9,6 @@ import {
   type EntryCheck,
   type CardCheck,
   type SendCodeResult,
-  type ActivatedEmby,
   type MemberUnfreezeStatus,
 } from "./portal-member";
 import {
@@ -105,14 +105,13 @@ export function usePortalSession() {
    * `cardCode` 必须与预检通过的是同一张：服务端发信前会再校验一次（前端禁用按钮挡不住直接
    * 打接口的人），并把卡密与这封验证码绑定，开通时提交另一张卡会被拒。
    */
-  async function sendCode(address: string, cardCode?: string): Promise<SendCodeResult | null> {
+  async function sendCode(address: string, cardCode?: string, inviteCode?: string): Promise<SendCodeResult | null> {
     error.value = "";
     try {
-      const trimmed = cardCode?.trim();
       return await request<SendCodeResult>("/api/public/subscriptions/code", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(trimmed ? { email: address, cardCode: trimmed } : { email: address }),
+        body: JSON.stringify({ email: address, cardCode: cardCode?.trim() || undefined, inviteCode }),
       });
     } catch (caught) {
       if (isStaleSessionError(caught)) return null;
@@ -149,38 +148,10 @@ export function usePortalSession() {
     }
   }
 
-  /** 新用户：邮箱+卡密（已预检）+验证码 开通会员（并自动创建 Emby 账号）。 */
-  async function activate(address: string, code: string, cardCode: string): Promise<boolean> {
-    invalidateSessionRequests();
-    const started = sessionGeneration();
-    loading.value = true;
-    error.value = "";
-    try {
-      const body = await request<{
-        status: string;
-        email: string;
-        member: PortalMember;
-        emby?: ActivatedEmby | null;
-        emailStatus?: string;
-      }>("/api/public/subscriptions/activate", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: address, code, cardCode }),
-      });
-      if (started !== sessionGeneration()) return false;
-      applyMember(body.member, body.email);
-      activatedEmby.value = body.emby ?? null;
-      renewalEmailStatus.value = body.emailStatus ?? null;
-      await loadMember();
-      return started === sessionGeneration();
-    } catch (caught) {
-      if (isStaleSessionError(caught)) return false;
-      error.value = caught instanceof Error ? friendlyError(caught.message) : "开通失败";
-      return false;
-    } finally {
-      if (started === sessionGeneration()) loading.value = false;
-    }
-  }
+  const activate = (address: string, code: string, cardCode: string) =>
+    activateWithCard({ email: address, code, cardCode }, loadMember);
+  const activateRegistration = (address: string, cardCode: string, registrationToken: string, joinSource?: string) =>
+    activateWithCard({ email: address, cardCode, registrationToken, joinSource }, loadMember);
 
   async function logout(): Promise<void> {
     resetPortalSession();
@@ -292,6 +263,8 @@ export function usePortalSession() {
     checkCard,
     sendCode,
     loginWithCode,
+    verifyRegistration,
+    activateRegistration,
     activate,
     logout,
     getEmbyAccount,

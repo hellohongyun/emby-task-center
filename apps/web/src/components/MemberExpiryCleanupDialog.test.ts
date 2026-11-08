@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import MemberExpiryCleanupDialog from "./MemberExpiryCleanupDialog.vue";
+import type { MemberCleanupMode } from "./member-cleanup-settings";
 
 const base = "/api/member-expiry-cleanup";
 const expiresAt = "2025-11-01T12:00:00.000Z";
@@ -18,10 +19,10 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const previewButton = () => screen.getByRole("button", { name: /预览清理范围|重新预览/ });
 const approve = () => fireEvent.click(screen.getByRole("checkbox", { name: /包括历史过期会员/ }));
 
-function setup(fetchImpl: typeof fetch) {
+function setup(fetchImpl: typeof fetch, mode: MemberCleanupMode = "expiry") {
   const mock = vi.fn(fetchImpl);
   vi.stubGlobal("fetch", mock);
-  return { mock, view: render(MemberExpiryCleanupDialog, { props: { requireAuth: vi.fn() } }) };
+  return { mock, view: render(MemberExpiryCleanupDialog, { props: { requireAuth: vi.fn(), mode } }) };
 }
 
 beforeEach(() => {
@@ -38,6 +39,44 @@ beforeEach(() => {
         this.open = false;
       },
     },
+  });
+});
+
+it("previews and enables the separate 15-day playback rule after confirming it includes valid members", async () => {
+  const base = "/api/member-inactivity-cleanup";
+  const createdAt = "2025-10-01T12:00:00Z";
+  const { mock } = setup(async (_input, init) => {
+    if (init?.method === "POST") {
+      return json({
+        previewToken: "inactivity-preview",
+        days: 15,
+        candidates: [
+          { id: 1, email: "played@example.test", lastPlayedAt: expiresAt, createdAt },
+          { id: 2, email: "unplayed@example.test", lastPlayedAt: null, createdAt },
+        ],
+        blocked: [{ id: 3, email: "unknown@example.test", reason: "activity_unverified" }],
+      });
+    }
+    if (init?.method === "PUT") return json({ days: 15 });
+    return json({ days: null });
+  }, "inactivity");
+  expect(screen.getByRole("dialog", { name: "保号设置" })).toBeInTheDocument();
+  await screen.findByText("当前已关闭");
+  expect(screen.getByRole("spinbutton", { name: "未播放天数" })).toHaveValue(15);
+  await fireEvent.click(previewButton());
+  const enable = await screen.findByRole("button", { name: "确认启用自动删除" });
+  expect(screen.getByText(/最近播放 ·/)).toBeInTheDocument();
+  expect(screen.getByText(/未查到播放记录 · 创建于/)).toBeInTheDocument();
+  expect(screen.getByText("播放记录待核对")).toBeInTheDocument();
+  expect(enable).toBeDisabled();
+  await fireEvent.click(screen.getByRole("checkbox", { name: /范围包括仍在有效期内的会员/ }));
+  await fireEvent.click(enable);
+  expect(await screen.findByText("当前规则 · 未播放满 15 天")).toBeInTheDocument();
+  expect(mock.mock.calls.map(([url]) => url)).toEqual([base, `${base}/preview`, base]);
+  expect(JSON.parse(mock.mock.calls[2]![1]!.body as string)).toEqual({
+    days: 15,
+    expectedDays: null,
+    previewToken: "inactivity-preview",
   });
 });
 

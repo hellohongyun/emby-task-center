@@ -22,16 +22,18 @@ describe("logs API", () => {
   let database: DatabaseHandle;
   let server: Server;
   let baseUrl: string;
+  let logger: ReturnType<typeof createLogger>;
 
   beforeEach(async () => {
     directory = mkdtempSync(join(tmpdir(), "emby-logs-"));
     database = createDatabase(join(directory, "logs.sqlite"));
+    logger = createLogger(database.db, { retentionDays: 30, maxRows: 1_000 });
     const app = createApp({
       database: database.db,
       auth: { sessionSecret, verifyCredentials: staticCredentialVerifier(sharedPassword) },
       tmdb: createTmdbClient({ token: "tmdb-server-token" }),
       library: createLibraryService([], undefined),
-      logger: createLogger(database.db, { retentionDays: 30, maxRows: 1_000 }),
+      logger,
     });
     server = app.listen(0);
     await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -49,6 +51,7 @@ describe("logs API", () => {
   it("rejects unauthenticated log reads and writes", async () => {
     const read = await fetch(`${baseUrl}/api/logs`);
     expect(read.status).toBe(401);
+    expect((await fetch(`${baseUrl}/api/logs/download`)).status).toBe(401);
 
     const write = await fetch(`${baseUrl}/api/logs`, {
       method: "POST",
@@ -169,6 +172,35 @@ describe("logs API", () => {
 
     const logEndpointRows = database.db.select().from(logs).where(eq(logs.path, "/api/logs")).all();
     expect(logEndpointRows).toHaveLength(0);
+  });
+
+  it("follows structured logs in order without losing records at a filtered page boundary", async () => {
+    const cookie = await login();
+    const read = (params: string) => fetch(`${baseUrl}/api/logs?${params}`, { headers: { cookie } });
+    const initial = await (await read("module=library-scan")).json();
+    expect(initial).toMatchObject({ logs: [], nextAfter: expect.any(Number), hasMore: false });
+    logger.info({ module: "library-scan", runId: "batch-1", event: "started", message: "开始扫描" });
+    logger.info({ module: "qq-avatar", runId: "avatar-1", message: "头像更新" });
+    logger.warn({ module: "library-scan", runId: "batch-1", event: "completed", message: "扫描完成" });
+    logger.info({ module: "http", message: "另一请求" });
+
+    const first = await (await read(`runId=batch-1&limit=1&after=${initial.nextAfter}`)).json();
+    expect(first).toMatchObject({ hasMore: true, logs: [{ event: "started", runId: "batch-1" }] });
+    expect(first.nextAfter).toBe(first.logs[0].id);
+    const second = await (await read(`runId=batch-1&limit=1&after=${first.nextAfter}`)).json();
+    expect(second).toMatchObject({ hasMore: false, logs: [{ event: "completed", module: "library-scan" }] });
+    expect(second.nextAfter).toBeGreaterThan(second.logs[0].id);
+    expect(await (await read(`runId=batch-1&after=${second.nextAfter}`)).json()).toMatchObject({ logs: [] });
+
+    const exported = await fetch(`${baseUrl}/api/logs/download?module=library-scan&runId=batch-1`, {
+      headers: { cookie },
+    });
+    expect(exported.headers.get("content-disposition")).toMatch(/attachment.*\.log/);
+    const text = await exported.text();
+    expect(text.trimEnd().split("\n")).toEqual([
+      expect.stringContaining("library-scan\tINFO\t开始扫描\trun=batch-1\tevent=started"),
+      expect.stringContaining("library-scan\tWARN\t扫描完成\trun=batch-1\tevent=completed"),
+    ]);
   });
 
   async function login(): Promise<string> {

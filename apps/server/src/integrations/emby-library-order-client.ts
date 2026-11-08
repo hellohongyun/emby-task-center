@@ -13,7 +13,10 @@ export interface EmbyLibraryOrderSession {
     orderedViews: string[];
     hiddenViews: string[];
   }>;
-  listUserViews(userId: string): Promise<Array<{ id: string; guid?: string; name: string }>>;
+  listUserViews(
+    userId: string,
+    options?: { includeHidden: true },
+  ): Promise<Array<{ id: string; guid?: string; name: string }>>;
   updateOrder(userId: string, orderedViews: string[]): Promise<void>;
 }
 
@@ -54,13 +57,13 @@ function userPath(userId: string): string {
 }
 
 export function createEmbyLibraryOrderSessionFactory(
-  resolve: () => Credentials,
-): () => EmbyLibraryOrderSession | undefined {
+  resolve: (upstream?: string) => Credentials,
+): (upstream?: string) => EmbyLibraryOrderSession | undefined {
   let lastCredentials: Credentials | undefined;
   let identity = {};
 
-  return () => {
-    const { baseUrl, apiKey } = resolve();
+  return (upstream) => {
+    const { baseUrl, apiKey } = resolve(upstream);
     if (lastCredentials?.baseUrl !== baseUrl || lastCredentials?.apiKey !== apiKey) {
       lastCredentials = { baseUrl, apiKey };
       identity = {};
@@ -113,8 +116,10 @@ export function createEmbyLibraryOrderSessionFactory(
           hiddenViews: user.Configuration.MyMediaExcludes ?? [],
         };
       },
-      async listUserViews(userId) {
-        const query = "IncludeExternalContent=false&IncludeHidden=false&AllowDynamicChildren=false";
+      async listUserViews(userId, options) {
+        const query = options?.includeHidden
+          ? "IncludeHidden=true&AllowDynamicChildren=false"
+          : "IncludeExternalContent=false&IncludeHidden=false&AllowDynamicChildren=false";
         const views = userViewsSchema.parse(await request(`${userPath(userId)}/Views?${query}`));
         if (views.TotalRecordCount !== undefined && views.TotalRecordCount !== views.Items.length) {
           throw new Error("emby_incomplete_views");

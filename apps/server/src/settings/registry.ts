@@ -251,6 +251,33 @@ export const SETTINGS = {
   },
 
   /* ------------------------------------------------------------------ 会员 */
+  "member.groupInviteEnabled": {
+    group: "member",
+    label: "首次注册要求群邀请码",
+    help: "启用前请填写注册 QQ 群号和群邀请码。新会员在群公告获取通用码后，可用卡密自助注册。",
+    schema: z.boolean().default(false),
+  },
+  "member.groupNumber": {
+    group: "member",
+    label: "注册 QQ 群号",
+    help: "在门户的首次注册步骤展示，方便新会员搜索和申请入群。",
+    schema: z
+      .string()
+      .trim()
+      .regex(/^(?:[1-9]\d{4,14})?$/, "请填写有效的 QQ 群号")
+      .default(""),
+  },
+  "member.groupInviteCode": {
+    group: "member",
+    label: "注册群邀请码",
+    help: "填写 6–64 位英文字母、数字、短横线或下划线，将同一个码发布到群公告。更换后旧码失效。",
+    schema: z
+      .string()
+      .trim()
+      .regex(/^(?:[A-Za-z0-9_-]{6,64})?$/, "请填写 6–64 位邀请码")
+      .default(""),
+    secret: true,
+  },
   "member.autoLinkDays": {
     group: "member",
     label: "Emby 账号自动绑定默认天数",

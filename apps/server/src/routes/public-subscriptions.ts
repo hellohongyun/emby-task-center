@@ -12,16 +12,10 @@ import type { EmailNotifier } from "../notifications/email-service";
 import type { Logger } from "../logging/logger";
 import type { EmbyClient } from "../integrations/emby-client";
 import type { PublicSession } from "../subscriptions/public-session";
-import { expiryDisplay, inspectCard, type RedeemResult } from "../subscriptions/cards";
+import type { RedeemResult } from "../subscriptions/cards";
 import { getDriveExpiry } from "../subscriptions/drive-expiry";
-import { isMemberExpiryCleanupPending } from "../subscriptions/member-expiry-cleanup-guard";
-import {
-  cardMembershipExpiry,
-  isUnlimitedMembership,
-  visibleMembershipExpiryLabel,
-} from "../subscriptions/membership-expiry-grant";
-import { bindPendingCard, clearPendingCard, readPendingCard } from "../subscriptions/pending-cards";
-import { issueVerificationCode, verifyVerificationCode } from "../subscriptions/verification";
+import { visibleMembershipExpiryLabel } from "../subscriptions/membership-expiry-grant";
+import { verifyVerificationCode } from "../subscriptions/verification";
 import { getSubmissionUserByEmail, memberConcurrencyStatus, memberStatus } from "../subscriptions/membership";
 import { confirmUnfreeze, memberUnfreezeView, requestUnfreeze } from "../subscriptions/self-unfreeze";
 import { provisionEmbyAccount } from "../subscriptions/emby-account";
@@ -31,36 +25,10 @@ import { buildHtml } from "../subscriptions/send-notifications";
 import { buildEmbyOnboardNotice, buildEmbyWelcomeEmail } from "../subscriptions/member-notices";
 import { embyServerAddress } from "../integrations/emby-address";
 import { readSetting } from "../settings/store";
+import { emailVerificationSchema, registerPublicRegistrationRoutes } from "./public-registration";
+import { registerPublicMemberProfileRoutes } from "./member-profile";
 
-/**
- * 发码请求：`cardCode` 是**注册资格**凭证——没注册过的邮箱必填，注册过的（含已过期）可省略。
- *
- * 卡密闸门放在服务端而不是只靠前端禁用按钮：直接打接口同样能触发发信，前端 gate 挡不住。
- */
-const codeSchema = z.strictObject({
-  email: z.string().trim().email().max(254),
-  cardCode: z.string().trim().min(4).max(64).optional(),
-});
-/** 登录页「下一步」的分流判断：只给邮箱。 */
-const entrySchema = z.strictObject({ email: z.string().trim().email().max(254) });
-/** 卡密预检：cardCode 可省略（注册过的邮箱不需要卡密），提供时一定真的去验这张卡。 */
-const cardCheckSchema = z.strictObject({
-  email: z.string().trim().email().max(254),
-  cardCode: z.string().trim().min(4).max(64).optional(),
-});
-const loginSchema = z.strictObject({ email: z.string().trim().email().max(254), code: z.string().trim().length(6) });
-const activateSchema = z.strictObject({
-  email: z.string().trim().email().max(254),
-  code: z.string().trim().length(6),
-  cardCode: z.string().trim().min(4).max(64),
-});
 const passwordSchema = z.strictObject({ password: z.string().trim().min(6).max(200) });
-const codePerMinute = createRateLimiter(5, 60_000);
-const codePerHourEmail = createRateLimiter(10, 3_600_000);
-/** 分流判断单独限流：它没有副作用，但会回答"这个邮箱注册过没有"，别让人拿脚本批量问。 */
-const entryPerMinute = createRateLimiter(10, 60_000);
-/** 卡密预检单独限流：给「卡密看不清、重试几次」留余量，同时挡住拿脚本枚举卡密的人。 */
-const cardCheckPerMinute = createRateLimiter(10, 60_000);
 /** 自助解冻：同一账号每分钟最多试 10 次（正常流程 1-2 次；挡住拿脚本刷"等没等满"的人）。 */
 const unfreezeAttemptsPerMinute = createRateLimiter(10, 60_000);
 
@@ -128,154 +96,11 @@ export function registerPublicSubscriptionRoutes(app: Express, options: PublicSu
     return email && !memberAccessError(options.database, email) ? email : null;
   }
 
-  /**
-   * 登录页分流用的判定。
-   *
-   * 只认一件事：**这个邮箱注册过没有**（库里还有没有这条会员记录）。过期也算注册过——
-   * 他照样要能正常登录，续费去「我的 → 续费 / 兑换卡密」，而不是被挡在门外逼着买卡。
-   * 所以「需要卡密」= 从没注册过 = 走注册页。
-   */
-  function membershipGate(email: string, now = new Date()) {
-    const user = getSubmissionUserByEmail(options.database, email);
-    const status = user ? memberStatus(user, now) : "none";
-    return {
-      user,
-      status,
-      registered: Boolean(user),
-      isMember: status === "active" || status === "expiring",
-      expired: status === "expired",
-    };
-  }
-
-  /**
-   * 登录页「下一步」：问服务端这个邮箱该走登录还是走注册（卡密）。
-   *
-   * 零副作用——不发信、不签发验证码、不动卡密；但它的回答本身会暴露"某邮箱是否注册过"，
-   * 所以单独限流（宁可多给自家用户几次重试，也不让人拿它批量扫）。
-   */
-  app.post("/api/public/subscriptions/entry", (request: Request, response: Response) => {
-    const parsed = entrySchema.safeParse(request.body);
-    if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });
-    const email = parsed.data.email.toLowerCase().trim();
-    if (!entryPerMinute.check(`ip:${request.ip ?? "unknown"}`))
-      return void response.status(429).json({ error: "rate_limited" });
-    const gate = membershipGate(email);
-    if (gate.user && !gate.user.enabled) return void response.status(403).json({ error: "member_disabled" });
-    response.json({ registered: gate.registered, needsCard: !gate.registered, expired: gate.expired });
-  });
-
-  /**
-   * 卡密预检：只校验、**不消耗**。
-   *
-   * 注册页用它实现「先验证卡密 → 通过后『发送验证码』才可点」；`/code` 里服务端会再验一次，
-   * 所以绕过前端直接打发码接口同样过不去。
-   */
-  app.post("/api/public/subscriptions/card/check", (request: Request, response: Response) => {
-    const parsed = cardCheckSchema.safeParse(request.body);
-    if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });
-    const email = parsed.data.email.toLowerCase().trim();
-    if (!cardCheckPerMinute.check(`ip:${request.ip ?? "unknown"}`))
-      return void response.status(429).json({ error: "rate_limited" });
-    const gate = membershipGate(email);
-    if (gate.user && !gate.user.enabled) return void response.status(403).json({ error: "member_disabled" });
-    const cardCode = parsed.data.cardCode?.trim();
-    // 没给卡密：只有注册过的邮箱能过（对它来说卡密本来就不是必需品）
-    if (!cardCode) {
-      if (gate.registered) {
-        return void response.json({
-          ok: true,
-          registered: true,
-          needsCard: false,
-          expired: gate.expired,
-          card: null,
-        });
-      }
-      return void response.status(400).json({ error: "card_required" });
-    }
-    // 给了卡密就真的去验：续费场景（已注册、但要兑换一张新卡）也靠这条路径拿到卡类型与天数
-    const now = new Date();
-    const inspection = inspectCard(options.database, cardCode, email, now);
-    if (!inspection.ok) return void response.status(400).json({ error: inspection.reason });
-    if (!inspection.idempotent && gate.user && isMemberExpiryCleanupPending(options.database, gate.user.id))
-      return void response.status(409).json({ error: "member_cleanup_pending" });
-    if (isUnlimitedMembership(gate.user) && !inspection.idempotent)
-      return void response.status(409).json({ error: "member_renewal_not_needed" });
-    const entitlement = getDriveExpiry(options.database)
-      ? inspection.idempotent && gate.user
-        ? gate.user
-        : cardMembershipExpiry(options.database, inspection, gate.user, now)
-      : null;
-    const expiresAt = entitlement ? entitlement.subscriptionExpiresAt : inspection.expiresAt;
-    const expiryLabel = entitlement
-      ? visibleMembershipExpiryLabel({ ...entitlement, membershipExpiryLabel: inspection.expiryLabel })
-      : inspection.expiryLabel;
-    const expiry = expiryDisplay({ expiresAt, expiryLabel, days: inspection.days }, now);
-    response.json({
-      ok: true,
-      registered: gate.registered,
-      needsCard: !gate.registered,
-      expired: gate.expired,
-      card: {
-        kind: inspection.kind,
-        label: inspection.label,
-        days: inspection.days,
-        idempotent: inspection.idempotent,
-        /** 管理员 DIY 的卡密名称（没起名字时回落类型标签）。 */
-        name: inspection.name,
-        /** 固定到期日（ISO）与它的 DIY 名称；两者都为 null 表示"兑换后 N 天"的相对卡。 */
-        expiresAt,
-        expiryLabel,
-        /** 到期时间的主文案（名称优先）与真实日期小字：页面直接照抄，不自己拼。 */
-        expiryText: expiry.text,
-        expiryDetail: expiry.detail,
-        /** 距到期还剩几天（相对卡为 null）。 */
-        expiryDays: expiry.days,
-        /** 彩蛋祝福文案：前端据此决定要不要弹窗（为空就是不弹，不拿通用话术糊弄）。 */
-        blessing: inspection.blessing,
-      },
-    });
-  });
-
-  app.post("/api/public/subscriptions/code", async (request: Request, response: Response) => {
-    const parsed = codeSchema.safeParse(request.body);
-    if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });
-    const email = parsed.data.email.toLowerCase().trim();
-    if (!codePerMinute.check(`ip:${request.ip ?? "unknown"}`))
-      return void response.status(429).json({ error: "rate_limited" });
-    if (!codePerHourEmail.check(`email:${email}`))
-      return void response.status(429).json({ error: "rate_limited_email" });
-    const gate = membershipGate(email);
-    if (gate.user && !gate.user.enabled) return void response.status(403).json({ error: "member_disabled" });
-    // 卡密闸门：**没注册过**的邮箱不给卡密就既不签发验证码、也不发邮件（本次改造的核心承诺）。
-    // 注册过的（含已过期）直接放行——他要能登录，续费在「我的」页做。
-    const needsCard = !gate.registered;
-    let cardCode: string | null = null;
-    if (needsCard) {
-      cardCode = parsed.data.cardCode?.trim() ?? "";
-      if (!cardCode) return void response.status(400).json({ error: "card_required" });
-      const inspection = inspectCard(options.database, cardCode, email);
-      if (!inspection.ok) return void response.status(400).json({ error: inspection.reason });
-    }
-    try {
-      const code = issueVerificationCode(options.database, email);
-      // 记下「这封码是用哪张卡换来的」：开通时必须提交同一张卡，闸门才不会被另一张卡绕过。
-      if (cardCode) bindPendingCard(email, cardCode);
-      else clearPendingCard(email);
-      const text = gate.registered
-        ? `你的「天鸿影院」登录验证码：${code}（10 分钟内有效）。如非本人操作请忽略。`
-        : `你的「天鸿影院」邮箱验证码：${code}（10 分钟内有效）。输入验证码即可开通会员。`;
-      const subject = "[天鸿影院] 邮箱验证码";
-      await options.email?.sendNotification(email, subject, text, buildHtml(subject, text));
-      response.json({ sent: true, registered: gate.registered, needsCard, expired: gate.expired });
-    } catch (caught) {
-      // 发信失败要撤掉绑定，免得留下一张「码没发出去、卡密却已绑定」的尴尬状态
-      clearPendingCard(email);
-      response.status(502).json({ error: "email_send_failed" });
-    }
-  });
+  const registration = registerPublicRegistrationRoutes(app, options);
+  registerPublicMemberProfileRoutes(app, options, sessionEmail);
 
   app.post("/api/public/subscriptions/login", async (request: Request, response: Response) => {
-    const parsed = loginSchema.safeParse(request.body);
+    const parsed = emailVerificationSchema.safeParse(request.body);
     if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });
     const email = parsed.data.email.toLowerCase().trim();
     if (getSubmissionUserByEmail(options.database, email)?.enabled === false)
@@ -293,42 +118,39 @@ export function registerPublicSubscriptionRoutes(app: Express, options: PublicSu
   });
 
   app.post("/api/public/subscriptions/activate", async (request: Request, response: Response) => {
-    const parsed = activateSchema.safeParse(request.body);
-    if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });
-    const email = parsed.data.email.toLowerCase().trim();
-    // 卡密一致性：发码时校验过的那张卡，必须就是现在核销的这张。
-    // 放在验证码校验**之前**——不一致不该顺手把用户的验证码消费掉。
-    const boundCard = readPendingCard(email);
-    if (boundCard && boundCard !== parsed.data.cardCode.trim().toUpperCase()) {
-      return void response.status(400).json({ error: "card_mismatch" });
-    }
-    const existingMember = getSubmissionUserByEmail(options.database, email);
-    if (existingMember?.enabled === false) return void response.status(403).json({ error: "member_disabled" });
-    if (existingMember && isMemberExpiryCleanupPending(options.database, existingMember.id)) {
-      const card = inspectCard(options.database, parsed.data.cardCode, email);
-      if (card.ok && !card.idempotent) return void response.status(409).json({ error: "member_cleanup_pending" });
-    }
-    const verification = verifyVerificationCode(options.database, email, parsed.data.code);
-    if (!verification.ok) {
-      return void response
-        .status(verification.reason === "too_many_attempts" ? 429 : 401)
-        .json({ error: verification.reason === "too_many_attempts" ? "too_many_attempts" : "invalid_code" });
-    }
+    const activation = registration.authorizeActivation(request, response);
+    if (!activation) return;
+    const { email, cardCode, mode, log } = activation;
+    const started = Date.now();
+    log?.write("info", "registration_activating", "收到资料确认，正在核销卡密并创建会员");
     // 核销、会员有效期与续期凭证在同一 SQLite 事务中提交，外部操作仍在事务外。
     let activated: ReturnType<typeof activateMembershipWithCard>;
     try {
-      activated = activateMembershipWithCard(options.database, parsed.data.cardCode, email);
+      activated = activateMembershipWithCard(options.database, cardCode, email, new Date(), mode);
     } catch (caught) {
       const reason = (caught as { message?: string }).message ?? "";
       const known = ["invalid_card", "card_used", "card_expired"];
-      if (reason === "member_disabled") return void response.status(403).json({ error: reason });
-      if (reason === "member_renewal_not_needed" || reason === "member_cleanup_pending")
+      log?.write(
+        known.includes(reason) ? "warn" : "error",
+        "registration_activation_failed",
+        "会员开通事务未完成",
+        { reason: known.includes(reason) || reason === "already_registered" ? reason : "activation_rejected" },
+        Date.now() - started,
+      );
+      if (reason === "member_disabled" || reason === "not_member")
+        return void response.status(403).json({ error: reason });
+      if (
+        reason === "member_renewal_not_needed" ||
+        reason === "member_cleanup_pending" ||
+        reason === "already_registered"
+      )
         return void response.status(409).json({ error: reason });
       if (known.includes(reason)) return void response.status(400).json({ error: reason });
       throw caught;
     }
-    clearPendingCard(email);
+    registration.clear(email);
     const { card, existing, receiptKey } = activated;
+    if (!card.idempotent) log?.write("info", "registration_committed", "会员资料已保存，卡密已核销");
     // 幂等重试只返回当前结果：旧卡不能重新启用已停用/过期账号、清掉提醒或再次触发 Emby 开户。
     // 会员已被删除时也不能凭已消费的卡重新创建；长期会员的 null 到期时间同样必须原样保留。
     if (card.idempotent) {
@@ -350,12 +172,14 @@ export function registerPublicSubscriptionRoutes(app: Express, options: PublicSu
     // 自动创建/关联 Emby 账号
     let emby: { embyUserId: string; embyUsername: string; password: string } | null = null;
     if (options.emby?.configured) {
+      log?.write("info", "registration_emby_started", "正在创建或关联 Emby 账号");
       try {
-        emby = await provisionEmbyAccount(options.database, options.emby, email);
+        emby = await provisionEmbyAccount(options.database, options.emby, email, undefined, options.logger);
+        log?.write("info", "registration_emby_ready", "Emby 账号已关联");
       } catch {
-        /* Emby 开户失败不阻断会员开通 */
+        log?.write("warn", "registration_emby_failed", "Emby 开户失败，会员资料已保存");
       }
-    }
+    } else log?.write("info", "registration_emby_skipped", "Emby 尚未配置，跳过账号创建");
     // 续费用户：重新启用 Emby 账号（若之前被到期停用）
     if (existing && emby?.embyUserId && options.emby?.configured) {
       try {
@@ -388,10 +212,17 @@ export function registerPublicSubscriptionRoutes(app: Express, options: PublicSu
         maxStreams,
         serverAddress,
       });
-      await options.email.sendNotification(email, subject, text, buildHtml(subject, text)).catch(() => undefined);
+      log?.write("info", "registration_welcome_sending", "正在发送开通通知邮件");
+      try {
+        await options.email.sendNotification(email, subject, text, buildHtml(subject, text));
+        log?.write("info", "registration_welcome_sent", "开通通知已提交给 SMTP");
+      } catch {
+        log?.write("warn", "registration_welcome_failed", "开通通知邮件发送失败，会员已开通");
+      }
     }
     const finalAccessError = memberAccessError(options.database, email);
     if (finalAccessError) {
+      log?.write("warn", "registration_access_blocked", "会员状态发生变化，开通会话未签发");
       const fresh = getSubmissionUserByEmail(options.database, email);
       if (fresh) await syncMemberEmbyAccess(options.database, options.emby, fresh.id);
       response.setHeader("set-cookie", options.publicSession.clearCookie());
@@ -399,6 +230,7 @@ export function registerPublicSubscriptionRoutes(app: Express, options: PublicSu
     }
     response.setHeader("set-cookie", options.publicSession.issueCookie(email));
     const member = toMemberViewByEmail(options.database, email);
+    log?.write("info", "registration_completed", "会员注册完成", { embyLinked: Boolean(emby) }, Date.now() - started);
     response.json({
       status: "activated",
       email,

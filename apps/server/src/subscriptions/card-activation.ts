@@ -8,12 +8,22 @@ import { readSetting } from "../settings/store";
 import { cardMembershipExpiry, isUnlimitedMembership, visibleMembershipExpiryLabel } from "./membership-expiry-grant";
 import { isMemberExpiryCleanupPending } from "./member-expiry-cleanup-guard";
 
+export type CardActivationMode = { kind: "register"; qqNumber: string; joinSource: string | null } | { kind: "renew" };
+
 /** Only synchronous SQLite changes belong here; SMTP and Emby run after commit. */
-export function activateMembershipWithCard(database: AppDatabase, code: string, email: string, now = new Date()) {
+export function activateMembershipWithCard(
+  database: AppDatabase,
+  code: string,
+  email: string,
+  now = new Date(),
+  mode?: CardActivationMode,
+) {
   return database.transaction(
     (tx) => {
       const existing = getSubmissionUserByEmail(tx, email);
       if (existing?.enabled === false) throw Object.assign(new Error("member_disabled"), { status: 403 });
+      if (existing && mode?.kind === "register") throw new Error("already_registered");
+      if (!existing && mode?.kind === "renew") throw new Error("not_member");
       const card = redeemCard(tx, code, email, now);
       if (card.idempotent) return { card, existing, receiptKey: null };
       // Rejecting here also rolls back the redemption made above in this transaction.
@@ -46,6 +56,8 @@ export function activateMembershipWithCard(database: AppDatabase, code: string, 
         tx.insert(submissionUsers)
           .values({
             email,
+            qqNumber: mode?.kind === "register" ? mode.qqNumber : null,
+            joinSource: mode?.kind === "register" ? mode.joinSource : null,
             ...entitlement,
             membershipExpiryLabel: expiryLabel,
             enabled: true,

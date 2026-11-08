@@ -28,7 +28,7 @@ import { runProgressScanCycle } from "../scheduling/progress-scan-cycle";
 import { createConcurrencyEscalationRunner } from "./concurrency-escalation-runner";
 import { createSingleRoundRunner } from "./single-round-runner";
 import { startMediaRequestRetention } from "./media-request-retention";
-import { startMemberExpiryCleanup } from "./member-expiry-cleanup";
+import { startMemberExpiryCleanup, startMemberInactivityCleanup } from "./member-expiry-cleanup";
 import type { SettingsSnapshot } from "../settings/registry";
 import { getRuntimeSettings } from "../settings/runtime";
 import { ESCALATION_TICK_MS, enforceConcurrencyEscalation } from "../subscriptions/concurrency-escalation";
@@ -39,6 +39,7 @@ import { syncAllStreamLimits } from "../subscriptions/emby-account";
 import { runMembershipReminders } from "../subscriptions/reminders";
 import { syncDriveExpiryEmbyAccess } from "../subscriptions/drive-expiry-emby-sync";
 import { linkOrphanEmbyUsers } from "../subscriptions/emby-member-sync";
+import { workflowLog } from "../logging/workflow-log";
 import { syncEmbyActivityLog } from "../usage/activity-log";
 import { pruneUsageHistory } from "../usage/usage-store";
 import { DEFAULT_SAMPLE_INTERVAL_MS, sampleMemberSessions } from "../usage/session-sampler";
@@ -81,6 +82,7 @@ export function startRuntime(deps: RuntimeDeps): RuntimeHandle {
   const guardTimers: Array<() => void> = [];
   guardTimers.push(startMediaRequestRetention(database, logger));
   guardTimers.push(startMemberExpiryCleanup(database, emby, logger));
+  guardTimers.push(startMemberInactivityCleanup(database, emby, logger));
   let stopped = false;
 
   const scanRetry = createScanRetryGate();
@@ -166,21 +168,20 @@ export function startRuntime(deps: RuntimeDeps): RuntimeHandle {
   async function scanLibraryRoots(trigger: "startup" | "interval" | "automation"): Promise<void> {
     // 每次扫描前先同步库根（Emby 侧的库可能已增删改名）。
     // 拉取失败时 refreshRoots 会保留现有库根，所以"扫描照常"是安全的：不会因一次失败清空库存。
+    const log = workflowLog(logger, "library-scan");
+    log.write("info", "library_roots_fetching", "正在从 Emby 获取媒体库列表", { trigger });
     const refresh = await deps.library.refreshRoots?.();
     if (refresh?.error) {
-      logger.warn({
-        event: "library_roots_refresh_failed",
-        message: "库根同步失败，沿用现有库根",
-        detail: JSON.stringify({ trigger, error: safeError(refresh.error) }),
-      });
-    } else if (refresh && (refresh.plan.added.length || refresh.plan.updated.length || refresh.plan.removed.length)) {
-      logger.info({
-        event: "library_roots_synced",
-        message: "库根已同步",
-        detail: JSON.stringify({ trigger, ...refresh.plan }),
+      log.write("warn", "library_roots_refresh_failed", "媒体库列表读取失败，沿用现有库根", { trigger });
+    } else if (refresh) {
+      log.write("info", "library_roots_synced", "媒体库列表已同步", {
+        trigger,
+        added: refresh.plan.added.length,
+        updated: refresh.plan.updated.length,
+        removed: refresh.plan.removed.length,
       });
     }
-    await library.scanEnabledRoots();
+    await library.scanEnabledRoots({ trigger, log });
   }
 
   async function runLibraryScan(trigger: "startup" | "interval" | "automation"): Promise<void> {
@@ -190,10 +191,16 @@ export function startRuntime(deps: RuntimeDeps): RuntimeHandle {
     try {
       await scanCoordinator.run(trigger === "automation");
       await runTmdbEnrichment(trigger);
-      logger.info({ event: "library_scan_completed", message: "媒体库扫描完成", detail: JSON.stringify({ trigger }) });
+      logger.info({
+        event: "library_scan_completed",
+        module: "library-scan",
+        message: "媒体库扫描及后续处理完成",
+        detail: JSON.stringify({ trigger }),
+      });
     } catch (error) {
       logger.error({
         event: "library_scan_failed",
+        module: "library-scan",
         message: "媒体库扫描失败",
         detail: JSON.stringify({ trigger, error: safeError(error) }),
       });
@@ -239,6 +246,7 @@ export function startRuntime(deps: RuntimeDeps): RuntimeHandle {
           void runScheduledLibraryScan().catch((error) => {
             logger.error({
               event: "scheduled_library_scan_failed",
+              module: "library-scan",
               message: "定时媒体库扫描失败",
               detail: JSON.stringify({ error: safeError(error) }),
             });
@@ -471,7 +479,7 @@ export function startRuntime(deps: RuntimeDeps): RuntimeHandle {
     // 之后每 10 分钟一轮——Emby 后台新加的号最多 10 分钟就会出现在会员表里（可用邮箱验证码登录）。
     // 放在 syncAllStreamLimits 之前：新绑定的会员会被这一轮的上限同步一起覆盖。
     const embyMemberLink = createSingleRoundRunner(async (): Promise<void> => {
-      const outcome = await linkOrphanEmbyUsers(database, emby);
+      const outcome = await linkOrphanEmbyUsers(database, emby, undefined, logger);
       if (!outcome.linked.length && !outcome.adopted.length) return;
       logger.info({
         event: "emby_member_autolink",

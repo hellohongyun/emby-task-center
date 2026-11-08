@@ -1,107 +1,215 @@
-import { onUnmounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 
 import type { LogEntry } from "../types";
+import { fetchJsonWithTimeout } from "./request-timeout";
 
 export interface UseLogsOptions {
   fetchImpl?: typeof fetch;
   autoRefreshMs?: number;
 }
 
-const PAGE_LIMIT = 100;
+interface LogsPage {
+  logs: LogEntry[];
+  hasMore?: boolean;
+  nextAfter?: number;
+}
+
+type LoadMode = "initial" | "newer" | "older";
+const pageLimit = 100;
+const maxVisibleLogs = 1_200;
 
 export function useLogs(requireAuth: () => void, options: UseLogsOptions = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const autoRefreshMs = options.autoRefreshMs ?? 0;
+  const refreshMs = options.autoRefreshMs ?? 1_000;
   const logs = ref<LogEntry[]>([]);
   const loading = ref(false);
   const error = ref("");
+  const paused = ref(false);
+  const following = ref(true);
+  const hasMore = ref(false);
   const level = ref("");
   const source = ref("");
+  const module = ref("");
   const query = ref("");
-  const hasMore = ref(false);
-  let timer: ReturnType<typeof setInterval> | null = null;
+  const runId = ref("");
+  let latest: number | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let active: { controller: AbortController; mode: LoadMode } | undefined;
+  let disposed = false;
+  let authorized = true;
 
-  async function get<T>(url: string): Promise<T> {
-    const response = await fetchImpl(url, { credentials: "include" });
-    if (response.status === 401) {
-      requireAuth();
-      throw new Error("unauthorized");
-    }
-    if (!response.ok) throw new Error("failed");
-    return response.json() as Promise<T>;
-  }
-
-  function buildUrl(cursor?: number): string {
+  function filterParams() {
     const params = new URLSearchParams();
-    params.set("limit", String(PAGE_LIMIT));
-    if (level.value) params.set("level", level.value);
-    if (source.value) params.set("source", source.value);
-    if (query.value.trim()) params.set("q", query.value.trim());
-    if (cursor != null) params.set("before", String(cursor));
-    const qs = params.toString();
-    return `/api/logs${qs ? `?${qs}` : ""}`;
+    for (const [name, filter] of Object.entries({ level, source, module, runId, q: query })) {
+      if (filter.value.trim()) params.set(name, filter.value.trim());
+    }
+    return params;
   }
 
-  async function load() {
-    loading.value = true;
-    error.value = "";
+  function downloadUrl() {
+    const params = filterParams().toString();
+    return "/api/logs/download" + (params ? "?" + params : "");
+  }
+
+  function clearTimer() {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+  }
+
+  function schedule(delay = refreshMs) {
+    clearTimer();
+    if (!authorized || disposed || paused.value || refreshMs <= 0 || document.hidden) return;
+    if (!following.value && logs.value.length >= maxVisibleLogs) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      void refresh();
+    }, delay);
+  }
+
+  function cancelActive() {
+    const current = active;
+    active = undefined;
+    current?.controller.abort();
+    loading.value = false;
+  }
+
+  async function load(mode: LoadMode) {
+    if (active || !authorized || disposed) return;
+    const oldest = logs.value[0]?.id;
+    if (mode === "older" && (!oldest || logs.value.length >= maxVisibleLogs)) return;
+    const requestedAfter = latest;
+    const params = filterParams();
+    params.set("limit", String(pageLimit));
+    if (mode === "older") params.set("before", String(oldest));
+    if (mode === "newer") params.set("after", String(requestedAfter ?? 0));
+
+    clearTimer();
+    const current = { controller: new AbortController(), mode };
+    active = current;
+    loading.value = mode !== "newer";
+    let moreNewer = false;
     try {
-      const body = await get<{ logs: LogEntry[] }>(buildUrl());
-      const items = Array.isArray(body.logs) ? body.logs : [];
-      logs.value = items;
-      hasMore.value = items.length >= PAGE_LIMIT;
-    } catch (caught) {
-      if ((caught as Error).message !== "unauthorized") error.value = "无法读取日志，请稍后重试。";
+      const { response, body } = await fetchJsonWithTimeout<LogsPage>(
+        fetchImpl,
+        "/api/logs?" + params.toString(),
+        { credentials: "include", signal: current.controller.signal },
+        10_000,
+        true,
+      );
+      if (active !== current || disposed) return;
+      if (response.status === 401) {
+        authorized = false;
+        requireAuth();
+        return;
+      }
+      if (!response.ok || !body || !Array.isArray(body.logs)) throw new Error("logs_request_failed");
+      error.value = "";
+      if (mode === "newer" && body.nextAfter != null && requestedAfter != null && body.nextAfter < requestedAfter) {
+        reset();
+        return;
+      }
+
+      const items = [...body.logs].sort((a, b) => a.id - b.id);
+      if (mode !== "older") {
+        latest = body.nextAfter ?? Math.max(mode === "initial" ? 0 : (latest ?? 0), items[items.length - 1]?.id ?? 0);
+      }
+      if (mode === "initial") {
+        logs.value = items;
+        hasMore.value = body.hasMore ?? items.length >= pageLimit;
+      } else {
+        const seen = new Set(logs.value.map((entry) => entry.id));
+        const incoming = items.filter((entry) => !seen.has(entry.id));
+        if (mode === "older") {
+          if (incoming.length) logs.value = [...incoming, ...logs.value];
+          hasMore.value = body.hasMore ?? items.length >= pageLimit;
+        } else {
+          if (incoming.length) {
+            const combined = [...logs.value, ...incoming];
+            if (following.value && combined.length > maxVisibleLogs) {
+              logs.value = combined.slice(-maxVisibleLogs);
+              hasMore.value = true;
+            } else logs.value = combined;
+          }
+          moreNewer = body.hasMore === true && latest !== requestedAfter;
+        }
+      }
+    } catch {
+      if (active === current && !disposed) {
+        error.value = mode === "older" ? "无法加载更多日志，请稍后重试。" : "无法读取日志，请稍后重试。";
+      }
     } finally {
-      loading.value = false;
+      if (active === current) {
+        active = undefined;
+        loading.value = false;
+        schedule(moreNewer ? 0 : refreshMs);
+      }
     }
   }
 
-  async function loadMore() {
-    if (loading.value || logs.value.length === 0) return;
-    const cursor = logs.value[logs.value.length - 1]?.id;
-    if (cursor == null) return;
-    loading.value = true;
+  function refresh() {
+    return load(latest === undefined ? "initial" : "newer");
+  }
+
+  function reset() {
+    cancelActive();
+    latest = undefined;
     error.value = "";
-    try {
-      const body = await get<{ logs: LogEntry[] }>(buildUrl(cursor));
-      const items = Array.isArray(body.logs) ? body.logs : [];
-      const seen = new Set(logs.value.map((entry) => entry.id));
-      logs.value = logs.value.concat(items.filter((entry) => !seen.has(entry.id)));
-      hasMore.value = items.length >= PAGE_LIMIT;
-    } catch (caught) {
-      if ((caught as Error).message !== "unauthorized") error.value = "无法加载更多日志，请稍后重试。";
-    } finally {
-      loading.value = false;
-    }
+    logs.value = [];
+    hasMore.value = false;
+    following.value = true;
+    void refresh();
   }
 
-  function setLevel(next: string) {
-    level.value = next;
-    void load();
+  function togglePause() {
+    paused.value = !paused.value;
+    if (paused.value) {
+      clearTimer();
+      if (active?.mode === "newer") cancelActive();
+    } else if (!document.hidden) void refresh();
   }
 
-  function setSource(next: string) {
-    source.value = next;
-    void load();
+  function setFollowing(value: boolean) {
+    if (following.value === value) return;
+    following.value = value;
+    if (!active) schedule(value ? 0 : refreshMs);
   }
 
-  function setQuery(next: string) {
-    query.value = next;
-    void load();
+  function visibilityChanged() {
+    if (document.hidden) {
+      clearTimer();
+      if (active?.mode === "newer") cancelActive();
+    } else if (!paused.value) void refresh();
   }
 
-  if (autoRefreshMs > 0) {
-    timer = setInterval(() => {
-      void load();
-    }, autoRefreshMs);
-  }
+  onMounted(() => {
+    document.addEventListener("visibilitychange", visibilityChanged);
+    void refresh();
+  });
   onUnmounted(() => {
-    if (timer !== null) {
-      clearInterval(timer);
-      timer = null;
-    }
+    disposed = true;
+    clearTimer();
+    cancelActive();
+    document.removeEventListener("visibilitychange", visibilityChanged);
   });
 
-  return { logs, loading, error, level, source, query, hasMore, setLevel, setSource, setQuery, load, loadMore };
+  return {
+    logs,
+    loading,
+    error,
+    paused,
+    following,
+    hasMore,
+    maxVisibleLogs,
+    level,
+    source,
+    module,
+    runId,
+    query,
+    reset,
+    refresh,
+    downloadUrl,
+    togglePause,
+    setFollowing,
+    loadMore: () => load("older"),
+  };
 }

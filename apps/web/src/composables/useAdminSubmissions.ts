@@ -1,6 +1,6 @@
 import { ref } from "vue";
 
-import type { SubmissionUser } from "../types";
+import type { MemberProfile, MemberProfileFields, SubmissionUser } from "../types";
 
 export function useAdminSubmissions(requireAuth: () => void) {
   const users = ref<SubmissionUser[]>([]);
@@ -32,6 +32,30 @@ export function useAdminSubmissions(requireAuth: () => void) {
     } finally {
       loading.value = false;
     }
+  }
+
+  async function updateProfile(id: number, input: MemberProfileFields): Promise<MemberProfile> {
+    return await writeProfile(id, "/profile", "PUT", input);
+  }
+
+  async function syncProfileAvatar(id: number, replace: boolean): Promise<MemberProfile> {
+    return await writeProfile(id, "/profile/avatar", "POST", { replace });
+  }
+
+  async function writeProfile(
+    id: number,
+    path: "/profile" | "/profile/avatar",
+    method: "PUT" | "POST",
+    input: MemberProfileFields | { replace: boolean },
+  ): Promise<MemberProfile> {
+    const { profile } = await request<{ profile: MemberProfile }>(`/api/submission-users/${id}${path}`, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const member = users.value.find((user) => user.id === id);
+    if (member) member.profile = profile;
+    return profile;
   }
 
   async function addUser(input: {
@@ -251,6 +275,8 @@ export function useAdminSubmissions(requireAuth: () => void) {
     loading,
     error,
     load,
+    updateProfile,
+    syncProfileAvatar,
     loadMailDefaults,
     saveMailDefaults,
     loadAdminUserMail,

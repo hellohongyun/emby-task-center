@@ -5,7 +5,9 @@ import { mdiCheckDecagram, mdiEmailOutline, mdiLogout, mdiTicketConfirmationOutl
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import UnfreezeModal from "./UnfreezeModal.vue";
-import CardBlessingModal, { type CardBlessingInfo } from "./CardBlessingModal.vue";
+import PublicMemberProfileCard from "./PublicMemberProfileCard.vue";
+import CardBlessingModal from "./CardBlessingModal.vue";
+import type { CardBlessingInfo } from "../composables/portal-member";
 import type { CardCheckInfo } from "../composables/usePortalSession";
 import { usePortalSession } from "../composables/usePortalSession";
 import { portalFetch } from "../composables/portal-access";
@@ -327,6 +329,7 @@ onBeforeUnmount(() => {
 
       <!-- 功能卡网格 -->
       <div class="grid">
+        <PublicMemberProfileCard :key="s.loggedInEmail.value" />
         <!-- 续费 / 兑换 -->
         <section class="card">
           <header class="card-head">

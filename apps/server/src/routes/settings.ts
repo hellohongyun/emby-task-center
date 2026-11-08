@@ -66,7 +66,7 @@ export function registerSettingsRoutes(app: Express, database: AppDatabase, hook
     }
     const result = writeSettings(database, parsed.data.values);
     if (result.updated.length === 0 && result.rejected.length > 0) {
-      response.status(400).json({ error: "invalid_settings", rejected: result.rejected });
+      response.status(400).json({ ...settingsPayload(database), error: "invalid_settings", rejected: result.rejected });
       return;
     }
     // 保存即生效：Emby 地址/密钥等由运行时快照现取，这里刷新快照。

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-ARG BUILD_VERSION=1.4.0
+ARG BUILD_VERSION=1.4.1
 FROM node:24-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH

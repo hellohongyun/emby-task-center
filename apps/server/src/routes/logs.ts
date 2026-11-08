@@ -1,5 +1,7 @@
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { Express } from "express";
-import { and, desc, eq, like, lt, or, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNotNull, isNull, like, lt, lte, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AppDatabase } from "@emby-task-center/database/client";
@@ -36,27 +38,65 @@ const maxDetailLength = 2_000;
 
 export function registerLogRoutes(app: Express, database: AppDatabase, _logger?: AppLogger): void {
   app.get("/api/logs", (request, response) => {
-    const conditions: (SQL | undefined)[] = [];
-    const level = z.enum(logLevels).safeParse(request.query.level);
-    if (level.success) conditions.push(eq(logs.level, level.data));
-    const source = z.enum(logSources).safeParse(request.query.source);
-    if (source.success) conditions.push(eq(logs.source, source.data));
-    if (typeof request.query.q === "string" && request.query.q.trim()) {
-      const pattern = `%${request.query.q}%`;
-      conditions.push(or(like(logs.message, pattern), like(logs.path, pattern)));
+    const { before, after } = request.query;
+    const cursor = readCursor(after);
+    if (after !== undefined && (cursor === undefined || before !== undefined)) {
+      response.status(400).json({ error: "invalid_cursor" });
+      return;
     }
-    const before = Number(request.query.before);
-    if (Number.isSafeInteger(before) && before > 0) conditions.push(lt(logs.id, before));
+    const conditions = filters(request.query);
+    const highWater = latestId(database);
+    conditions.push(lte(logs.id, highWater));
+    const olderThan = readCursor(before);
+    if (olderThan) conditions.push(lt(logs.id, olderThan));
+    if (cursor !== undefined) conditions.push(gt(logs.id, cursor));
     const limit = readLimit(request.query.limit);
 
     const rows = database
       .select()
       .from(logs)
       .where(and(...conditions))
-      .orderBy(desc(logs.id))
-      .limit(limit)
+      .orderBy(cursor === undefined ? desc(logs.id) : asc(logs.id))
+      .limit(limit + 1)
       .all();
-    response.json({ logs: rows });
+    const hasMore = rows.length > limit;
+    if (hasMore) rows.pop();
+    const nextAfter = cursor !== undefined && hasMore ? (rows.at(-1)?.id ?? cursor) : highWater;
+    response.set("Cache-Control", "no-store").json({ logs: rows, hasMore, nextAfter });
+  });
+
+  app.get("/api/logs/download", async (request, response) => {
+    const highWater = latestId(database);
+    const conditions = [...filters(request.query), lte(logs.id, highWater)];
+    const filename = `emby-system-${new Date().toISOString().slice(0, 10)}.log`;
+    response.set({
+      "Cache-Control": "no-store",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Type": "text/plain; charset=utf-8",
+    });
+
+    async function* lines() {
+      let after = 0;
+      while (after < highWater && !response.destroyed) {
+        const rows = database
+          .select()
+          .from(logs)
+          .where(and(...conditions, gt(logs.id, after)))
+          .orderBy(asc(logs.id))
+          .limit(maxLimit)
+          .all();
+        if (!rows.length) return;
+        for (const row of rows) yield downloadLine(row);
+        after = rows.at(-1)!.id;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    }
+
+    try {
+      await pipeline(Readable.from(lines()), response);
+    } catch (error) {
+      if (!response.destroyed) throw error;
+    }
   });
 
   app.post("/api/logs", (request, response) => {
@@ -68,6 +108,7 @@ export function registerLogRoutes(app: Express, database: AppDatabase, _logger?:
     const rows = parsed.data.logs.map((entry) => ({
       level: entry.level,
       source: entry.source,
+      module: "web",
       message: truncate(entry.message, maxMessageLength),
       method: entry.method ?? null,
       path: entry.path ?? null,
@@ -79,6 +120,66 @@ export function registerLogRoutes(app: Express, database: AppDatabase, _logger?:
     if (rows.length > 0) database.insert(logs).values(rows).run();
     response.status(201).json({ accepted: rows.length });
   });
+}
+
+function latestId(database: AppDatabase): number {
+  return database.select({ id: logs.id }).from(logs).orderBy(desc(logs.id)).limit(1).get()?.id ?? 0;
+}
+
+function filters(query: Record<string, unknown>): (SQL | undefined)[] {
+  const conditions: (SQL | undefined)[] = [];
+  const level = z.enum(logLevels).safeParse(query.level);
+  if (level.success) conditions.push(eq(logs.level, level.data));
+  const source = z.enum(logSources).safeParse(query.source);
+  if (source.success) conditions.push(eq(logs.source, source.data));
+  if (typeof query.module === "string" && query.module.trim()) {
+    const module = query.module.trim();
+    const exact = eq(logs.module, module);
+    if (module === "http") {
+      conditions.push(or(exact, and(isNull(logs.module), eq(logs.source, "server"), isNotNull(logs.method))));
+    } else if (module === "server") {
+      conditions.push(or(exact, and(isNull(logs.module), eq(logs.source, "server"), isNull(logs.method))));
+    } else if (module === "web") {
+      conditions.push(or(exact, and(isNull(logs.module), eq(logs.source, "web"))));
+    } else conditions.push(exact);
+  }
+  if (typeof query.runId === "string" && query.runId.trim()) conditions.push(eq(logs.runId, query.runId.trim()));
+  if (typeof query.q === "string" && query.q.trim()) {
+    const pattern = `%${query.q.trim()}%`;
+    conditions.push(
+      or(like(logs.message, pattern), like(logs.path, pattern), like(logs.detail, pattern), like(logs.event, pattern)),
+    );
+  }
+  return conditions;
+}
+
+function readCursor(value: unknown): number | undefined {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return undefined;
+  const cursor = Number(value);
+  return Number.isSafeInteger(cursor) ? cursor : undefined;
+}
+
+function downloadLine(row: typeof logs.$inferSelect): string {
+  const module = row.module ?? (row.source === "server" && row.method ? "http" : row.source);
+  const values = [
+    row.createdAt,
+    module,
+    row.level.toUpperCase(),
+    row.message,
+    row.runId && `run=${row.runId}`,
+    row.event && `event=${row.event}`,
+    row.method,
+    row.path,
+    row.status,
+    row.durationMs == null ? null : `${row.durationMs}ms`,
+    row.detail,
+  ];
+  return (
+    values
+      .filter((value) => value != null && value !== "")
+      .map((value) => String(value).replace(/[\r\n\t]+/g, " "))
+      .join("\t") + "\n"
+  );
 }
 
 function readLimit(value: unknown): number {

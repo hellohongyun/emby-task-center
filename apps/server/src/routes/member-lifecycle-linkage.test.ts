@@ -1,8 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { randomUUID } from "node:crypto";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { randomInt } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { cardKeys, concurrencyEscalationState, submissionUsers } from "@emby-task-center/database/schema";
 import { memberLinkageFixture } from "./member-linkage-fixture";
+
+vi.mock("../util/image-request", () => ({
+  fetchImage: vi.fn().mockRejectedValue(new Error("fixture QQ avatar unavailable")),
+}));
 
 describe("member lifecycle across real HTTP, SQLite and the Emby HTTP client", () => {
   let fixture: Awaited<ReturnType<typeof memberLinkageFixture>>;
@@ -10,7 +14,7 @@ describe("member lifecycle across real HTTP, SQLite and the Emby HTTP client", (
   let email: string;
   const cookie = (response: Response) => response.headers.get("set-cookie")?.split(";")[0] ?? "";
   beforeEach(async () => {
-    email = `linkage-${randomUUID()}@example.invalid`;
+    email = `${randomInt(100_000_000, 1_000_000_000)}@qq.com`;
     fixture = await memberLinkageFixture();
     const login = await fixture.request("/api/auth/login", { password: "linkage-password" });
     expect(login.status).toBe(200);
@@ -35,11 +39,20 @@ describe("member lifecycle across real HTTP, SQLite and the Emby HTTP client", (
     return value!;
   }
   async function activate(cardCode: string) {
-    const response = await fixture.request("/api/public/subscriptions/activate", {
-      email,
-      cardCode,
-      code: await code(cardCode),
-    });
+    const verificationCode = await code(cardCode);
+    let authorization: { code: string } | { registrationToken: string } = { code: verificationCode };
+    if (!member()) {
+      const verified = await fixture.request("/api/public/subscriptions/register/verify", {
+        email,
+        cardCode,
+        code: verificationCode,
+      });
+      expect(verified.status).toBe(200);
+      authorization = {
+        registrationToken: ((await verified.json()) as { registrationToken: string }).registrationToken,
+      };
+    }
+    const response = await fixture.request("/api/public/subscriptions/activate", { email, cardCode, ...authorization });
     expect(response.status).toBe(200);
     return { cookie: cookie(response), body: await response.json() };
   }

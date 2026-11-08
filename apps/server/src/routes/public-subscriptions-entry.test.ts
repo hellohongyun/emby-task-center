@@ -101,9 +101,15 @@ describe("public subscription entry routing", () => {
   }
 
   it("没注册过的邮箱 → 走注册页（needsCard），且不发信、不签发验证码", async () => {
-    const res = await postEntry("stranger@example.com");
+    const res = await postEntry(" 100001032@QQ.COM ");
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ registered: false, needsCard: true, expired: false });
+    expect(await res.json()).toMatchObject({
+      registered: false,
+      needsCard: true,
+      expired: false,
+      qqNumber: "100001032",
+      groupInvite: null,
+    });
     expect(emailsSent).toHaveLength(0);
     expect(database.db.select().from(verificationCodes).all()).toHaveLength(0);
   });

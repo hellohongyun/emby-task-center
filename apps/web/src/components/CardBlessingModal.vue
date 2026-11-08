@@ -2,6 +2,7 @@
 import { mdiClose, mdiPartyPopper } from "@mdi/js";
 import SvgIcon from "@jamescoyle/vue-icon";
 import { onBeforeUnmount, onMounted } from "vue";
+import type { CardBlessingInfo } from "../composables/portal-member";
 
 /**
  * 卡密彩蛋弹窗：用户在注册页 / 续费页点「验证卡密」成功后弹出。
@@ -14,21 +15,6 @@ import { onBeforeUnmount, onMounted } from "vue";
  * 视觉上刻意做足"仪式感"：这是一次**开奖**，不是一条系统提示。所以有彩带、有逐级入场、
  * 有金色的到期票券；但一切都建立在"文案与字段全部来自后台"之上——前端一句提示语都不写死。
  */
-export interface CardBlessingInfo {
-  /** 卡密名称（管理员 DIY）；没起名字时服务端已回落成类型标签。 */
-  name: string;
-  /** 到期主文案：名称优先。 */
-  expiryText: string;
-  /** 真实到期日小字；相对天数卡为 null。 */
-  detail?: string | null;
-  /** 兼容旧字段名（服务端给的是 expiryDetail）。 */
-  expiryDetail?: string | null;
-  /** 剩余天数（固定到期日卡才有）。 */
-  expiryDays?: number | null;
-  /** 彩蛋祝福文案。 */
-  blessing: string;
-}
-
 const props = defineProps<{ card: CardBlessingInfo | null }>();
 const emit = defineEmits<{ (event: "close"): void }>();
 

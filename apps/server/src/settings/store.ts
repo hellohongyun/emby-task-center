@@ -133,11 +133,42 @@ export function readSetting<K extends SettingKey>(
   return parsed.data as SettingsSnapshot[K];
 }
 
-/** 局部写入：未知键与非法值一律拒绝并回报，不写半套。 */
+const GROUP_REGISTRATION_KEYS: ReadonlySet<string> = new Set([
+  "member.groupInviteEnabled",
+  "member.groupNumber",
+  "member.groupInviteCode",
+]);
+
+function groupRegistrationPatchError(database: AppDatabase, patch: Record<string, unknown>): string | undefined {
+  const values = { ...readSettings(database).values, ...patch };
+  const enabled = SETTINGS["member.groupInviteEnabled"].schema.safeParse(values["member.groupInviteEnabled"]);
+  const group = SETTINGS["member.groupNumber"].schema.safeParse(values["member.groupNumber"]);
+  const code = SETTINGS["member.groupInviteCode"].schema.safeParse(values["member.groupInviteCode"]);
+  if (!enabled.success) return "请选择是否要求群邀请码";
+  if (!group.success) return "请填写有效的 QQ 群号";
+  if (!code.success) return "群邀请码需为 6–64 位英文字母、数字、短横线或下划线";
+  if (enabled.data && (!group.data || !code.data)) return "启用群邀请码前，请填写群号和邀请码";
+}
+
+/** 局部写入：逐项报告未知键与非法值，群注册设置作为一组校验。 */
 export function writeSettings(
   database: AppDatabase,
   patch: Record<string, unknown>,
   actor: string = SETTINGS_ACTOR_ADMIN,
+): SettingsWriteResult {
+  if (Object.keys(patch).some((key) => GROUP_REGISTRATION_KEYS.has(key))) {
+    return database.transaction(() =>
+      writeSettingsPatch(database, patch, actor, groupRegistrationPatchError(database, patch)),
+    );
+  }
+  return writeSettingsPatch(database, patch, actor);
+}
+
+function writeSettingsPatch(
+  database: AppDatabase,
+  patch: Record<string, unknown>,
+  actor: string,
+  groupError?: string,
 ): SettingsWriteResult {
   const updated: SettingKey[] = [];
   const rejected: Array<{ key: string; error: string }> = [];
@@ -146,6 +177,10 @@ export function writeSettings(
   for (const [key, value] of Object.entries(patch)) {
     if (!isSettingKey(key)) {
       rejected.push({ key, error: "未知设置项" });
+      continue;
+    }
+    if (groupError && GROUP_REGISTRATION_KEYS.has(key)) {
+      rejected.push({ key, error: groupError });
       continue;
     }
     // 读取接口对密钥只回掩码 "****"。只要有人（脚本、手写请求、复制粘贴）把掩码当成新值写回来，

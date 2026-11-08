@@ -3,8 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: /\.spec\.ts$/,
-  // 真实服务流程（real-flows）单独用 playwright.real.config.ts 运行，默认套件只跑路由夹具。
-  testIgnore: /(?:real-flows|deep-browser)\.spec\.ts/,
+  // 独立真实服务流程使用 playwright.real.config.ts 或 playwright.deep.config.ts。
+  testIgnore: /(?:real-flows|deep-browser|library-order|member-registration(?:-boundaries)?|system-logs)\.spec\.ts/,
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,

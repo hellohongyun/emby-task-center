@@ -1,26 +1,25 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { fetchJsonWithTimeout } from "../composables/request-timeout";
+import {
+  cleanupBlockLabels,
+  cleanupCandidateDetail,
+  memberCleanupSettings,
+  type CleanupPreview,
+  type MemberCleanupMode,
+} from "./member-cleanup-settings";
 
-type Account = { id: number; email: string; expiresAt: string };
-type BlockReason = "administrator" | "role_unverified" | "linked_elsewhere" | "cleanup_in_progress";
-type Preview = {
-  previewToken: string;
-  days: number;
-  candidates: (Account & { linked: boolean })[];
-  blocked: (Account & { reason: BlockReason })[];
-};
 type Policy = { days: number | null };
 type Operation = "load" | "preview" | "save";
 
-const props = defineProps<{ requireAuth: () => void }>();
+const props = withDefaults(defineProps<{ requireAuth: () => void; mode?: MemberCleanupMode }>(), { mode: "expiry" });
 const emit = defineEmits<{ close: [] }>();
-const endpoint = "/api/member-expiry-cleanup";
+const settings = memberCleanupSettings[props.mode];
 const dialog = ref<HTMLDialogElement>();
 const previewHeading = ref<HTMLElement>();
 const days = ref<number | null>();
-const draft = ref<number | string>("");
-const preview = ref<Preview>();
+const draft = ref<number | string>(settings.defaultDays);
+const preview = ref<CleanupPreview>();
 const confirmed = ref(false);
 const operation = ref<Operation>();
 const needsReload = ref(false);
@@ -29,12 +28,6 @@ const notice = ref("");
 const controller = new AbortController();
 const validDays = computed(() => typeof draft.value === "number" && isValidDays(draft.value));
 const ready = computed(() => !operation.value && !needsReload.value && days.value !== undefined);
-const blockLabels: Record<BlockReason, string> = {
-  administrator: "Emby 管理员受保护",
-  role_unverified: "Emby 账号身份待核对",
-  linked_elsewhere: "Emby 账号同时绑定其他会员",
-  cleanup_in_progress: "已有删除请求待核对",
-};
 
 function isValidDays(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 3650;
@@ -58,7 +51,7 @@ async function request<T>(step: Operation, payload?: object) {
   try {
     const { response, body } = await fetchJsonWithTimeout<T & { error?: string }>(
       fetch,
-      step === "preview" ? `${endpoint}/preview` : endpoint,
+      step === "preview" ? `${settings.endpoint}/preview` : settings.endpoint,
       {
         credentials: "include",
         signal: controller.signal,
@@ -89,6 +82,9 @@ async function request<T>(step: Operation, payload?: object) {
         break;
       case "member_cleanup_preview_changed":
         error.value = "预览范围或 Emby 连接已变化，请重新预览。";
+        break;
+      case "member_cleanup_activity_unavailable":
+        error.value = "无法核对 Emby 播放记录，请检查连接后重新预览。";
         break;
       case "invalid_request":
         error.value = "请填写 1 至 3650 的整数天数后重新预览。";
@@ -121,7 +117,7 @@ async function load() {
     return;
   }
   days.value = result.days;
-  if (draft.value === (previousDays ?? "")) draft.value = result.days ?? "";
+  if (draft.value === (previousDays ?? settings.defaultDays)) draft.value = result.days ?? settings.defaultDays;
   needsReload.value = false;
 }
 
@@ -129,7 +125,7 @@ async function loadPreview() {
   if (!ready.value || !isValidDays(draft.value)) return;
   const requestedDays = draft.value;
   clearPreview();
-  const result = await request<Preview>("preview", { days: requestedDays });
+  const result = await request<CleanupPreview>("preview", { days: requestedDays });
   if (!result) return;
   if (
     result.days !== requestedDays ||
@@ -163,15 +159,9 @@ async function save(value: number | null) {
     return;
   }
   days.value = result.days;
-  draft.value = result.days ?? "";
-  notice.value = result.days === null ? "自动删除已关闭。" : `设置已保存。会员过期满 ${result.days} 天后纳入自动清理。`;
-}
-
-function formatExpiry(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : date.toLocaleString("zh-CN", { dateStyle: "medium", timeStyle: "short" });
+  draft.value = result.days ?? settings.defaultDays;
+  notice.value =
+    result.days === null ? "自动删除已关闭。" : `设置已保存。会员${settings.rule} ${result.days} 天后纳入自动清理。`;
 }
 
 function close() {
@@ -197,21 +187,19 @@ onBeforeUnmount(() => {
     @cancel.prevent="close"
   >
     <header class="cleanup-header">
-      <h3 id="member-cleanup-title">过期账号自动删除</h3>
+      <h3 id="member-cleanup-title">{{ settings.title }}</h3>
       <button type="button" class="close" aria-label="关闭" :disabled="operation === 'save'" @click="close">×</button>
     </header>
     <div class="cleanup-content" :aria-busy="Boolean(operation)">
-      <p id="member-cleanup-scope" class="muted">
-        过期满设定天数后，删除会员记录和已绑定的 Emby 账号。历史过期会员和未绑定 Emby 的会员也纳入。
-      </p>
-      <p class="muted">有冻结时长、长期跟随网盘到期的会员及 Emby 管理员受保护。</p>
+      <p id="member-cleanup-scope" class="muted">{{ settings.scope }}</p>
+      <p class="muted">{{ settings.protection }}</p>
       <p v-if="operation === 'load'" role="status">正在读取设置…</p>
       <p v-else-if="days === null" class="policy">当前已关闭</p>
-      <p v-else-if="days !== undefined" class="policy">当前规则 · 过期满 {{ days }} 天</p>
+      <p v-else-if="days !== undefined" class="policy">当前规则 · {{ settings.rule }} {{ days }} 天</p>
 
       <form class="days-form" @submit.prevent="loadPreview">
         <label>
-          过期天数
+          {{ settings.field }}
           <input
             v-model.number="draft"
             type="number"
@@ -244,9 +232,7 @@ onBeforeUnmount(() => {
           <ul>
             <li v-for="account in preview.candidates" :key="account.id">
               <strong>{{ account.email }}</strong>
-              <span class="muted"
-                >{{ formatExpiry(account.expiresAt) }} 到期 · {{ account.linked ? "关联 Emby" : "仅会员记录" }}</span
-              >
+              <span class="muted">{{ cleanupCandidateDetail(account) }}</span>
             </li>
           </ul>
         </details>
@@ -255,13 +241,13 @@ onBeforeUnmount(() => {
           <ul>
             <li v-for="account in preview.blocked" :key="account.id">
               <strong>{{ account.email }}</strong>
-              <span class="muted">{{ blockLabels[account.reason] }}</span>
+              <span class="muted">{{ cleanupBlockLabels[account.reason] }}</span>
             </li>
           </ul>
         </details>
         <label class="confirm">
           <input v-model="confirmed" type="checkbox" :disabled="!ready" />
-          <span>我确认永久删除符合规则的会员和关联 Emby 账号，范围包括历史过期会员。</span>
+          <span>{{ settings.confirmation }}</span>
         </label>
       </section>
     </div>

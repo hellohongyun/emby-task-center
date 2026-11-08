@@ -19,7 +19,7 @@ function json(status: number, body: unknown) {
 const member = {
   status: "active",
   subscriptionExpiresAt: "2027-01-01T00:00:00.000Z",
-  embyUsername: "new@example.com",
+  embyUsername: "123456789@qq.com",
   embyUserId: "u1",
   embyMaxStreams: 1,
 };
@@ -70,6 +70,7 @@ interface Api {
   entry?: () => Response;
   check?: () => Response;
   code?: () => Response;
+  verify?: () => Response;
   activate?: () => Response;
   login?: () => Response;
 }
@@ -85,14 +86,18 @@ function stubApi(handlers: Api = {}) {
       const raw = init?.body ? String(init.body) : null;
       calls.push({ url: target, body: raw ? (JSON.parse(raw) as Record<string, unknown>) : null });
       if (target.includes("/subscriptions/entry"))
-        return handlers.entry?.() ?? json(200, { registered: false, needsCard: true, expired: false });
+        return (
+          handlers.entry?.() ?? json(200, { registered: false, needsCard: true, expired: false, qqNumber: "123456789" })
+        );
       if (target.includes("/subscriptions/card/check"))
         return handlers.check?.() ?? json(400, { error: "invalid_card" });
       if (target.includes("/subscriptions/code"))
         return handlers.code?.() ?? json(200, { sent: true, registered: false, needsCard: true, expired: false });
+      if (target.includes("/subscriptions/register/verify"))
+        return handlers.verify?.() ?? json(200, { registrationToken: "proof", qqNumber: "123456789" });
       if (target.includes("/subscriptions/activate"))
         return (
-          handlers.activate?.() ?? json(200, { status: "activated", email: "new@example.com", member, emby: null })
+          handlers.activate?.() ?? json(200, { status: "activated", email: "123456789@qq.com", member, emby: null })
         );
       if (target.includes("/subscriptions/login"))
         return handlers.login?.() ?? json(200, { status: "member", email: "member@example.com", member });
@@ -105,7 +110,7 @@ const callsTo = (fragment: string) => calls.filter((call) => call.url.includes(f
 const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
 
 /** 走完"第一步 → 下一步"，停在分流后的页面。 */
-async function gotoAfterEmail(email = "new@example.com") {
+async function gotoAfterEmail(email = "123456789@qq.com") {
   await fireEvent.update(screen.getByPlaceholderText("you@example.com"), email);
   await fireEvent.click(button("下一步"));
 }
@@ -139,8 +144,18 @@ describe("PublicLoginView 登录/开通分流", () => {
     expect(callsTo("/subscriptions/code")).toHaveLength(0);
   });
 
-  it("注册页：卡密验证通过才解锁发送，点一下才发信，冷却期内不能重发；提交带卡密开通", async () => {
-    stubApi({ check: () => json(200, cardOk) });
+  it("验证卡密和邀请码后发送验证码，验证邮箱后单独提交资料开通", async () => {
+    stubApi({
+      check: () => json(200, cardOk),
+      entry: () =>
+        json(200, {
+          registered: false,
+          needsCard: true,
+          expired: false,
+          qqNumber: "123456789",
+          groupInvite: { groupNumber: "92345678" },
+        }),
+    });
     render(PublicLoginView);
     await gotoAfterEmail();
     await screen.findByText("用卡密开通会员");
@@ -150,6 +165,9 @@ describe("PublicLoginView 登录/开通分流", () => {
 
     expect(await screen.findByText(/卡密有效：月卡 · 兑换后 30 天/)).toBeTruthy();
     const sendButton = button(/发送验证码|重新发送|\d+s/);
+    expect(sendButton.disabled).toBe(true);
+    expect(screen.getByText(/群公告/)).toHaveTextContent("92345678");
+    await fireEvent.update(screen.getByLabelText("群邀请码"), "cinema");
     expect(sendButton.disabled).toBe(false);
     // 验证通过本身不发信——必须再点一次
     expect(callsTo("/subscriptions/code")).toHaveLength(0);
@@ -164,16 +182,31 @@ describe("PublicLoginView 登录/开通分流", () => {
     });
     expect(cooling).toBeTruthy();
     expect(callsTo("/subscriptions/code")[0]?.body).toMatchObject({
-      email: "new@example.com",
+      email: "123456789@qq.com",
       cardCode: "CARDAAAA1111",
+      inviteCode: "cinema",
     });
 
     await fireEvent.update(screen.getByPlaceholderText("6 位验证码"), "123456");
-    await fireEvent.click(button("开通并登录"));
-    expect(callsTo("/subscriptions/activate")[0]?.body).toMatchObject({
-      email: "new@example.com",
+    await fireEvent.click(button("验证邮箱并继续"));
+    expect(callsTo("/subscriptions/register/verify")[0]?.body).toEqual({
+      email: "123456789@qq.com",
       code: "123456",
       cardCode: "CARDAAAA1111",
+      inviteCode: "cinema",
+    });
+    expect(callsTo("/subscriptions/activate")).toHaveLength(0);
+
+    await screen.findByRole("heading", { name: "确认会员资料" });
+    expect(screen.getByLabelText("联系 QQ")).toHaveValue("123456789");
+    expect(screen.getByLabelText("联系 QQ")).toHaveAttribute("readonly");
+    await fireEvent.update(screen.getByLabelText("入会来源（选填）"), "朋友推荐");
+    await fireEvent.click(button("开通并登录"));
+    expect(callsTo("/subscriptions/activate")[0]?.body).toEqual({
+      email: "123456789@qq.com",
+      cardCode: "CARDAAAA1111",
+      registrationToken: "proof",
+      joinSource: "朋友推荐",
     });
   });
 

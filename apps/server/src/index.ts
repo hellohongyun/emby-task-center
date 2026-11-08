@@ -25,6 +25,8 @@ import { createResourceTokenStore } from "./pansou/resource-tokens";
 import { ALL_PLATFORMS, type PansouPlatformKey } from "./pansou/pansou-filter";
 import { installShutdown } from "./shutdown";
 import { createVirtualLibraryProxy } from "./virtual-libraries/proxy";
+import { startQqAvatarRefresh } from "./subscriptions/qq-avatar-refresh";
+import { drainQqAvatarSync } from "./subscriptions/member-qq-avatar";
 
 // P3：bootstrap 变量集中解析（其余配置一律来自数据库设置）。
 const bootstrap = readBootstrapEnv();
@@ -88,6 +90,7 @@ const emby = createEmbyClient({
 // 库根不写死，而是"每次都能重新问 Emby"的来源（Emby 侧增删库、改名都会跟随）。
 const library = createLibraryService(createEmbyRootsSource(emby), createEmbyScan(emby), database.db, {
   databasePath: bootstrap.databasePath,
+  logger,
 });
 const tmdb = createTmdbClient({ token: settings["tmdb.token"] });
 // 全库缺集检测器：同一实例交给 HTTP 路由（读状态/手动触发）与后台定时任务（每小时一轮）。
@@ -190,6 +193,12 @@ const runtime = startRuntime({
   trending: trendingService,
   missingEpisodeScanner,
 });
+const avatarRefresh = startQqAvatarRefresh({
+  database: database.db,
+  emby,
+  logger,
+  enabled: () => getRuntimeSettings().embyEnabled,
+});
 
 const server = app.listen(port, () => {
   logger.info({ event: "server_started", message: "服务启动", detail: JSON.stringify({ port }) });
@@ -202,12 +211,22 @@ void virtualLibraryProxy.start();
 
 installShutdown({
   server,
-  stopRuntime: () => runtime.stop(),
+  stopRuntime: () => {
+    runtime.stop();
+    avatarRefresh.stop();
+  },
   cleanup: [
     { name: "virtual_library_proxy", close: () => virtualLibraryProxy.close() },
     { name: "public_library", close: () => app.locals.closePublicLibrary?.() },
     { name: "missing_root_reader", close: () => closeMissingRootReader(database.db) },
     { name: "library", close: () => library.close?.() },
+    {
+      name: "qq_avatar_refresh",
+      close: async () => {
+        await avatarRefresh.close();
+        await drainQqAvatarSync(database.db);
+      },
+    },
     { name: "logger", close: () => logger.close?.() },
   ],
   closeDatabase: () => database.close(),

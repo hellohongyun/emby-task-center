@@ -6,9 +6,11 @@ import { embyAccessAllowed, syncMemberEmbyAccess } from "../subscriptions/emby-a
  * 还顺带挂载 follow-admin / admin-content 两个无关模块。投稿功能删除后只留下会员部分，
  * 因此改名 members.ts；被顺带挂载的两个模块回到 app.ts 各自注册。
  *
- * 数据表仍叫 submission_users（不改表结构），接口路径仍是 /api/submission-users。
+ * 数据表为 submission_users，接口路径为 /api/submission-users。
  */
 import { readId } from "./route-utils";
+import { registerAdminMemberProfileRoutes } from "./member-profile";
+import type { WorkflowLogger } from "../logging/workflow-log";
 import { registerMemberRenewal } from "./member-renewal";
 import { registerMembershipDriveExpiry } from "./membership-drive-expiry";
 import type { Express, Request, Response } from "express";
@@ -23,6 +25,7 @@ import { provisionEmbyAccount, syncEmbyStreamLimit } from "../subscriptions/emby
 import { linkOrphanEmbyUsers } from "../subscriptions/emby-member-sync";
 import { isMemberExpiryCleanupPending } from "../subscriptions/member-expiry-cleanup-guard";
 import { restoreConcurrencyUser } from "../subscriptions/concurrency-escalation";
+import { toMemberProfile } from "../subscriptions/member-profile";
 import {
   addSubmissionUser,
   deleteSubmissionUser,
@@ -59,6 +62,7 @@ export interface MemberRouteOptions {
   database: AppDatabase;
   email?: EmailNotifier | undefined;
   emby?: EmbyClient | undefined;
+  logger?: WorkflowLogger | undefined;
 }
 
 // P3：位置参数改为选项对象，调用点不再依赖参数顺序。
@@ -66,8 +70,11 @@ export function registerMemberRoutes(app: Express, options: MemberRouteOptions):
   const { database, email, emby } = options;
   registerMemberRenewal(app, options);
   registerMembershipDriveExpiry(app, options);
+  registerAdminMemberProfileRoutes(app, options);
   app.get("/api/submission-users", (_request: Request, response: Response) => {
-    response.json({ users: listSubmissionUsers(database) });
+    response.json({
+      users: listSubmissionUsers(database).map((user) => ({ ...user, profile: toMemberProfile(user) })),
+    });
   });
 
   /**
@@ -75,7 +82,7 @@ export function registerMemberRoutes(app: Express, options: MemberRouteOptions):
    * 定时任务每 10 分钟也会跑一次；这个入口用于"刚在 Emby 建完号，想立刻在后台看到"。
    */
   app.post("/api/submission-users/sync-emby", async (_request: Request, response: Response) => {
-    response.json(await linkOrphanEmbyUsers(database, emby));
+    response.json(await linkOrphanEmbyUsers(database, emby, undefined, options.logger));
   });
 
   app.post("/api/submission-users", async (request: Request, response: Response) => {
@@ -96,7 +103,7 @@ export function registerMemberRoutes(app: Express, options: MemberRouteOptions):
     let provisioned = false;
     if (emby?.configured && !created.embyUserId) {
       try {
-        await provisionEmbyAccount(database, emby, created.email, parsed.data.password);
+        await provisionEmbyAccount(database, emby, created.email, parsed.data.password, options.logger);
         provisioned = true;
       } catch {
         /* 会员已建，Emby 开通失败不阻断（可稍后重设/单独建号） */

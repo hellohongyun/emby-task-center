@@ -5,7 +5,7 @@ import { expect, test, type Page } from "@playwright/test";
  *
  * 现在的顺序是：第一步**只有邮箱** → 点「下一步」由服务端判断注册过没有 →
  *   注册过（含已过期）→ 验证码登录（不需要卡密）→ 「我的」页续费时再验证卡密
- *   没注册过       → 注册页：验证卡密 → **解锁**「发送验证码」→ 点一下才发信 → 输入验证码开通
+ *   没注册过 → 用数字 QQ 邮箱和卡密注册，按配置提供群邀请码，验证邮箱后确认资料再开通
  *
  * 历史：这个用例原先是「点门户『投稿』导航 → 在投稿页里开通」。投稿功能整体删除后，
  * 门户未登录时只显示登录/开通页，开通成功直接进首页，因此断言随之改为首页可见。
@@ -63,9 +63,14 @@ const customCard: CardPayload = {
 };
 
 const expiryLabel = "2027 年春节结束到期";
+const registrationQq = "123456789";
+const registrationEmail = `${registrationQq}@qq.com`;
+const registrationGroup = "778899001";
+const groupInviteCode = "Invite_2026";
 
 interface StubOptions {
   registered: boolean;
+  requireGroupInvite?: boolean;
   /** 卡密预检返回哪张卡（默认月卡）。 */
   card?: CardPayload;
   /** 会员摘要里的「到期时间名称」；给 null 表示这个人没有名称口径。 */
@@ -76,6 +81,7 @@ interface StubOptions {
 async function stubPortalApis(page: Page, options: StubOptions) {
   let authenticated = false;
   let cardChecked = false;
+  let activatedWith: Record<string, unknown> | undefined;
   const registered = options.registered;
   const card = options.card ?? monthCard;
   const member = {
@@ -88,7 +94,15 @@ async function stubPortalApis(page: Page, options: StubOptions) {
   };
 
   await page.route("**/api/public/subscriptions/entry", async (route) => {
-    await route.fulfill({ json: { registered, needsCard: !registered, expired: false } });
+    await route.fulfill({
+      json: {
+        registered,
+        needsCard: !registered,
+        expired: false,
+        ...(!registered && { qqNumber: registrationQq }),
+        ...(options.requireGroupInvite && { groupInvite: { groupNumber: registrationGroup } }),
+      },
+    });
   });
   await page.route("**/api/public/subscriptions/card/check", async (route) => {
     cardChecked = true;
@@ -97,14 +111,26 @@ async function stubPortalApis(page: Page, options: StubOptions) {
     });
   });
   await page.route("**/api/public/subscriptions/code", async (route) => {
+    if (options.requireGroupInvite && route.request().postDataJSON().inviteCode !== groupInviteCode) {
+      await route.fulfill({ status: 400, json: { error: "invalid_group_invite" } });
+      return;
+    }
     await route.fulfill({ json: { sent: true, registered, needsCard: !registered, expired: false } });
   });
+  await page.route("**/api/public/subscriptions/register/verify", async (route) => {
+    const request = route.request().postDataJSON();
+    expect(request).toMatchObject({ email: registrationEmail, code: "123456", cardCode: "CARD123" });
+    if (options.requireGroupInvite) expect(request.inviteCode).toBe(groupInviteCode);
+    await route.fulfill({ json: { registrationToken: "test-registration-token", qqNumber: registrationQq } });
+  });
+  await page.route("https://q1.qlogo.cn/**", (route) => route.abort());
   await page.route("**/api/public/subscriptions/activate", async (route) => {
+    activatedWith = route.request().postDataJSON();
     authenticated = true;
     await route.fulfill({
       status: 200,
       headers: { "content-type": "application/json", "set-cookie": "emby_public_session=mock; Path=/" },
-      json: { status: "activated", email: "new@example.com", member, emby: null },
+      json: { status: "activated", email: registrationEmail, member, emby: null },
     });
   });
   await page.route("**/api/public/subscriptions/login", async (route) => {
@@ -117,6 +143,11 @@ async function stubPortalApis(page: Page, options: StubOptions) {
   });
   await page.route("**/api/public/subscriptions/member/emby", async (route) => {
     await route.fulfill({ json: { embyUserId: "u1", embyUsername: "member@example.com" } });
+  });
+  await page.route("**/api/public/subscriptions/member/profile", async (route) => {
+    await route.fulfill({
+      json: { profile: { qqNumber: null, joinSource: null, avatarUrl: null, avatarSyncStatus: null } },
+    });
   });
   // 门户会员摘要：登录前 401（未登录），登录后放行
   await page.route("**/api/public/subscriptions/member", async (route) => {
@@ -140,11 +171,11 @@ async function stubPortalApis(page: Page, options: StubOptions) {
     await route.fulfill({ json: { entries: [] } });
   });
 
-  return { cardChecked: () => cardChecked, authenticated: () => authenticated };
+  return { cardChecked: () => cardChecked, authenticated: () => authenticated, activatedWith: () => activatedWith };
 }
 
 /** 走完"第一步 → 下一步"，停在注册页。 */
-async function gotoRegisterPage(page: Page, email = "new@example.com") {
+async function gotoRegisterPage(page: Page, email = registrationEmail) {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "登录 / 开通会员" })).toBeVisible();
   await page.getByPlaceholder("you@example.com").fill(email);
@@ -152,10 +183,10 @@ async function gotoRegisterPage(page: Page, email = "new@example.com") {
   await expect(page.getByRole("heading", { name: "用卡密开通会员" })).toBeVisible();
 }
 
-test("新用户：邮箱 → 下一步 → 卡密 → 验证卡密 → 发送验证码 → 开通", async ({ page }) => {
+test("新用户凭群邀请码收验证码，确认会员资料后才开通", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(String(err)));
-  const api = await stubPortalApis(page, { registered: false });
+  const api = await stubPortalApis(page, { registered: false, requireGroupInvite: true });
 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "登录 / 开通会员" })).toBeVisible();
@@ -163,7 +194,7 @@ test("新用户：邮箱 → 下一步 → 卡密 → 验证卡密 → 发送验
   // 第一步只有邮箱：卡密与验证码都还没出现
   await expect(page.getByPlaceholder("月卡 / 年卡 / 试用卡")).toHaveCount(0);
   await expect(page.getByPlaceholder("6 位验证码")).toHaveCount(0);
-  await page.getByPlaceholder("you@example.com").fill("new@example.com");
+  await page.getByPlaceholder("you@example.com").fill(registrationEmail);
   await page.getByRole("button", { name: "下一步" }).click();
 
   // 没注册过 → 注册页；「发送验证码」此刻是锁着的
@@ -179,16 +210,27 @@ test("新用户：邮箱 → 下一步 → 卡密 → 验证卡密 → 发送验
   await expect(page.locator(".card-summary")).toContainText("兑换后 30 天");
   expect(api.cardChecked()).toBe(true);
 
-  // 验证通过只是解锁；点一下才真的发信
+  await expect(page.getByText(registrationGroup, { exact: true })).toBeVisible();
+  await expect(sendButton).toBeDisabled();
+  await page.getByLabel("群邀请码").fill(groupInviteCode);
   await expect(sendButton).toBeEnabled();
   await sendButton.click();
-  await expect(page.getByRole("button", { name: "开通并登录" })).toBeVisible();
-
   await page.getByPlaceholder("6 位验证码").fill("123456");
+  await page.getByRole("button", { name: "验证邮箱并继续" }).click();
+  await expect(page.getByRole("heading", { name: "确认会员资料" })).toBeVisible();
+  await expect(page.getByLabel("联系 QQ")).toHaveValue(registrationQq);
+  expect(api.activatedWith()).toBeUndefined();
+  await page.getByLabel("入会来源（选填）").fill("群公告");
   await page.getByRole("button", { name: "开通并登录" }).click();
 
   // 开通后进入已登录门户（首页可见 + 顶栏显示账号），且不黑屏、无未捕获错误
   await expect(page.getByRole("heading", { name: "影迷影视中心" })).toBeVisible();
+  expect(api.activatedWith()).toEqual({
+    email: registrationEmail,
+    cardCode: "CARD123",
+    registrationToken: "test-registration-token",
+    joinSource: "群公告",
+  });
   // 顶栏账号：用 .session-chip 限定，首页「欢迎回来，xxx」也含同一段文字，裸 getByText 会撞 strict mode
   await expect(page.locator(".session-chip")).toContainText("member@example.com");
   expect(errors, "uncaught page errors: " + errors.join("\n")).toEqual([]);

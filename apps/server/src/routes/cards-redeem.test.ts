@@ -1,3 +1,4 @@
+import { activateCardForTest } from "../test-support/card-activation";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,13 +9,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
-import { cardKeys, renewalEmailOutbox, submissionUsers, verificationCodes } from "@emby-task-center/database/schema";
+import { cardKeys, renewalEmailOutbox, submissionUsers } from "@emby-task-center/database/schema";
 import { createApp } from "../app";
 import { staticCredentialVerifier } from "../auth/test-session";
 import { createLibraryService } from "../library/service";
 import type { TmdbClient } from "../tmdb/client";
 import type { EmbyClient } from "../integrations/emby-client";
-import type { EmailNotifier } from "../notifications/email-service";
 
 const sharedPassword = "family-password";
 const sessionSecret = "session-signing-secret";
@@ -50,7 +50,12 @@ describe("卡密兑换的两条关键语义", () => {
       tmdb,
       library: createLibraryService([]),
       integrationServices: {
-        email: { configured: false } as EmailNotifier,
+        email: {
+          configured: true,
+          sendNotification: async () => undefined,
+          sendTest: async () => undefined,
+          retryPending: async () => undefined,
+        },
         emby: { configured: false } as EmbyClient,
       },
     });
@@ -82,26 +87,8 @@ describe("卡密兑换的两条关键语义", () => {
     return body.codes[0]!;
   }
 
-  function seedVerificationCode(email: string, code = "123456") {
-    database.db
-      .insert(verificationCodes)
-      .values({
-        email,
-        code,
-        expiresAt: new Date(Date.now() + 600_000).toISOString(),
-        consumed: false,
-        createdAt: new Date().toISOString(),
-      })
-      .run();
-  }
-
   async function activate(email: string, cardCode: string) {
-    seedVerificationCode(email);
-    const response = await fetch(`${baseUrl}/api/public/subscriptions/activate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, code: "123456", cardCode }),
-    });
+    const response = await activateCardForTest(baseUrl, database.db, email, cardCode);
     return {
       status: response.status,
       body: (await response.json()) as { error?: string; member?: { subscriptionExpiresAt: string | null } },
@@ -110,18 +97,18 @@ describe("卡密兑换的两条关键语义", () => {
 
   it("同一邮箱重复提交同一张卡：不重复加时长（幂等）", async () => {
     const code = await createCard("month");
-    const first = await activate("repeat@example.com", code);
+    const first = await activate("100001001@qq.com", code);
     expect(first.status).toBe(200);
     const expiryAfterFirst = first.body.member?.subscriptionExpiresAt;
     expect(expiryAfterFirst).toBeTruthy();
 
-    const second = await activate("repeat@example.com", code);
+    const second = await activate("100001001@qq.com", code);
     expect(second.status).toBe(200);
     expect(second.body.member?.subscriptionExpiresAt).toBe(expiryAfterFirst);
   });
 
   it.each([null, "legacy-unlimited"])("长期会员（%s）保留权益，不消耗新卡，已核销旧卡仍可重放", async (expiry) => {
-    const email = "lifetime@example.com";
+    const email = "100001002@qq.com";
     const used = await createCard();
     expect((await activate(email, used)).status).toBe(200);
     database.db
@@ -154,20 +141,20 @@ describe("卡密兑换的两条关键语义", () => {
 
   it("已被使用的卡：另一个邮箱兑换会被拒绝（card_used），归属不变", async () => {
     const code = await createCard("month");
-    const owner = await activate("owner@example.com", code);
+    const owner = await activate("100001003@qq.com", code);
     expect(owner.status).toBe(200);
 
-    const other = await activate("other@example.com", code);
+    const other = await activate("100001004@qq.com", code);
     expect(other.status).toBe(400);
     expect(other.body.error).toBe("card_used");
 
     const row = database.db.select().from(cardKeys).where(eq(cardKeys.code, code)).get()!;
-    expect(row.usedByEmail).toBe("owner@example.com");
+    expect(row.usedByEmail).toBe("100001003@qq.com");
     expect(row.status).toBe("used");
   });
 
   it("不存在的卡密仍然返回 invalid_card（区分于 card_used）", async () => {
-    const result = await activate("nobody@example.com", "NOSUCHCODE12");
+    const result = await activate("100001005@qq.com", "NOSUCHCODE12");
     expect(result.status).toBe(400);
     expect(result.body.error).toBe("invalid_card");
   });

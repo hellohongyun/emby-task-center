@@ -30,7 +30,7 @@ export function requirePublicMember(database: AppDatabase, session: PublicSessio
     const path = request.path;
     if (!path.startsWith("/api/public/")) return next();
     const anonymous =
-      /^\/api\/public\/subscriptions\/(entry|card\/check|code|login|activate|logout)$/.test(path) ||
+      /^\/api\/public\/subscriptions\/(entry|card\/check|code|login|register\/verify|activate|logout)$/.test(path) ||
       path === "/api/public/platforms" ||
       path === "/api/public/articles";
     if (anonymous) return next();
@@ -42,6 +42,7 @@ export function requirePublicMember(database: AppDatabase, session: PublicSessio
     if (!email) return void response.status(401).json({ error: "unauthorized" });
     const profile =
       path === "/api/public/subscriptions/member" ||
+      path === "/api/public/subscriptions/member/profile" ||
       path === "/api/public/subscriptions/member/emby" ||
       path === "/api/public/mail-preferences";
     const unfreeze = path.startsWith("/api/public/subscriptions/member/unfreeze");

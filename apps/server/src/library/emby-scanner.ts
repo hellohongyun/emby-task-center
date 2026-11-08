@@ -11,6 +11,7 @@ import {
   validateEmbyEpisodeRange,
 } from "../integrations/emby-episode-range";
 import type { ScannedMediaBatch, ScannedMediaItem } from "./scan-types";
+import type { WorkflowLog } from "../logging/workflow-log";
 
 /**
  * 海报引用：库存里不再存磁盘相对路径，而是 `emby:<条目Id>` 这样的引用，
@@ -148,14 +149,29 @@ export function libraryIdFromRootPath(path: string): string | undefined {
  *
  * 注意：传入的 path 必须能解析出库 Id，否则会扫描整个服务器——13 个库会显示成同一份内容。
  */
-export function createEmbyScan(emby: EmbyClient): (path: string) => Promise<ScannedMediaBatch> {
-  return async (path: string): Promise<ScannedMediaBatch> => {
+export function createEmbyScan(emby: EmbyClient): (path: string, log?: WorkflowLog) => Promise<ScannedMediaBatch> {
+  return async (path, log): Promise<ScannedMediaBatch> => {
     if (!emby.configured || !emby.listLibraryItems || !emby.listItemEpisodes) {
       throw new Error("emby_library_not_configured");
     }
     const libraryId = libraryIdFromRootPath(path);
     if (!libraryId) throw new Error("emby_library_id_missing");
-    const items = await emby.listLibraryItems({ libraryId });
+    log?.write("info", "library_items_fetching", "正在从 Emby 分页读取媒体条目", { libraryId });
+    const items = await emby.listLibraryItems({
+      libraryId,
+      ...(log && {
+        onPage: ({ page, received, total }) => {
+          if (page === 1 || page % 10 === 0 || received === total) {
+            log.write("info", "library_items_page", `已读取第 ${page} 页，共 ${received} / ${total} 条`, {
+              libraryId,
+              page,
+              received,
+              total,
+            });
+          }
+        },
+      }),
+    });
     const out: ScannedMediaItem[] = [];
     // Emby 里同一部作品可能被添加多次并**共享同一批剧集**（真实数据：「名侦探柯南」有 4 个剧集条目、
     // 「蜡笔小新」有 2 个，集 Id 完全相同）。库存是"内容清单"，所以按作品归并、按集去重：
@@ -172,6 +188,14 @@ export function createEmbyScan(emby: EmbyClient): (path: string) => Promise<Scan
       else works.set(workKey, [item]);
     }
     const seenEpisodes = new Map<string, string>();
+    const seriesTotal = [...works.values()].filter((entries) => entries[0]?.type === "tv").length;
+    let seriesRead = 0;
+    let lastProgressAt = Date.now();
+    if (seriesTotal)
+      log?.write("info", "library_episodes_fetching", `正在查询 ${seriesTotal} 部剧集的分集`, {
+        libraryId,
+        seriesTotal,
+      });
     const metaOf = (item: (typeof items)[number]) => ({
       genres: item.genres ?? [],
       dateCreated: item.dateCreated ?? null,
@@ -210,6 +234,15 @@ export function createEmbyScan(emby: EmbyClient): (path: string) => Promise<Scan
       }
       const posterRef = first.hasPrimaryImage ? embyPosterRef(first.id) : null;
       out.push(...seriesItems(first.name, first.id, episodes, posterRef, metaOf(first)));
+      seriesRead++;
+      if (log && (seriesRead === seriesTotal || seriesRead % 25 === 0 || Date.now() - lastProgressAt >= 5_000)) {
+        lastProgressAt = Date.now();
+        log.write("info", "library_episodes_progress", `已查询 ${seriesRead} / ${seriesTotal} 部剧集的分集`, {
+          libraryId,
+          seriesRead,
+          seriesTotal,
+        });
+      }
     }
     // client 的库/分集方法只有验证完全部分页才返回；任一剧集失败都会在此之前拒绝整轮。
     return { items: out, complete: true };

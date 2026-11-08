@@ -32,7 +32,10 @@ const logs: LogEntry[] = [
   },
 ];
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 function renderView(autoRefreshMs = 0) {
   const fetchImpl = vi.fn().mockResolvedValue(Response.json({ logs }));
@@ -50,7 +53,7 @@ describe("LogsView", () => {
     expect(within(list).getByText("错误")).toBeInTheDocument();
     expect(within(list).getByText("信息")).toBeInTheDocument();
     expect(within(list).getByText("前端")).toBeInTheDocument();
-    expect(within(list).getByText("服务端")).toBeInTheDocument();
+    expect(within(list).getByText("HTTP 接口")).toBeInTheDocument();
     expect(screen.getByText("GET /api/system/status")).toBeInTheDocument();
     expect(screen.getByText("GET /api/system/status 200")).toBeInTheDocument();
     expect(screen.getByText("200")).toBeInTheDocument();
@@ -176,5 +179,33 @@ describe("LogsView", () => {
     await screen.findByText("POST /api/tasks/1/retry 请求失败");
 
     await waitFor(() => expect(fetchImpl.mock.calls.length).toBeGreaterThan(1));
+    expect(fetchImpl).toHaveBeenLastCalledWith(expect.stringContaining("after=2"), expect.anything());
+  });
+
+  it("pauses incremental polling, catches up without duplicate rows and exports the chosen execution", async () => {
+    vi.useFakeTimers();
+    const event = { ...logs[1]!, id: 3, message: "扫描完成", module: "library-scan", runId: "scan-42" };
+    const fetchImpl = vi
+      .fn()
+      .mockImplementationOnce(async () => Response.json({ logs, hasMore: false, nextAfter: 2 }))
+      .mockImplementationOnce(async () => Response.json({ logs: [logs[0], event], hasMore: false, nextAfter: 3 }))
+      .mockImplementation(async () => Response.json({ logs: [event], hasMore: false, nextAfter: 3 }));
+    vi.stubGlobal("fetch", fetchImpl);
+    render(LogsView, { props: { requireAuth: vi.fn() } });
+    await vi.advanceTimersByTimeAsync(0);
+    await fireEvent.click(screen.getByRole("button", { name: "暂停自动刷新" }));
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    await fireEvent.click(screen.getByRole("button", { name: "恢复自动刷新" }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchImpl).toHaveBeenLastCalledWith(expect.stringContaining("after=2"), expect.anything());
+    const list = screen.getByRole("list", { name: "日志列表" });
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    const latest = rows[rows.length - 1]!;
+    expect(latest).toHaveTextContent("扫描完成");
+    await fireEvent.click(within(latest).getByRole("button", { name: "查看详情" }));
+    await fireEvent.click(screen.getByRole("button", { name: "查看本次执行" }));
+    expect(screen.getByRole("link", { name: "下载日志" })).toHaveAttribute("href", "/api/logs/download?runId=scan-42");
   });
 });

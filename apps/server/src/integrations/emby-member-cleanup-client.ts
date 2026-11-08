@@ -9,7 +9,14 @@ export interface EmbyMemberCleanupSession {
   serverId(): Promise<string>;
   listAccounts(): Promise<Array<{ id: string; name: string; role: AccountRole }>>;
   readRole(id: string): Promise<AccountRole | "missing">;
-  deleteAccount(id: string, allowDelete?: () => boolean): Promise<void>;
+  readLastPlayed?(id: string): Promise<string | null>;
+  readPlaybackSessions?(): Promise<ReadonlySet<string>>;
+  deleteAccount(
+    id: string,
+    allowDelete?: () => boolean,
+    verifyBeforeDelete?: () => Promise<boolean>,
+    expectedServerId?: string,
+  ): Promise<void>;
 }
 
 export class EmbyCleanupDeleteError extends Error {
@@ -40,6 +47,42 @@ const accountListSchema = z.object({
   TotalRecordCount: z.number().int().nonnegative(),
 });
 const serverSchema = z.object({ Id: idSchema });
+const latestItemSchema = z.object({
+  Items: z
+    .array(
+      z.object({
+        Id: z.string().min(1),
+        UserData: z.object({
+          LastPlayedDate: z.iso.datetime({ offset: true }).nullish(),
+          Played: z.boolean().optional(),
+          PlayCount: z.number().int().nonnegative().optional(),
+          PlaybackPositionTicks: z.number().int().nonnegative().optional(),
+        }),
+      }),
+    )
+    .max(1),
+  TotalRecordCount: z.number().int().nonnegative(),
+});
+const playbackSessionsSchema = z.array(
+  z.object({
+    Id: z.string().min(1),
+    UserId: z.union([idSchema, z.literal("")]).nullish(),
+    AdditionalUsers: z.array(z.object({ UserId: idSchema })).nullish(),
+    NowPlayingItem: z.object({}).nullish(),
+  }),
+);
+const latestItemQuery = new URLSearchParams({
+  Recursive: "true",
+  Filters: "IsNotFolder",
+  SortBy: "DatePlayed",
+  SortOrder: "Descending",
+  Limit: "1",
+  EnableTotalRecordCount: "true",
+  EnableUserData: "true",
+  Fields: "UserDataLastPlayedDate,UserDataPlayCount",
+  EnableImages: "false",
+  GroupItemsIntoCollections: "false",
+});
 
 function accountRole(user: z.infer<typeof accountDetailSchema>): AccountRole {
   if (user.Policy?.IsAdministrator === true) return "administrator";
@@ -107,13 +150,15 @@ export function createEmbyMemberCleanupSessionFactory(
       return accountRole(user);
     }
 
+    async function readServerId() {
+      const response = await request("GET", "/System/Info");
+      expectStatus(response, 200);
+      return serverSchema.parse(await response.json()).Id;
+    }
+
     return {
       identity,
-      async serverId() {
-        const response = await request("GET", "/System/Info");
-        expectStatus(response, 200);
-        return serverSchema.parse(await response.json()).Id;
-      },
+      serverId: readServerId,
       listAccounts,
       async readRole(id) {
         const role = await readAccount(id);
@@ -121,7 +166,32 @@ export function createEmbyMemberCleanupSessionFactory(
         const accounts = await listAccounts();
         return accounts.some((account) => comparisonId(account.id) === comparisonId(id)) ? "unknown" : "missing";
       },
-      async deleteAccount(id, allowDelete) {
+      async readLastPlayed(id) {
+        const response = await request("GET", `${userPath(id)}/Items?${latestItemQuery}`);
+        expectStatus(response, 200);
+        const { Items, TotalRecordCount } = latestItemSchema.parse(await response.json());
+        if (Items.length !== Math.min(TotalRecordCount, 1)) throw new Error("emby_cleanup_incomplete_playback_history");
+        const data = Items[0]?.UserData;
+        if (data?.LastPlayedDate) return new Date(data.LastPlayedDate).toISOString();
+        if (data && (data.Played !== false || data.PlayCount !== 0 || data.PlaybackPositionTicks !== 0)) {
+          throw new Error("emby_cleanup_unverified_playback_history");
+        }
+        return null;
+      },
+      async readPlaybackSessions() {
+        const response = await request("GET", "/Sessions");
+        expectStatus(response, 200);
+        const sessions = playbackSessionsSchema.parse(await response.json());
+        const playing = new Set<string>();
+        for (const { NowPlayingItem, UserId, AdditionalUsers } of sessions) {
+          if (!NowPlayingItem) continue;
+          if (!UserId && !AdditionalUsers?.length) throw new Error("emby_cleanup_unidentified_playback_session");
+          if (UserId) playing.add(comparisonId(UserId));
+          for (const user of AdditionalUsers ?? []) playing.add(comparisonId(user.UserId));
+        }
+        return playing;
+      },
+      async deleteAccount(id, allowDelete, verifyBeforeDelete, expectedServerId) {
         let role: AccountRole | null;
         try {
           // Check the latest role after the caller's claim and just before the irreversible request.
@@ -136,6 +206,13 @@ export function createEmbyMemberCleanupSessionFactory(
         if (role !== "ordinary") throw new EmbyCleanupDeleteError("emby_cleanup_not_ordinary", false);
         let allowed: boolean;
         try {
+          if (verifyBeforeDelete && (!(await verifyBeforeDelete()) || (await readAccount(id)) !== "ordinary")) {
+            throw new Error("emby_cleanup_preflight_rejected");
+          }
+          // The upstream behind a stable URL can change while the preflight awaits Emby.
+          if (expectedServerId !== undefined && (await readServerId()) !== expectedServerId) {
+            throw new Error("emby_cleanup_server_changed");
+          }
           const current = resolve();
           allowed = current.baseUrl === baseUrl && current.apiKey === apiKey && allowDelete?.() !== false;
         } catch {

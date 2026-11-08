@@ -1,10 +1,17 @@
-import { randomUUID } from "node:crypto";
 import { and, asc, eq, lte } from "drizzle-orm";
 import type { AppDatabase } from "@emby-task-center/database/client";
-import { memberExpiryCleanupJobs as jobs, submissionUsers } from "@emby-task-center/database/schema";
+import { memberExpiryCleanupJobs as jobs } from "@emby-task-center/database/schema";
 import type { EmbyClient } from "../integrations/emby-client";
-import { readSetting } from "../settings/store";
-import { audit } from "./domain-utils";
+import {
+  currentJob,
+  finishJob,
+  leaseJob,
+  protectedAdmin,
+  releaseJob,
+  removeMember,
+  sameBinding,
+  type CleanupJob,
+} from "./member-cleanup-jobs";
 import { getSubmissionUser } from "./membership";
 import { embyAccountKey, embyRoleChangeInFlight } from "./member-expiry-cleanup-guard";
 import {
@@ -14,95 +21,31 @@ import {
   memberCleanupPlan,
   openCleanupSession,
   type CleanupDirectory,
+  type CleanupKind,
 } from "./member-expiry-cleanup-plan";
+import { readMemberPlaybackEvidence } from "./member-inactivity-activity";
+import {
+  inactivityGraceElapsed,
+  loadCleanupPlayback,
+  memberInactivityCleanupPlan,
+  playbackIsStale,
+} from "./member-inactivity-cleanup-plan";
 
 const BATCH_SIZE = 20;
-const LEASE_MS = 120_000;
-type Job = typeof jobs.$inferSelect;
-type Member = typeof submissionUsers.$inferSelect;
-type Policy = ReturnType<typeof cleanupPolicy>;
+type Policy = ReturnType<typeof cleanupPolicy> & { kind: CleanupKind };
 type Candidate = ReturnType<typeof memberCleanupPlan>["candidates"][number];
 type Result = "deleted" | "pending" | "skipped";
 
-function currentJob(job: Job) {
-  return and(eq(jobs.memberId, job.memberId), eq(jobs.leaseToken, job.leaseToken));
-}
-
-function releaseJob(database: AppDatabase, job: Job) {
-  database.delete(jobs).where(currentJob(job)).run();
-}
-
-function protectedAdmin(database: AppDatabase, member: Member) {
-  return readSetting(database, "admin.username").trim().toLowerCase() === member.email.toLowerCase();
-}
-
-function removeMember(database: AppDatabase, member: Member, embyAbsent: boolean) {
-  database.delete(submissionUsers).where(eq(submissionUsers.id, member.id)).run();
-  audit(
-    database,
-    "system",
-    "member.expiry_cleanup_deleted",
-    "submission_user",
-    member.id,
-    {
-      email: member.email,
-      expiresAt: member.subscriptionExpiresAt,
-      embyUserId: member.embyUserId,
-    },
-    { embyAbsent },
-  );
-}
-
-function finishJob(database: AppDatabase, job: Job, now: Date): Result {
-  return database.transaction(
-    (tx) => {
-      if (!tx.select().from(jobs).where(currentJob(job)).get()) return "skipped";
-      const member = getSubmissionUser(tx, job.memberId);
-      const safe =
-        member &&
-        member.embyUserId === job.embyUserId &&
-        cleanupEligible(member, 1, now) &&
-        !protectedAdmin(tx, member);
-      if (safe) removeMember(tx, member, true);
-      releaseJob(tx, job);
-      return safe ? "deleted" : "skipped";
-    },
-    { behavior: "immediate" },
-  );
-}
-
-function leaseJob(database: AppDatabase, input: Omit<Job, "leaseToken" | "leaseUntil">, existing?: Job): Job | null {
-  const now = Date.now();
-  const leased = { ...input, leaseToken: randomUUID(), leaseUntil: now + LEASE_MS };
-  if (existing) {
-    const updated = database
-      .update(jobs)
-      .set({ leaseToken: leased.leaseToken, leaseUntil: leased.leaseUntil })
-      .where(and(currentJob(existing), lte(jobs.leaseUntil, now)))
-      .run();
-    return updated.changes === 1 ? leased : null;
-  }
-  return database.insert(jobs).values(leased).onConflictDoNothing().returning().get() ?? null;
-}
-
-function sameBinding(database: AppDatabase, member: Member) {
-  if (!member.embyUserId) return true;
-  const key = embyAccountKey(member.embyUserId);
-  return !database
-    .select({ id: submissionUsers.id, embyUserId: submissionUsers.embyUserId })
-    .from(submissionUsers)
-    .all()
-    .some((row) => row.id !== member.id && row.embyUserId && embyAccountKey(row.embyUserId) === key);
-}
-
 function stillEligible(database: AppDatabase, id: number, embyUserId: string | null, policy: Policy, now: Date) {
-  const current = cleanupPolicy(database);
+  const current = cleanupPolicy(database, policy.kind);
   if (!current.days || current.revision !== policy.revision) return null;
   const member = getSubmissionUser(database, id);
   return member &&
     member.embyUserId === embyUserId &&
     (!embyUserId || !embyRoleChangeInFlight(database, embyUserId)) &&
-    cleanupEligible(member, current.days, now) &&
+    (policy.kind === "inactivity"
+      ? inactivityGraceElapsed(member, current.days, now)
+      : cleanupEligible(member, current.days, now)) &&
     !protectedAdmin(database, member) &&
     sameBinding(database, member)
     ? member
@@ -119,9 +62,13 @@ async function confirmedAbsent(directory: CleanupDirectory, embyUserId: string) 
 async function runRemoteDelete(
   database: AppDatabase,
   directory: CleanupDirectory,
-  job: Job,
+  job: CleanupJob,
   now: Date,
-  allowDelete: () => boolean,
+  guards: {
+    allowDelete: () => boolean;
+    verifyBeforeDelete?: () => Promise<boolean>;
+    canFinalize: () => boolean;
+  },
   resumed = false,
 ): Promise<Result> {
   try {
@@ -132,7 +79,7 @@ async function runRemoteDelete(
     return "skipped";
   }
   try {
-    await directory.session.deleteAccount(job.embyUserId, allowDelete);
+    await directory.session.deleteAccount(job.embyUserId, guards.allowDelete, guards.verifyBeforeDelete, job.serverId);
   } catch (error) {
     const failure = error as { deleteStarted?: boolean; status?: number } | undefined;
     if (failure?.deleteStarted === false || failure?.status === 401 || failure?.status === 403) {
@@ -143,7 +90,8 @@ async function runRemoteDelete(
     return "pending";
   }
   try {
-    if (await confirmedAbsent(directory, job.embyUserId)) return finishJob(database, job, now);
+    if ((await confirmedAbsent(directory, job.embyUserId)) && guards.canFinalize())
+      return finishJob(database, job, now);
   } catch {
     // A subsequent round can reconcile the claim against the same server.
   }
@@ -157,13 +105,25 @@ export async function sweepMemberExpiryCleanup(
   running = () => true,
   progress = { lastLinkedMemberId: 0 },
 ) {
+  return sweepMemberCleanup("expiry", database, emby, now, running, progress);
+}
+
+export async function sweepMemberCleanup(
+  kind: CleanupKind,
+  database: AppDatabase,
+  emby: EmbyClient | undefined,
+  now: Date,
+  running: () => boolean,
+  progress: { lastLinkedMemberId: number },
+) {
   const counts = { deleted: 0, pending: 0, skipped: 0 };
-  const policy = cleanupPolicy(database);
-  const unresolved = Boolean(database.select({ id: jobs.memberId }).from(jobs).limit(1).get());
+  const policy = { ...cleanupPolicy(database, kind), kind };
+  const unresolved = Boolean(database.select({ id: jobs.memberId }).from(jobs).where(eq(jobs.kind, kind)).get());
   if (!policy.days && !unresolved) return counts;
   const directory = await cleanupDirectory(database, emby);
   const isConnected = () => directory && openCleanupSession(database, emby)?.identity === directory.session.identity;
-  const allows = (job: Job) =>
+  const canFinalize = () => running() && Boolean(isConnected());
+  const allows = (job: CleanupJob) =>
     Boolean(
       running() &&
       isConnected() &&
@@ -172,13 +132,21 @@ export async function sweepMemberExpiryCleanup(
       policy.serverId === job.serverId &&
       stillEligible(database, job.memberId, job.embyUserId, policy, now),
     );
+  const verifyPlayback = (job: CleanupJob) =>
+    kind === "inactivity" && directory
+      ? async () => {
+          if (!policy.days || !allows(job)) return false;
+          const evidence = await readMemberPlaybackEvidence(database, directory.session, job.embyUserId);
+          return Boolean(evidence && playbackIsStale(evidence, policy.days, now));
+        }
+      : undefined;
 
   const resumed = new Set<number>();
   if (directory) {
     const expired = database
       .select()
       .from(jobs)
-      .where(and(eq(jobs.serverId, directory.serverId), lte(jobs.leaseUntil, Date.now())))
+      .where(and(eq(jobs.kind, kind), eq(jobs.serverId, directory.serverId), lte(jobs.leaseUntil, Date.now())))
       .orderBy(asc(jobs.leaseUntil), asc(jobs.memberId))
       .limit(BATCH_SIZE)
       .all();
@@ -195,29 +163,52 @@ export async function sweepMemberExpiryCleanup(
         counts.pending++;
         continue;
       }
+      if (!canFinalize()) {
+        counts.pending++;
+        continue;
+      }
       if (role === "missing") counts[finishJob(database, job, now)]++;
       else if (role === "administrator" || (role === "ordinary" && !allows(job))) {
         releaseJob(database, job);
         counts.skipped++;
       } else if (role === "ordinary")
-        counts[await runRemoteDelete(database, directory, job, now, () => allows(job), true)]++;
+        counts[
+          await runRemoteDelete(
+            database,
+            directory,
+            job,
+            now,
+            {
+              allowDelete: () => allows(job),
+              verifyBeforeDelete: verifyPlayback(job),
+              canFinalize,
+            },
+            true,
+          )
+        ]++;
       else counts.pending++;
     }
   }
 
-  if (!policy.days || !running() || cleanupPolicy(database).revision !== policy.revision) return counts;
+  const current = () => running() && cleanupPolicy(database, kind).revision === policy.revision;
+  if (!policy.days || !current()) return counts;
   const boundDirectory = directory?.serverId === policy.serverId ? directory : null;
-  const plan = memberCleanupPlan(database, policy.days, now, directory, Boolean(boundDirectory));
+  const plan =
+    kind === "expiry"
+      ? memberCleanupPlan(database, policy.days, now, directory, Boolean(boundDirectory))
+      : boundDirectory &&
+        (await inactivityPlan(database, policy.days, now, boundDirectory, () => current() && !!isConnected()));
+  if (!plan) return counts;
   const due = plan.candidates.filter(({ id }) => !resumed.has(id));
   // Local-only removals cannot be starved by a broken or unavailable Emby connection.
-  const linked = due.filter(({ linked }) => linked);
+  const linked = due.filter(({ embyUserId }) => embyUserId);
   const split = linked.findIndex(({ id }) => id > progress.lastLinkedMemberId);
   const rotated = split > 0 ? [...linked.slice(split), ...linked.slice(0, split)] : linked;
-  const batch = [...due.filter(({ linked }) => !linked).slice(0, BATCH_SIZE), ...rotated.slice(0, BATCH_SIZE)];
+  const batch = [...due.filter(({ embyUserId }) => !embyUserId).slice(0, BATCH_SIZE), ...rotated.slice(0, BATCH_SIZE)];
   for (const candidate of batch) {
-    if (!running() || cleanupPolicy(database).revision !== policy.revision) break;
+    if (!current()) break;
     if (!candidate.embyUserId) {
-      counts[removeLocalCandidate(database, candidate, policy, now)]++;
+      if ("expiresAt" in candidate) counts[removeLocalCandidate(database, candidate, policy, now)]++;
       continue;
     }
     if (!boundDirectory || !isConnected()) continue;
@@ -226,7 +217,7 @@ export async function sweepMemberExpiryCleanup(
     const known = boundDirectory.accounts.some(
       ({ id }) => embyAccountKey(id) === embyAccountKey(candidate.embyUserId!),
     );
-    if (!known) {
+    if (!known && "expiresAt" in candidate) {
       let absent = false;
       try {
         absent = await confirmedAbsent(boundDirectory, candidate.embyUserId);
@@ -240,18 +231,43 @@ export async function sweepMemberExpiryCleanup(
     const job = database.transaction(
       (tx) => {
         const member = stillEligible(tx, candidate.id, candidate.embyUserId, policy, now);
-        if (!member || member.subscriptionExpiresAt !== candidate.expiresAt) return null;
+        if (
+          !member ||
+          ("expiresAt" in candidate
+            ? member.subscriptionExpiresAt !== candidate.expiresAt
+            : member.createdAt !== candidate.createdAt)
+        )
+          return null;
         return leaseJob(tx, {
           memberId: member.id,
           serverId: boundDirectory.serverId,
           embyUserId: candidate.embyUserId!,
+          kind,
         });
       },
       { behavior: "immediate" },
     );
-    if (job) counts[await runRemoteDelete(database, boundDirectory, job, now, () => allows(job))]++;
+    if (job)
+      counts[
+        await runRemoteDelete(database, boundDirectory, job, now, {
+          allowDelete: () => allows(job),
+          verifyBeforeDelete: verifyPlayback(job),
+          canFinalize,
+        })
+      ]++;
   }
   return counts;
+}
+
+async function inactivityPlan(
+  database: AppDatabase,
+  days: number,
+  now: Date,
+  directory: CleanupDirectory,
+  running: () => boolean,
+) {
+  const playback = await loadCleanupPlayback(database, directory, days, now, running);
+  return playback && running() ? memberInactivityCleanupPlan(database, days, now, directory, playback) : null;
 }
 
 function removeLocalCandidate(
@@ -270,7 +286,7 @@ function removeLocalCandidate(
         tx.select().from(jobs).where(eq(jobs.memberId, candidate.id)).get()
       )
         return "skipped";
-      removeMember(tx, member, embyAbsent);
+      removeMember(tx, member, embyAbsent, policy.kind);
       return "deleted";
     },
     { behavior: "immediate" },

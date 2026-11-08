@@ -1,3 +1,4 @@
+import { activateCardForTest } from "../test-support/card-activation";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -101,19 +102,6 @@ describe("public subscription card pre-check", () => {
   }
 
   /** 直接种一个验证码：绕过 `/code`（它要卡密、还有每 IP 限流），用于构造「已开通」的场景。 */
-  function seedVerificationCode(email: string, code = "123456") {
-    database.db
-      .insert(verificationCodes)
-      .values({
-        email,
-        code,
-        expiresAt: new Date(Date.now() + 600_000).toISOString(),
-        consumed: false,
-        createdAt: new Date().toISOString(),
-      })
-      .run();
-  }
-
   function cardStatus(code: string): string | undefined {
     return database.db.select().from(cardKeys).where(eq(cardKeys.code, code)).get()?.status;
   }
@@ -137,7 +125,7 @@ describe("public subscription card pre-check", () => {
 
     // ① 有效卡密：带上卡类型与天数，供页面直接告诉用户「月卡 · 30 天」
     const ok = await postJson("/api/public/subscriptions/card/check", {
-      email: "new@example.com",
+      email: "100001033@qq.com",
       cardCode: " cardaaaa1111 ",
     });
     expect(ok.status).toBe(200);
@@ -153,24 +141,19 @@ describe("public subscription card pre-check", () => {
 
     // ② 不存在的卡密
     const bad = await postJson("/api/public/subscriptions/card/check", {
-      email: "new@example.com",
+      email: "100001033@qq.com",
       cardCode: "NOSUCHCARD12",
     });
     expect(bad.status).toBe(400);
     expect(await bad.json()).toMatchObject({ error: "invalid_card" });
 
-    // ③ 先把 CARDBBBB2222 给 owner@example.com 用掉（走开通接口，真核销）
-    seedVerificationCode("owner@example.com");
-    const activate = await postJson("/api/public/subscriptions/activate", {
-      email: "owner@example.com",
-      code: "123456",
-      cardCode: "CARDBBBB2222",
-    });
+    // ③ 先把 CARDBBBB2222 给 100001034@qq.com 用掉（走开通接口，真核销）
+    const activate = await activateCardForTest(baseUrl, database.db, "100001034@qq.com", "CARDBBBB2222");
     expect(activate.status).toBe(200);
 
     // 别人再来验这张卡 → 拒绝
     const other = await postJson("/api/public/subscriptions/card/check", {
-      email: "new@example.com",
+      email: "100001033@qq.com",
       cardCode: "CARDBBBB2222",
     });
     expect(other.status).toBe(400);
@@ -178,7 +161,7 @@ describe("public subscription card pre-check", () => {
 
     // ④ 本人再验同一张卡 → 幂等放行（续期场景），页面据此显示「本邮箱已用过」
     const self = await postJson("/api/public/subscriptions/card/check", {
-      email: "owner@example.com",
+      email: "100001034@qq.com",
       cardCode: "CARDBBBB2222",
     });
     expect(self.status).toBe(200);
@@ -204,7 +187,7 @@ describe("public subscription card pre-check", () => {
       card: null,
     });
 
-    const fresh = await postJson("/api/public/subscriptions/card/check", { email: "fresh@example.com" });
+    const fresh = await postJson("/api/public/subscriptions/card/check", { email: "100001035@qq.com" });
     expect(fresh.status).toBe(400);
     expect(await fresh.json()).toMatchObject({ error: "card_required" });
   });
@@ -223,14 +206,14 @@ describe("public subscription card pre-check", () => {
     seedCard("CARDEEEE5555");
 
     const sent = await postJson("/api/public/subscriptions/code", {
-      email: "bind@example.com",
+      email: "100001036@qq.com",
       cardCode: "CARDDDDD4444",
     });
     expect(sent.status).toBe(200);
     const code = latestCode();
 
-    const wrong = await postJson("/api/public/subscriptions/activate", {
-      email: "bind@example.com",
+    const wrong = await postJson("/api/public/subscriptions/register/verify", {
+      email: "100001036@qq.com",
       code,
       cardCode: "CARDEEEE5555",
     });
@@ -239,9 +222,17 @@ describe("public subscription card pre-check", () => {
     expect(cardStatus("CARDEEEE5555")).toBe("unused");
 
     // 换回发码时那张卡：验证码没被前一次误消费，所以这次能开通
-    const right = await postJson("/api/public/subscriptions/activate", {
-      email: "bind@example.com",
+    const verified = await postJson("/api/public/subscriptions/register/verify", {
+      email: "100001036@qq.com",
       code,
+      cardCode: "CARDDDDD4444",
+    });
+    expect(verified.status).toBe(200);
+    const { registrationToken } = (await verified.json()) as { registrationToken: string };
+    expect(cardStatus("CARDDDDD4444")).toBe("unused");
+    const right = await postJson("/api/public/subscriptions/activate", {
+      email: "100001036@qq.com",
+      registrationToken,
       cardCode: "CARDDDDD4444",
     });
     expect(right.status).toBe(200);

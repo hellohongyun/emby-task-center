@@ -15,6 +15,20 @@ export const memberExpiryCleanupPolicy = sqliteTable(
   ],
 );
 
+export const memberInactivityCleanupPolicy = sqliteTable(
+  "member_inactivity_cleanup_policy",
+  {
+    id: integer("id").primaryKey(),
+    days: integer("days"),
+    serverId: text("server_id"),
+    revision: text("revision").notNull(),
+  },
+  (table) => [
+    check("member_inactivity_cleanup_policy_singleton", sql`${table.id} = 1`),
+    check("member_inactivity_cleanup_policy_days", sql`${table.days} BETWEEN 1 AND 3650`),
+  ],
+);
+
 export const memberExpiryCleanupJobs = sqliteTable(
   "member_expiry_cleanup_jobs",
   {
@@ -23,6 +37,9 @@ export const memberExpiryCleanupJobs = sqliteTable(
     embyUserId: text("emby_user_id").notNull(),
     leaseToken: text("lease_token").notNull(),
     leaseUntil: integer("lease_until").notNull(),
+    kind: text("kind", { enum: ["expiry", "inactivity"] })
+      .notNull()
+      .default("expiry"),
   },
   (table) => [
     uniqueIndex("member_expiry_cleanup_jobs_account_idx").on(table.serverId, table.embyUserId),

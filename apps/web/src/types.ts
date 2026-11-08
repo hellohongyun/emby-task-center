@@ -78,6 +78,15 @@ export interface MembershipDriveExpiry {
   expiresAt: string;
 }
 
+export interface MemberProfile {
+  qqNumber: string | null;
+  joinSource: string | null;
+  avatarUrl: string | null;
+  avatarSyncStatus: "synced" | "pending" | "failed" | "preserved" | "unavailable" | null;
+}
+
+export type MemberProfileFields = Pick<MemberProfile, "qqNumber" | "joinSource">;
+
 export interface SubmissionUser {
   id: number;
   email: string;
@@ -89,6 +98,7 @@ export interface SubmissionUser {
   embyUserId: string | null;
   embyMaxStreams: number | null;
   note: string | null;
+  profile?: MemberProfile;
   /** 每日投稿入库额度（管理员后台设置）。 */
   processPerDay: number;
   /** 首批投稿入库额度（管理员后台设置）。 */
@@ -611,6 +621,9 @@ export interface LogEntry {
   id: number;
   level: LogLevel;
   source: LogSource;
+  module?: string | null;
+  runId?: string | null;
+  event?: string | null;
   message: string;
   method: string | null;
   path: string | null;

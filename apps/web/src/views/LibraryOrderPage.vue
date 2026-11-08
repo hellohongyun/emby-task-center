@@ -2,7 +2,16 @@
 import SvgIcon from "@jamescoyle/vue-icon";
 import { mdiArrowDown, mdiArrowUp, mdiDragVertical, mdiRefresh, mdiSortVariant } from "@mdi/js";
 
-import { accountLabel, formatTime, kindLabel, previewOrders, rowMessage, statusLabels } from "./LibraryOrderPageData";
+import {
+  accountLabel,
+  formatTime,
+  kindLabel,
+  previewOrders,
+  proxyPreviewMessage,
+  proxyResultMessage,
+  rowMessage,
+  statusLabels,
+} from "./LibraryOrderPageData";
 import { useLibraryOrderPage } from "./LibraryOrderPageState";
 
 const {
@@ -22,12 +31,14 @@ const {
   dragging,
   resultHeading,
   dirty,
+  hasOrderEdits,
   dirtyReason,
   filtering,
   filteredRows,
   syncAction,
   previewWarnings,
   previewRows,
+  proxyInfo,
   proxyStatus,
   isNew,
   clearPreview,
@@ -50,7 +61,7 @@ const {
         <span class="title-icon" aria-hidden="true"><SvgIcon type="mdi" :path="mdiSortVariant" :size="22" /></span>
         <div>
           <h1>媒体库顺序</h1>
-          <p>统一排列 Emby 媒体库和本项目虚拟库。确认同步后，直连和反代按账号可见范围展示。</p>
+          <p>直连 Emby 的媒体库顺序写入各账号。上游反代注入库和本项目虚拟库由本项目反代统一排序。</p>
         </div>
       </div>
       <div class="head-actions">
@@ -86,7 +97,7 @@ const {
             <button
               type="button"
               class="button ghost compact"
-              :disabled="Boolean(operation) || !dirty"
+              :disabled="Boolean(operation) || !hasOrderEdits"
               @click="resetOrder"
             >
               撤销修改
@@ -131,7 +142,8 @@ const {
                 <span :class="['tag', entry.library.kind]">{{ kindLabel(entry.library.kind) }}</span>
                 <span class="tag">{{ entry.library.visibleUsers }} 个账号可见</span>
                 <span v-if="isNew(entry.library)" class="tag new">新增</span>
-                <span v-if="entry.library.kind !== 'owned' && !entry.library.inOrderedViews" class="tag warn">
+                <span v-if="!entry.library.direct" class="tag proxy">反代排序</span>
+                <span v-else-if="entry.library.kind !== 'owned' && !entry.library.inOrderedViews" class="tag warn">
                   尚未写入 Emby 顺序
                 </span>
               </div>
@@ -192,8 +204,12 @@ const {
               <option v-for="user in users" :key="user.id" :value="user.id">{{ accountLabel(user) }}</option>
             </select>
           </label>
-          <p class="muted">测试账号只验证直连 Emby 的写入。确认同步全部账号后，管理员顺序在反代中优先显示。</p>
+          <p class="muted">测试账号仅同步直连 Emby。全量确认后，通过本项目反代进入 Emby 首页设置可查看完整顺序。</p>
           <p class="muted">{{ proxyStatus }}。</p>
+          <p v-if="proxyInfo" class="muted">
+            反代上游为 {{ proxyInfo.upstream || "系统 Emby 地址" }}。
+            <span v-if="proxyInfo.running && proxyInfo.port">监听端口为 {{ proxyInfo.port }}。</span>
+          </p>
         </section>
 
         <section v-if="previewWarnings.length" class="panel warning-panel" aria-label="同步提示">
@@ -210,9 +226,7 @@ const {
         <div>
           <h2 id="result-heading" ref="resultHeading" tabindex="-1">同步结果</h2>
           <p class="muted">原生 Emby 逐账号同步结果</p>
-          <p v-if="results.proxyActivated" class="muted">反代已启用管理员顺序。</p>
-          <p v-else-if="scope === 'one'" class="muted">本次为直连测试。反代继续使用当前设置。</p>
-          <p v-else class="muted">{{ rowMessage(results.proxyReason ?? "library_order_proxy_save_failed") }}</p>
+          <p class="muted">{{ proxyResultMessage(results, scope) }}</p>
         </div>
         <button type="button" class="button ghost compact" @click="clearPreview">完成</button>
       </header>
@@ -245,9 +259,7 @@ const {
           <p class="muted">
             模板含 {{ preview.libraries.length }} 个库，预览 {{ preview.users.length }} 个原生 Emby 账号。
           </p>
-          <p v-if="preview.proxyChanged" class="muted">确认后，反代将启用本次管理员顺序。</p>
-          <p v-else-if="scope === 'one'" class="muted">仅测试直连 Emby，反代继续使用当前设置。</p>
-          <p v-else class="muted">反代已使用本次管理员顺序。</p>
+          <p class="muted">{{ proxyPreviewMessage(preview, scope) }}</p>
         </div>
         <button
           type="button"
@@ -282,6 +294,7 @@ const {
             <span :class="['status', row.status]">{{ statusLabels[row.status] }}</span>
           </div>
           <p v-if="row.reason" class="muted">{{ rowMessage(row.reason) }}</p>
+          <p v-if="row.proxyReason" class="muted">{{ rowMessage(row.proxyReason) }}</p>
           <details v-for="order in previewOrders(row)" :key="order.label">
             <summary>{{ order.label }}</summary>
             <div class="comparison">

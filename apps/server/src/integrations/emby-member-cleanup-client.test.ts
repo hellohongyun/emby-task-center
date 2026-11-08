@@ -18,6 +18,8 @@ describe("native Emby automatic membership cleanup connector", () => {
   let accountList: unknown;
   let listStatus: number;
   let serverInfo: unknown;
+  let history: unknown;
+  let sessions: unknown;
   let deleteStatus: number;
   let redirectPath: string | undefined;
 
@@ -31,6 +33,8 @@ describe("native Emby automatic membership cleanup connector", () => {
     accountList = { Items: [member, admin, unknown], TotalRecordCount: 3 };
     listStatus = 200;
     serverInfo = { Id: "cleanup-fixture-server", ServerName: "Local fixture" };
+    history = { Items: [], TotalRecordCount: 0 };
+    sessions = [];
     deleteStatus = 204;
     redirectPath = undefined;
     server = createServer((request, response) => {
@@ -42,6 +46,12 @@ describe("native Emby automatic membership cleanup connector", () => {
       }
       if (method === "DELETE") {
         response.writeHead(deleteStatus).end();
+        return;
+      }
+      if (path.startsWith(`/emby/Users/${memberId}/Items?`) || path === "/emby/Sessions") {
+        response
+          .writeHead(200, { "content-type": "application/json" })
+          .end(JSON.stringify(path === "/emby/Sessions" ? sessions : history));
         return;
       }
       const body =
@@ -147,6 +157,74 @@ describe("native Emby automatic membership cleanup connector", () => {
     redirectPath = `/emby/Users/${memberId}`;
     await expect(session.deleteAccount(memberId)).rejects.toMatchObject({ deleteStarted: false });
     expect(requests.some(({ path }) => path === "/redirected")).toBe(false);
+  });
+
+  it("uses the newest user item data without excluding partially watched titles", async () => {
+    const session = open();
+    history = {
+      Items: [{ Id: "partial", UserData: { Played: false, LastPlayedDate: "2026-11-08T08:30:00.1234567+08:00" } }],
+      TotalRecordCount: 500,
+    };
+    await expect(session.readLastPlayed!(memberId)).resolves.toBe("2026-11-08T00:30:00.123Z");
+    const url = new URL(requests[0]!.path, baseUrl);
+    expect(url.pathname).toBe(`/emby/Users/${memberId}/Items`);
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({
+      Recursive: "true",
+      SortBy: "DatePlayed",
+      SortOrder: "Descending",
+      Limit: "1",
+      EnableUserData: "true",
+      Fields: "UserDataLastPlayedDate,UserDataPlayCount",
+    });
+    expect(url.searchParams.has("IsPlayed")).toBe(false);
+
+    history = { Items: [], TotalRecordCount: 0 };
+    await expect(session.readLastPlayed!(memberId)).resolves.toBeNull();
+    history = { Items: [], TotalRecordCount: 1 };
+    await expect(session.readLastPlayed!(memberId)).rejects.toThrow("incomplete_playback_history");
+    history = { Items: [{ Id: "partial", UserData: { PlaybackPositionTicks: 100 } }], TotalRecordCount: 1 };
+    await expect(session.readLastPlayed!(memberId)).rejects.toThrow("unverified_playback_history");
+  });
+
+  it("protects users in active and paused playback sessions, including additional users", async () => {
+    const session = open();
+    sessions = [
+      { Id: "idle", UserId: unknownId },
+      {
+        Id: "paused",
+        UserId: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+        AdditionalUsers: [{ UserId: adminId }],
+        NowPlayingItem: { Id: "video" },
+        PlayState: { IsPaused: true },
+      },
+    ];
+    await expect(session.readPlaybackSessions!()).resolves.toEqual(new Set([memberId, adminId]));
+    sessions = [{ Id: "unidentified", NowPlayingItem: { Id: "video" } }];
+    await expect(session.readPlaybackSessions!()).rejects.toThrow("unidentified_playback_session");
+  });
+
+  it("refuses deletion after the asynchronous playback check fails or the account is promoted", async () => {
+    const session = open();
+    await expect(
+      session.deleteAccount(
+        memberId,
+        () => true,
+        async () => false,
+      ),
+    ).rejects.toMatchObject({
+      deleteStarted: false,
+    });
+    await expect(
+      session.deleteAccount(
+        memberId,
+        () => true,
+        async () => {
+          details.set(memberId, { ...member, Policy: { IsAdministrator: true } });
+          return true;
+        },
+      ),
+    ).rejects.toMatchObject({ deleteStarted: false });
+    expect(requests.some(({ method }) => method === "DELETE")).toBe(false);
   });
 
   it("pins reads to the selected credentials, rotates identity and refuses a stale write", async () => {

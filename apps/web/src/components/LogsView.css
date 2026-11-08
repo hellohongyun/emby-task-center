@@ -1,0 +1,264 @@
+.logs-view {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.logs-heading,
+.logs-actions,
+.logs-filters {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.logs-heading {
+  justify-content: space-between;
+}
+
+.logs-heading h1,
+.logs-heading p {
+  margin: 0;
+}
+
+.logs-heading h1 {
+  font-size: 1.2rem;
+}
+
+.logs-heading p,
+.logs-empty,
+.log-meta,
+.log-entry time {
+  color: var(--text-dim);
+}
+
+.live-state {
+  white-space: nowrap;
+  border-radius: 20px;
+  padding: 4px 10px;
+  color: #26704f;
+  background: #e1f3e9;
+  font-size: 0.82rem;
+}
+
+.live-state.paused {
+  color: #805819;
+  background: #fff1d3;
+}
+
+.logs-controls {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-hi);
+}
+
+.logs-actions,
+.logs-filters {
+  flex-wrap: wrap;
+}
+
+.logs-actions button,
+.download-log,
+.logs-filters :is(select, input),
+.older-logs button,
+.log-details-button,
+.log-details button,
+.logs-error button {
+  min-height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 3px 9px;
+  font: inherit;
+}
+
+.logs-actions button,
+.download-log,
+.older-logs button,
+.log-details-button,
+.log-details button {
+  cursor: pointer;
+}
+
+.logs-actions .live-toggle {
+  background: #e1f3e9;
+  color: #27593f;
+  border-color: #cbe5d6;
+}
+
+.download-log {
+  display: inline-flex;
+  align-items: center;
+  background: #e4eefc;
+  border-color: #cdddf5;
+  color: #1d4b8c;
+  text-decoration: none;
+}
+
+.logs-filters label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+}
+
+.logs-filters .log-search {
+  flex: 1 1 220px;
+}
+
+.log-search input {
+  flex: 1;
+  min-width: 0;
+}
+
+.log-viewport {
+  height: clamp(260px, calc(100dvh - 390px), 950px);
+  overflow: auto;
+  overflow-anchor: none;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 6px 12px;
+  background: var(--surface);
+}
+
+.log-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.log-entry {
+  display: grid;
+  grid-template-columns: 74px minmax(88px, 128px) 56px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.79rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.log-entry.warn {
+  background: color-mix(in srgb, #f5c658 21%, var(--surface));
+}
+
+.log-entry.error {
+  background: color-mix(in srgb, #e36a71 18%, var(--surface));
+}
+
+.log-entry time,
+.log-message,
+.log-meta,
+.log-details pre {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.log-module,
+.log-level {
+  border-radius: 6px;
+  text-align: center;
+  padding: 1px 4px;
+  font-weight: 650;
+}
+
+.log-module {
+  background: color-mix(in srgb, #a984e7 16%, var(--surface));
+  color: var(--text);
+}
+
+.log-level {
+  background: var(--surface-hi);
+  color: var(--text-dim);
+}
+
+.warn .log-level {
+  color: #6b450b;
+  background: #fff0c8;
+}
+
+.error .log-level {
+  color: #9d2934;
+  background: #ffe1e2;
+}
+
+.log-content {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 12px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.log-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.73rem;
+}
+
+.log-details-button {
+  min-height: 23px;
+  padding: 0 6px;
+  font-size: 0.72rem;
+}
+
+.log-details {
+  grid-column: 4 / -1;
+  overflow-wrap: anywhere;
+}
+
+.log-details pre {
+  margin: 5px 0 0;
+  white-space: pre-wrap;
+}
+
+.log-details code {
+  margin-left: 8px;
+}
+
+.older-logs,
+.logs-empty {
+  margin: 10px;
+  text-align: center;
+}
+
+.logs-error {
+  margin: 0;
+  color: var(--danger);
+}
+
+@media (max-width: 600px) {
+  .logs-view {
+    padding: 10px;
+  }
+  .log-viewport {
+    height: clamp(240px, calc(100dvh - 490px), 680px);
+    padding-inline: 4px;
+  }
+  .log-entry {
+    grid-template-columns: 70px minmax(0, 1fr) 54px auto;
+    gap: 5px;
+  }
+  .log-content,
+  .log-details {
+    grid-column: 1 / -1;
+  }
+  .log-details-button {
+    grid-column: 4;
+    grid-row: 1;
+  }
+  .logs-actions button,
+  .download-log,
+  .logs-filters :is(select, input) {
+    min-height: 40px;
+  }
+}

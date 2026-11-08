@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
+import { readGroupRegistrationSettings } from "./group-registration";
 import { SETTING_KEYS } from "./registry";
 import {
   SECRET_MASK,
@@ -53,6 +54,36 @@ describe("settings store", () => {
     expect(read.values["email.secure"]).toBe(true);
     expect(read.values["library.scanIntervalMinutes"]).toBe(15);
     expect(read.sources["email.host"]).toBe("db");
+  });
+
+  it("enables the registration gate only with a valid group number and shared code", () => {
+    const initial = writeSettings(database.db, { "member.groupInviteEnabled": true });
+    expect(initial.updated).toEqual([]);
+    expect(initial.rejected).toHaveLength(1);
+    expect(readGroupRegistrationSettings(database.db).enabled).toBe(false);
+
+    const configured = writeSettings(database.db, {
+      "member.groupInviteEnabled": true,
+      "member.groupNumber": "123456789",
+      "member.groupInviteCode": "Invite_2026",
+    });
+    expect(configured.rejected).toEqual([]);
+    expect(readGroupRegistrationSettings(database.db)).toEqual({
+      enabled: true,
+      groupNumber: "123456789",
+      inviteCode: "Invite_2026",
+    });
+    expect(
+      toPublicSettings(readSettings(database.db)).find((item) => item.key === "member.groupInviteCode"),
+    ).toMatchObject({ value: SECRET_MASK, hasValue: true, secret: true });
+
+    const invalidChange = writeSettings(database.db, {
+      "member.groupNumber": "987654321",
+      "member.groupInviteCode": "",
+    });
+    expect(invalidChange.updated).toEqual([]);
+    expect(invalidChange.rejected).toHaveLength(2);
+    expect(readGroupRegistrationSettings(database.db).groupNumber).toBe("123456789");
   });
 
   it("rejects unknown keys and invalid values without writing the rest of the patch", () => {

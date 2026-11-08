@@ -133,6 +133,13 @@ describe("native Emby library order connector", () => {
     await expect(session.listUserViews(userId)).rejects.toThrow("emby_incomplete_views");
   });
 
+  it("uses Emby Web's library order query when reading the settings list", async () => {
+    const client = createEmbyClient({ baseUrl: "http://localhost:1", apiKey: "local-admin-key" });
+    const upstream = client.openLibraryOrderSession!(`${baseUrl}/`)!;
+    await expect(upstream.listUserViews(userId, { includeHidden: true })).resolves.toHaveLength(2);
+    expect(requests[0]?.path).toBe(`/emby/Users/${userId}/Views?IncludeHidden=true&AllowDynamicChildren=false`);
+  });
+
   it("never falls back to a full configuration write when the partial endpoint fails", async () => {
     writeStatus = 404;
     await expect(open().updateOrder(userId, [filmsGuid, dramaGuid])).rejects.toThrow("emby_http_404");

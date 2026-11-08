@@ -1,8 +1,16 @@
 import { mediaRequests } from "./media-requests-schema";
 import { renewalEmailOutbox } from "./renewal-outbox-schema";
 import { driveExpirySettings } from "./drive-expiry-schema";
-import { memberExpiryCleanupJobs, memberExpiryCleanupPolicy } from "./member-expiry-cleanup-schema";
-export { memberExpiryCleanupJobs, memberExpiryCleanupPolicy } from "./member-expiry-cleanup-schema";
+import {
+  memberExpiryCleanupJobs,
+  memberExpiryCleanupPolicy,
+  memberInactivityCleanupPolicy,
+} from "./member-expiry-cleanup-schema";
+export {
+  memberExpiryCleanupJobs,
+  memberExpiryCleanupPolicy,
+  memberInactivityCleanupPolicy,
+} from "./member-expiry-cleanup-schema";
 export { driveExpirySettings } from "./drive-expiry-schema";
 export { renewalEmailOutbox } from "./renewal-outbox-schema";
 export { mediaRequests } from "./media-requests-schema";
@@ -426,6 +434,9 @@ export const logs = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     level: text("level", { enum: logLevels }).notNull(),
     source: text("source", { enum: logSources }).notNull(),
+    module: text("module"),
+    runId: text("run_id"),
+    event: text("event"),
     message: text("message").notNull(),
     method: text("method"),
     path: text("path"),
@@ -438,6 +449,8 @@ export const logs = sqliteTable(
     index("logs_created_at_idx").on(table.createdAt),
     index("logs_level_id_idx").on(table.level, table.id),
     index("logs_source_id_idx").on(table.source, table.id),
+    index("logs_module_id_idx").on(table.module, table.id),
+    index("logs_run_id_idx").on(table.runId, table.id),
     check("logs_level_check", sql`${table.level} IN ('info', 'warn', 'error')`),
     check("logs_source_check", sql`${table.source} IN ('server', 'web', 'mcp')`),
   ],
@@ -472,6 +485,13 @@ export const submissionUsers = sqliteTable("submission_users", {
   /** 首批 10 个是否已用完；用完则后续每日按 processPerDay。 */
   processFirstBatchUsed: integer("process_first_batch_used", { mode: "boolean" }).notNull().default(false),
   note: text("note"),
+  qqNumber: text("qq_number"),
+  joinSource: text("join_source"),
+  qqAvatarSyncStatus: text("qq_avatar_sync_status", {
+    enum: ["synced", "pending", "failed", "preserved", "unavailable"],
+  }),
+  qqAvatarSyncedTag: text("qq_avatar_synced_tag"),
+  qqAvatarSyncedEmbyUserId: text("qq_avatar_synced_emby_user_id"),
   /**
    * 当前这份有效期的「到期时间名称」（由带 expiry_label 的自定义卡密写入）。
    *
@@ -940,6 +960,7 @@ export const schema = {
   driveExpirySettings,
   memberExpiryCleanupJobs,
   memberExpiryCleanupPolicy,
+  memberInactivityCleanupPolicy,
   renewalEmailOutbox,
   mediaRequests,
   virtualLibraryPosters,

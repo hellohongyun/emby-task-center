@@ -16,6 +16,7 @@ type ProxyPreview = {
   after: string[];
   owned: Library[];
   readAnchors: () => OwnedViewAnchor[];
+  snapshot?: LibraryOrderSnapshot;
 };
 type PreviewRow = Account & {
   status: "change" | "unchanged" | "failed";
@@ -23,23 +24,25 @@ type PreviewRow = Account & {
   after: string[];
   proxyBefore?: string[];
   proxyAfter?: string[];
+  proxyReason?: string;
   reason?: string;
 };
 type ApplyRow = Account & { status: "updated" | "unchanged" | "skipped" | "failed"; reason?: string };
 type Plan = ReturnType<typeof planLibraryOrderFromTokens>;
 export type Target = { account: Account; row: PreviewRow; snapshot?: string; plan?: Plan };
 
-function proxyOrders(target: LibraryOrderSnapshot, proxy: ProxyPreview) {
-  const original = target.visible.map(({ id, guid, name }) => ({ Id: id, Guid: guid, Name: name }));
-  const hidden = new Set(target.hiddenViews.map(viewIdentity));
-  const additions = proxy.owned
-    .filter(({ id }) => !hidden.has(viewIdentity(id)))
-    .map(({ id, name }) => ({ Id: id, Name: name }));
+function proxyOrders(proxy: ProxyPreview) {
+  const { snapshot } = proxy;
+  if (!snapshot) return { proxyReason: "library_order_proxy_read_failed" };
+  const original = snapshot.visible.map(({ id, guid, name }) => ({ Id: id, Guid: guid, Name: name }));
+  // Emby Web's Library Order query uses IncludeHidden=true, including our own hidden libraries.
+  const additions = proxy.owned.map(({ id, name }) => ({ Id: id, Name: name }));
   const mixed = [...original, ...additions];
   const keys = (item: (typeof mixed)[number]) => [item.Id, "Guid" in item ? item.Guid : undefined];
+  const personalOrder = snapshot.personalOrder.map(viewIdentity);
   const before = proxy.before
     ? applyAdminLibraryOrder(mixed, proxy.before, keys)
-    : anchorOwnedViews(original, additions, target.personalOrder.map(viewIdentity), proxy.readAnchors());
+    : anchorOwnedViews(original, additions, personalOrder, proxy.readAnchors());
   return {
     proxyBefore: before.map((item) => String(item.Name)),
     proxyAfter: applyAdminLibraryOrder(mixed, proxy.after, keys).map((item) => item.Name),
@@ -52,10 +55,11 @@ export function previewTarget(
   nativeOrder: string[],
   proxy?: ProxyPreview,
 ): Target {
+  const proxyOrder = proxy ? proxyOrders(proxy) : {};
   if (!target) {
     return {
       account,
-      row: { ...account, status: "failed", before: [], after: [], reason: "library_order_read_failed" },
+      row: { ...account, status: "failed", before: [], after: [], reason: "library_order_read_failed", ...proxyOrder },
     };
   }
   const plan = planLibraryOrderFromTokens(nativeOrder, target);
@@ -66,7 +70,7 @@ export function previewTarget(
       status: plan.update ? "change" : "unchanged",
       before: plan.before,
       after: plan.after,
-      ...(proxy ? proxyOrders(target, proxy) : {}),
+      ...proxyOrder,
     },
     snapshot: target.fingerprint,
     plan,

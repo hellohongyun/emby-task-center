@@ -15,6 +15,7 @@ import { calculateMissing } from "./gap-calculator";
 import { planRootSync, type RootSyncPlan } from "./emby-roots";
 import type { ScannedMediaItem, ScanOutput } from "./scan-types";
 import { checkedScanResult } from "./scan-result";
+import { workflowLog, type WorkflowLog, type WorkflowLogger } from "../logging/workflow-log";
 
 export interface LibraryRootConfig {
   id: string;
@@ -49,7 +50,12 @@ export interface LibraryInventory {
   root: LibraryRoot;
   items: LibraryInventoryItem[];
 }
-export type ScanRoot = (path: string) => Promise<ScanOutput>;
+export type ScanRoot = (path: string, log?: WorkflowLog) => Promise<ScanOutput>;
+
+interface ScanContext {
+  trigger?: "manual" | "startup" | "interval" | "automation" | "task-alias";
+  log?: WorkflowLog;
+}
 
 export interface LibraryRootsProvider {
   load(): Promise<readonly LibraryRootConfig[]>;
@@ -67,8 +73,8 @@ export interface RootRefreshOutcome {
 export interface LibraryService {
   close?(): Promise<void>;
   listRoots(): LibraryRoot[];
-  scanRoot(rootId: string): Promise<LibraryScanResult | null>;
-  scanEnabledRoots(): Promise<void>;
+  scanRoot(rootId: string, context?: ScanContext): Promise<LibraryScanResult | null>;
+  scanEnabledRoots(context?: ScanContext): Promise<void>;
   matchInventory(mediaItem: MediaItemRow): number;
   getInventory(rootId: string): LibraryInventory | null;
   getInventoryPayload(rootId: string): string | null;
@@ -98,6 +104,7 @@ export function createLibraryService(
     onLegacyInventoryRemoved?: (info: { roots: number; rows: number; error?: string }) => void;
     databasePath?: string;
     workerUrl?: URL;
+    logger?: WorkflowLogger;
   },
 ): LibraryService {
   // 由来源驱动时初始为空：启动后先 refreshRoots() 再从 Emby 得到库根。
@@ -114,7 +121,7 @@ export function createLibraryService(
     database && hooks?.databasePath && hooks.databasePath !== ":memory:"
       ? createScanWriter(hooks.databasePath, hooks.workerUrl)
       : null;
-  const scans = new Map<string, Promise<LibraryScanResult | null>>();
+  const scans = new Map<string, { promise: Promise<LibraryScanResult | null>; log?: WorkflowLog }>();
 
   const inventoryCache = new Map<string, { payload: string; at: number }>();
   const inventoryTtlMs = 5 * 60_000;
@@ -148,13 +155,31 @@ export function createLibraryService(
     return payload;
   }
 
-  async function performScan(rootId: string): Promise<LibraryScanResult | null> {
+  function createScanLog(context?: ScanContext) {
+    return context?.log ?? (hooks?.logger && workflowLog(hooks.logger, "library-scan"));
+  }
+
+  async function performScan(
+    rootId: string,
+    log: WorkflowLog | undefined,
+    trigger = "manual",
+  ): Promise<LibraryScanResult | null> {
     const root = roots.find((candidate) => candidate.id === rootId);
     if (!root) return null;
-    const startedAt = new Date().toISOString();
+    const started = Date.now();
+    const startedAt = new Date(started).toISOString();
+    const context = { rootId, trigger };
+    log?.write("info", "library_root_scan_started", `开始扫描「${root.name}」`, context);
+    let stage = "读取条目";
     try {
-      const batch = checkedScanResult(await scan(root.path));
+      const batch = checkedScanResult(await scan(root.path, log));
       const sanitized = batch.items.map(sanitizeItem);
+      stage = "保存库存";
+      log?.write("info", "library_inventory_saving", `「${root.name}」已收集 ${sanitized.length} 条，正在保存库存`, {
+        ...context,
+        count: sanitized.length,
+        complete: batch.complete,
+      });
       if (database) {
         if (writer) await writer.persist(root, sanitized, startedAt, roots, batch.complete);
         else persistScan(database, root, sanitized, startedAt, roots, batch.complete);
@@ -164,8 +189,26 @@ export function createLibraryService(
           sanitized.map((item) => ({ ...item, id: itemId(rootId, item.relativePath) })),
         );
       invalidateInventory(rootId);
+      log?.write(
+        batch.complete ? "info" : "warn",
+        "library_root_scan_finished",
+        `「${root.name}」${batch.complete ? "扫描完成" : "扫描结果不完整，已保留原库存"}`,
+        { ...context, count: sanitized.length, complete: batch.complete },
+        Date.now() - started,
+      );
       return { root: readPublicRoot(root, database), items: sanitized };
     } catch (error) {
+      const code =
+        error instanceof Error && /^(emby_[a-z0-9_]+|library_scan_[a-z0-9_]+)$/.test(error.message)
+          ? error.message
+          : "scan_failed";
+      log?.write(
+        "error",
+        "library_root_scan_failed",
+        `「${root.name}」${stage}失败`,
+        { ...context, reason: code },
+        Date.now() - started,
+      );
       if (database) persistScanFailure(database, root, startedAt, error);
       throw error;
     }
@@ -175,24 +218,43 @@ export function createLibraryService(
       await writer?.close();
     },
     listRoots: () => roots.filter(isEnabled).map((root) => readPublicRoot(root, database)),
-    scanRoot(rootId) {
+    scanRoot(rootId, context) {
       const existing = scans.get(rootId);
-      if (existing) return existing;
-      const running = performScan(rootId).finally(() => {
+      if (existing) {
+        existing.log?.write("info", "library_scan_reused", "扫描请求已合并到进行中的任务", { rootId });
+        return existing.promise;
+      }
+      const log = createScanLog(context);
+      const running = performScan(rootId, log, context?.trigger).finally(() => {
         scans.delete(rootId);
       });
-      scans.set(rootId, running);
+      scans.set(rootId, { promise: running, log });
       return running;
     },
-    async scanEnabledRoots() {
+    async scanEnabledRoots(context) {
+      const log = createScanLog(context);
+      const trigger = context?.trigger ?? "manual";
+      const started = Date.now();
+      const rootCount = roots.length;
+      log?.write("info", "library_scan_batch_started", `开始批量扫描，共 ${rootCount} 个媒体库`, {
+        trigger,
+        rootCount,
+      });
       const failures: unknown[] = [];
       for (const root of roots) {
         try {
-          await service.scanRoot(root.id);
+          await service.scanRoot(root.id, { trigger, log });
         } catch (error) {
           failures.push(error);
         }
       }
+      log?.write(
+        failures.length ? "warn" : "info",
+        "library_scan_batch_finished",
+        `批量扫描结束，完成 ${rootCount - failures.length} 个媒体库，失败 ${failures.length} 个`,
+        { trigger, rootCount, failed: failures.length },
+        Date.now() - started,
+      );
       if (failures.length) throw new AggregateError(failures, `${failures.length} media root scan(s) failed.`);
     },
     matchInventory: (mediaItem) => (database ? matchInventoryToMediaItem(database, mediaItem, roots) : 0),

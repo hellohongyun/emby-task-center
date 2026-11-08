@@ -1,5 +1,6 @@
 export type EmbyItemsGet = (query: URLSearchParams) => Promise<unknown>;
 export type EmbyRawItem = Record<string, unknown> & { Id: string };
+export type EmbyPageProgress = (progress: { page: number; received: number; total: number }) => void;
 
 const DEFAULT_PAGE_SIZE = 500;
 const MAX_ITEMS = 1_000_000;
@@ -13,6 +14,7 @@ export async function fetchAllEmbyItems(
   get: EmbyItemsGet,
   query: URLSearchParams,
   requestedPageSize = DEFAULT_PAGE_SIZE,
+  onPage?: EmbyPageProgress,
 ): Promise<EmbyRawItem[]> {
   const pageSize =
     Number.isFinite(requestedPageSize) && requestedPageSize > 0
@@ -57,6 +59,7 @@ export async function fetchAllEmbyItems(
       seen.add(item.Id);
       items.push(item as EmbyRawItem);
     }
+    onPage?.({ page: page + 1, received: items.length, total });
     if (items.length === total) return items;
   }
   throw new Error("emby_pagination_limit_exceeded");

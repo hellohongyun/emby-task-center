@@ -9,6 +9,7 @@ import { staticCredentialVerifier } from "../auth/test-session";
 import type { EmbyClient } from "../integrations/emby-client";
 import type { EmbyLibraryOrderSession } from "../integrations/emby-library-order-client";
 import { createLibraryService } from "../library/service";
+import { writeSettings } from "../settings/store";
 import { createPublicSessionManager } from "../subscriptions/public-session";
 import type { TmdbClient } from "../tmdb/client";
 
@@ -20,6 +21,7 @@ const anime = { id: "103", guid: "cccccccccccccccccccccccccccccccc", name: "动�
 const extras = { id: "104", guid: "dddddddddddddddddddddddddddddddd", name: "独享" };
 const hidden = { id: "105", guid: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", name: "已隐藏" };
 const virtual = { id: "106", guid: "ffffffff-ffff-ffff-ffff-ffffffffffff", name: "虚拟库" };
+const proxyOnly = { id: "107", guid: "11111111-1111-1111-1111-111111111111", name: "反代榜单库" };
 
 type Preferences = Awaited<ReturnType<EmbyLibraryOrderSession["getUserPreferences"]>>;
 type PreviewResult = {
@@ -33,6 +35,7 @@ type PreviewResult = {
     after: string[];
     proxyBefore?: string[];
     proxyAfter?: string[];
+    proxyReason?: string;
   }[];
 };
 
@@ -42,11 +45,17 @@ describe("Emby library order admin HTTP flow", () => {
   let base: string;
   let cookie: string;
   let connection: object | undefined;
+  let proxyConnection: object | undefined;
   let preferences: Record<string, Preferences>;
   let views: Record<string, (typeof films)[]>;
+  let extraAdminSettings: (typeof films)[];
+  let proxyViews: Record<string, (typeof films)[]>;
   let mediaFolderItems: Array<{ id: string; name: string; guid: string }>;
   let failUsers: Set<string>;
+  let failProxyViews: Set<string>;
+  let failProxyFolders: boolean;
   const updateOrder = vi.fn<EmbyLibraryOrderSession["updateOrder"]>();
+  const proxyUpdateOrder = vi.fn<EmbyLibraryOrderSession["updateOrder"]>();
 
   async function request(path: string, payload?: unknown, auth = cookie, status = 200) {
     const response = await fetch(`${base}${path}`, {
@@ -78,7 +87,11 @@ describe("Emby library order admin HTTP flow", () => {
 
   beforeEach(async () => {
     connection = {};
+    proxyConnection = {};
+    proxyUpdateOrder.mockReset();
     failUsers = new Set();
+    failProxyViews = new Set();
+    failProxyFolders = false;
     preferences = {
       admin: { isAdministrator: true, orderedViews: [tv.guid, films.guid], hiddenViews: [] },
       otherAdmin: { isAdministrator: true, orderedViews: [films.guid, tv.guid, virtual.guid], hiddenViews: [] },
@@ -95,6 +108,13 @@ describe("Emby library order admin HTTP flow", () => {
       member: [films, extras, tv, hidden],
       disabled: [films],
     };
+    extraAdminSettings = [];
+    proxyViews = {
+      admin: [films, tv, anime, virtual, proxyOnly],
+      otherAdmin: [films, tv, virtual, proxyOnly],
+      member: [films, extras, tv, hidden, proxyOnly],
+      disabled: [films, proxyOnly],
+    };
     mediaFolderItems = [films, tv, anime, virtual, extras, hidden].map((view) => ({
       id: view.id,
       name: view.name,
@@ -108,11 +128,14 @@ describe("Emby library order admin HTTP flow", () => {
       name: view.name,
       collectionType: null,
     }));
-    const openLibraryOrderSession = () =>
-      connection &&
-      ({
-        identity: connection,
-        baseUrl: "https://emby.test",
+    const openLibraryOrderSession = (baseUrl?: string) => {
+      if (!connection || (baseUrl && baseUrl !== "https://proxy.test")) return undefined;
+      const proxy = baseUrl === "https://proxy.test";
+      const sessionIdentity = proxy ? proxyConnection : connection;
+      if (!sessionIdentity) return undefined;
+      return {
+        identity: sessionIdentity,
+        baseUrl: proxy ? baseUrl : "https://emby.test",
         listUsers: async () =>
           Object.keys(preferences).map((id) => ({
             Id: id,
@@ -123,14 +146,26 @@ describe("Emby library order admin HTTP flow", () => {
             },
           })),
         listServerLibraries: async () => native,
-        listMediaFolders: async () => mediaFolderItems,
+        listMediaFolders: async () => {
+          if (proxy && failProxyFolders) throw new Error("fixture_proxy_folders_failed");
+          return proxy
+            ? [...mediaFolderItems, { id: proxyOnly.id, name: proxyOnly.name, guid: proxyOnly.guid }]
+            : mediaFolderItems;
+        },
         getUserPreferences: async (id) => {
           if (failUsers.has(id)) throw new Error("fixture_user_read_failed");
           return structuredClone(preferences[id]!);
         },
-        listUserViews: async (id) => structuredClone(views[id]!),
-        updateOrder,
-      } satisfies EmbyLibraryOrderSession);
+        listUserViews: async (id, options) => {
+          if (proxy && failProxyViews.has(id)) throw new Error("fixture_proxy_views_failed");
+          const libraries = (proxy && options?.includeHidden ? proxyViews : views)[id]!;
+          return structuredClone(
+            !proxy && options?.includeHidden && id === "admin" ? [...libraries, ...extraAdminSettings] : libraries,
+          );
+        },
+        updateOrder: proxy ? proxyUpdateOrder : updateOrder,
+      } satisfies EmbyLibraryOrderSession;
+    };
 
     database = createDatabase(":memory:");
     const app = createApp({
@@ -377,5 +412,93 @@ describe("Emby library order admin HTTP flow", () => {
     await request(endpoint, { order: [] }, cookie, 400);
     await request(endpoint, { order: ["missing"] }, cookie, 400);
     await request(endpoint, { order: [films.guid, films.id] }, cookie, 400);
+  });
+
+  it("orders proxy-injected libraries through the proxy without writing them to Emby", async () => {
+    writeSettings(database.db, {
+      "virtualLibraryProxy.enabled": true,
+      "virtualLibraryProxy.upstream": "https://proxy.test",
+    });
+    const body = await (await request(endpoint)).json();
+    expect(body.proxy).toEqual({
+      configured: true,
+      enabled: true,
+      running: false,
+      port: null,
+      upstream: "https://proxy.test",
+    });
+    expect(body.libraries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "反代榜单库", kind: "proxy", direct: false, proxy: true }),
+      ]),
+    );
+    await save([proxyOnly.guid, films.guid, tv.guid, anime.guid, virtual.guid, extras.guid, hidden.guid]);
+    const previewBody = await preview();
+    const admin = previewBody.users.find((row) => row.id === "admin")!;
+    expect(admin.proxyAfter?.[0]).toBe("反代榜单库");
+    expect(admin.before).not.toContain("反代榜单库");
+    const applied = await apply(previewBody.previewToken);
+    expect(applied.proxyActivated).toBe(true);
+    expect(applied.proxyEnabled).toBe(true);
+    expect(proxyUpdateOrder).not.toHaveBeenCalled();
+    const directWrites = updateOrder.mock.calls.flatMap(([, order]) => order);
+    expect(directWrites).not.toContain(proxyOnly.guid.replaceAll("-", "").toLowerCase());
+    const active = database.db.select().from(appSettings).where(eq(appSettings.key, "emby.libraryOrder.active")).get();
+    expect(JSON.parse(active!.value!).order).toContain(proxyOnly.guid.replaceAll("-", "").toLowerCase());
+  });
+
+  it("shows a failed proxy settings read separately while the account's direct preview still works", async () => {
+    writeSettings(database.db, { "virtualLibraryProxy.upstream": "https://proxy.test" });
+    await save([proxyOnly.guid, films.guid]);
+    failProxyViews.add("member");
+
+    const { users } = await preview();
+    expect(users.find(({ id }) => id === "admin")?.proxyAfter?.[0]).toBe(proxyOnly.name);
+    const member = users.find(({ id }) => id === "member");
+    expect(member).toMatchObject({
+      after: expect.arrayContaining([films.name]),
+      proxyReason: "library_order_proxy_read_failed",
+    });
+    expect(member).not.toHaveProperty("proxyAfter");
+  });
+
+  it("reads the settings list separately when the proxy upstream is the same Emby address", async () => {
+    writeSettings(database.db, { "virtualLibraryProxy.upstream": "https://emby.test/" });
+    extraAdminSettings = [hidden];
+    await save([hidden.guid, films.guid]);
+
+    const admin = (await preview()).users.find(({ id }) => id === "admin");
+    expect(admin?.after).not.toContain(hidden.name);
+    expect(admin?.proxyBefore?.at(-1)).toBe(hidden.name);
+    expect(admin?.proxyAfter?.[0]).toBe(hidden.name);
+  });
+
+  it("preserves the draft and active order when an unavailable or partial upstream hides a saved library", async () => {
+    writeSettings(database.db, { "virtualLibraryProxy.upstream": "https://proxy.test" });
+    await save([proxyOnly.guid, films.guid]);
+    await apply((await preview()).previewToken);
+    const readSaved = () =>
+      ["emby.libraryOrder", "emby.libraryOrder.active"].map(
+        (key) => database.db.select().from(appSettings).where(eq(appSettings.key, key)).get()?.value,
+      );
+    const saved = readSaved();
+    expect(saved.every((value) => value?.includes(proxyOnly.guid.replaceAll("-", "")))).toBe(true);
+
+    proxyConnection = undefined;
+    const diagnostic = await (await request(endpoint)).json();
+    expect(diagnostic.warnings.join(" ")).toContain("无法确认反代上游");
+    expect(await (await request(endpoint, { order: [films.guid] }, cookie, 502)).json()).toEqual({
+      error: "library_order_proxy_read_failed",
+    });
+
+    proxyConnection = {};
+    failProxyFolders = true;
+    failProxyViews.add("admin");
+    for (const id of Object.keys(proxyViews)) proxyViews[id] = proxyViews[id]!.filter((view) => view !== proxyOnly);
+    expect(await (await request(`${endpoint}/preview`, {}, cookie, 502)).json()).toEqual({
+      error: "library_order_proxy_read_failed",
+    });
+    expect((await preview({ userIds: ["admin"] })).users[0]?.after).toContain(films.name);
+    expect(readSaved()).toEqual(saved);
   });
 });

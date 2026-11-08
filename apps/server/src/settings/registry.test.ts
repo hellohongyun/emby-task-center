@@ -48,6 +48,7 @@ describe("settings registry", () => {
       "session.secret",
       "tmdb.token",
       "emby.apiKey",
+      "member.groupInviteCode",
       "email.password",
       "tgto.password",
       // AI 文案的 API Key：只由服务端使用，接口回掩码、日志脱敏

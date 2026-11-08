@@ -1,5 +1,5 @@
 import type { EmbyLibraryItem } from "./emby-client";
-import { fetchAllEmbyItems, type EmbyItemsGet } from "./emby-pagination";
+import { fetchAllEmbyItems, type EmbyItemsGet, type EmbyPageProgress } from "./emby-pagination";
 import { isUnnumberedEmbySpecial, validateEmbyEpisodeRange } from "./emby-episode-range";
 
 /** .NET 时间戳裁到毫秒，供时间字符串排序。 */
@@ -16,7 +16,7 @@ function record(value: unknown): Record<string, unknown> | null {
 export function createEmbyLibraryReader(get: EmbyItemsGet) {
   return {
     async listLibraryItems(
-      query: { mediaType?: "movie" | "tv"; limit?: number; libraryId?: string } = {},
+      query: { mediaType?: "movie" | "tv"; limit?: number; libraryId?: string; onPage?: EmbyPageProgress } = {},
     ): Promise<EmbyLibraryItem[]> {
       const params = new URLSearchParams({
         Recursive: "true",
@@ -24,7 +24,7 @@ export function createEmbyLibraryReader(get: EmbyItemsGet) {
         Fields: "ProviderIds,ProductionYear,ImageTags,Genres,DateCreated",
       });
       if (query.libraryId) params.set("ParentId", query.libraryId);
-      const items = await fetchAllEmbyItems(get, params, query.limit);
+      const items = await fetchAllEmbyItems(get, params, query.limit, query.onPage);
       return items.map((item): EmbyLibraryItem => {
         const type = item.Type === "Movie" ? "movie" : item.Type === "Series" ? "tv" : null;
         if (

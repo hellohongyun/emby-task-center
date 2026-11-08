@@ -5,10 +5,12 @@ import { randomBytes } from "node:crypto";
 import type { AppDatabase } from "@emby-task-center/database/client";
 import { submissionUsers } from "@emby-task-center/database/schema";
 import type { EmbyClient } from "../integrations/emby-client";
+import type { WorkflowLogger } from "../logging/workflow-log";
 import { createEmbyUserService } from "../integrations/emby-user-service";
 import { getConcurrencyPolicy } from "../integrations/concurrency-policy-config";
 import { getSubmissionUser, memberStatus } from "./membership";
 import { getDriveExpiry } from "./drive-expiry";
+import { syncMemberQqAvatar } from "./member-qq-avatar";
 
 function makePassword(): string {
   return randomBytes(12).toString("base64url");
@@ -66,6 +68,7 @@ export async function provisionEmbyAccount(
   emby: EmbyClient | undefined,
   email: string,
   password?: string,
+  logger?: WorkflowLogger,
 ): Promise<{ embyUserId: string; embyUsername: string; password: string }> {
   const normalized = normalizeEmail(email);
   const member = database.select().from(submissionUsers).where(eq(submissionUsers.email, normalized)).get();
@@ -88,6 +91,7 @@ export async function provisionEmbyAccount(
     .where(eq(submissionUsers.id, member.id))
     .run();
   await syncMemberEmbyAccess(database, emby, member.id);
+  if (member.qqNumber) void syncMemberQqAvatar(database, emby, member.id, { logger }).catch(() => undefined);
   return { embyUserId: user.id, embyUsername: normalized, password: passwordToUse };
 }
 

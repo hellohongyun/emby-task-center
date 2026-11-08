@@ -6,6 +6,8 @@
 
 在项目根目录运行 `pnpm test`。服务端使用 Vitest，前端使用 Vue 组件和请求夹具；这些测试不代表真实 Emby、TMDB、SMTP 或反向代理已经验证。
 
+会员注册的浏览器回归 `activate-repro.spec.ts` 用请求夹具验证群公告指引、验证码验证后的资料页及最终开通请求，保留已有会员登录和续费页面回归。服务端使用临时 SQLite 验证群邀请码配置、资料保存和头像同步规则，Emby 上传使用测试夹具。
+
 名单逐项选片通过 `useVirtualNameQueue.test.ts`、`VirtualNameQueue.test.ts` 和 `VirtualLibrariesPage.test.ts` 验证：仅自动填入搜索词，成功加入后推进，失败保留选择，跳过不写关联，切库后的旧请求不推进新名单。
 
 `apps/server/src/routes/http-direct-login.test.ts` 使用生产模式、临时 SQLite 与本地 HTTP 服务验证管理员和会员登录 Cookie 不带 `Secure`、携带 Cookie 可访问各自接口、退出会清除两类 Cookie，以及响应不下发 HSTS。另验证伪造 `X-Forwarded-For` / `X-Forwarded-Proto` 不能绕过直连 IP 登录锁定；通过检查实际 Cookie 响应头，避免浏览器对 localhost 的特殊处理掩盖问题。这些用例不监听生产端口、不写真实数据库，也不调用外网。
@@ -30,7 +32,7 @@ pnpm exec vitest run apps/server/src/virtual-libraries apps/server/src/routes/vi
 
 `emby-library-order.test.ts` 使用真实管理端 HTTP 和模拟 Emby 会话，验证鉴权、草稿与审计、直连和反代预览、全量及单账号范围、可见库顺序、未知令牌保留、新增媒体库和过期草稿冲突。`emby-library-order-client.test.ts` 使用本地 HTTP 验证仅通过 Emby 部分配置接口提交 `OrderedViews`。`emby-library-order-plan.test.ts` 验证 GUID 归一化、未知令牌保留，以及写入后必须回读到显式保存的顺序。`LibraryOrderPage.test.ts` 验证排序、搜索、草稿、双预览、仅反代变化时的确认和部分成功结果。
 
-`emby-library-order-proxy-linkage.test.ts` 使用真实管理 API、本地 Emby HTTP 与播放器反代，验证单账号测试与全量启用的边界、直连和反代返回的顺序、已有个人排序无法覆盖管理员的反代模板、客户端鉴权及 206 分段读取。反代聚焦用例还覆盖不同上游地址、不同 ID 表示、未匹配条目和排序分页。上游和 SQLite 均为测试夹具。
+`emby-library-order-proxy-linkage.test.ts` 使用真实管理 API、独立的本地 Emby 和 TgtoDrive HTTP 上游，以及本项目反代。验证 Emby Web「首页设置」实际使用的 `/Views` 查询按模板排列原生库、上游注入库和本项目虚拟库，覆盖隐藏项、单账号同步边界、反代重启、客户端鉴权及 206 分段读取。管理 API 测试另覆盖上游部分失败时保留已有模板及逐账号的反代预览错误提示。上游和 SQLite 均为测试夹具。
 
 缺集聚焦回归覆盖合并集闭区间持久化与重扫、所选启用库独立计算、停用库历史保留、公开 Emby 库 ID（含 GUID）与本地行号碰撞、删除前真实库存复核、当前库 Emby 跳转、只读 worker 一致快照与生命周期。前端覆盖切库清除选择、空库切换、待核对提示、迟到响应、401、超时和离页取消。只在临时数据库与本地上游中执行删除；真实库核对仅执行只读查询。
 
@@ -136,7 +138,48 @@ pnpm exec playwright test -c playwright.deep.config.ts
 
 后端联动使用临时文件 SQLite、真实应用 HTTP、本地 Emby HTTP 与实际扫描/会员媒体库 worker，验证慢分页和写锁期间读取、重复扫描合并、不完整扫描保留库存、缓存更新、停用媒体库的可见性与历史保留，以及会员开通、停用、过期、续费和冻结限制。邮件仅在内存捕获；会员冻结状态由夹具写入，自动冻结触发由已有并发策略测试覆盖。
 
-浏览器深度套件包含独立套件的 6 项检查，并增加扫描中切页、读取中退出再登录、搜索后新建任务及刷新持久化、抽屉关闭重开后的旧搜索隔离、390 像素移动端导航。它不拦截伪造应用 API 响应，上游等待由本地 HTTP 服务控制。前端回归还通过可控请求时序验证任务操作旧 401 不影响新登录、完整响应超时、销毁后取消及独立写操作并行。通过这些测试不代表所有请求竞态、生产网络断流或容量均已验证。
+浏览器深度套件包含独立套件的 6 项检查，并增加扫描中切页、读取中退出再登录、搜索后新建任务及刷新持久化、抽屉关闭重开后的旧搜索隔离、390 像素移动端导航和媒体库排序。应用 API 由编译后的服务处理，上游等待由本地 HTTP 服务控制。前端回归还通过可控请求时序验证任务操作旧 401 不影响新登录、完整响应超时、销毁后取消及独立写操作并行。
+
+`library-order.spec.ts` 使用独立的本地 Emby 与 TgtoDrive HTTP 上游，从管理后台实际调整顺序，核对保存草稿、单账号同步和全量同步。用 Emby Web 首页设置的 `/Views` 查询核对反代结果、隐藏项、权限和分页，模拟上游 503 检查草稿与生效模板保留，再重启编译后的应用并复用临时 SQLite 核对顺序恢复。浏览器覆盖桌面与 390 像素视口，Emby 设置页通过其 HTTP 查询验证。可单独运行：
+
+```powershell
+pnpm build
+pnpm exec playwright test -c playwright.deep.config.ts tests/e2e/library-order.spec.ts
+```
+
+### 会员注册、群邀请码与头像
+
+```powershell
+pnpm build
+pnpm exec playwright test -c playwright.deep.config.ts tests/e2e/member-registration.spec.ts tests/e2e/member-registration-boundaries.spec.ts
+```
+
+用例运行编译后的门户和服务端、临时文件 SQLite、回环 TCP SMTP，以及本地 QQ 头像和 Emby HTTP 夹具。浏览器调用应用实际接口，验证码从本地收到的邮件正文取得。用例覆盖群公告指引、资料确认前保留卡密、正式开通与 Emby 头像写入、会员自助编辑、管理员查询和同步操作。HTTP 用例另验证邀请码更换、进程重启、凭证与邮箱和卡密的绑定、同一卡密并发核销、SMTP 拒收，以及非 QQ 邮箱老会员登录和续期。
+
+Emby 夹具校验用户 ID、API Key 请求头、头像上传内容和回读结果。生产数据库、真实 QQ、外部 SMTP 和实际 Emby 部署权限均在此套件范围之外。
+
+### 保号清理
+
+```powershell
+pnpm build
+pnpm exec playwright test -c playwright.deep.config.ts tests/e2e/member-inactivity-cleanup.spec.ts
+pnpm exec vitest run apps/server/src/routes/member-inactivity-cleanup.test.ts apps/server/src/subscriptions/member-inactivity-cleanup-races.test.ts apps/server/src/routes/member-expiry-cleanup-guards.test.ts apps/server/src/scheduling/member-inactivity-cleanup.test.ts
+```
+
+浏览器用例通过编译后的服务、临时 SQLite、回环 SMTP 和 Emby HTTP 夹具，验证管理员预览与确认、播放恢复后旧预览失效、重启后执行已保存的规则、删除待确认时拒绝续费、Emby 和本地删除顺序、门户会话失效及审计。390 像素视口覆盖关闭规则，随后重启核对关闭状态和会员保留情况。
+
+服务端联动覆盖有效期内的会员、15 天边界、并发清理、删除前恢复播放或提升为管理员、切换 Emby 服务后的身份复核，以及删除结果不明时的补查。删号仅针对测试夹具账号。
+
+### 系统日志与头像刷新
+
+```powershell
+pnpm build
+pnpm exec playwright test -c playwright.deep.config.ts tests/e2e/system-logs.spec.ts
+pnpm exec vitest run apps/server/src/routes/logs.test.ts apps/server/src/subscriptions/member-qq-avatar.test.ts
+pnpm --filter @emby-task-center/web test src/components/LogsView.test.ts
+```
+
+浏览器在隔离服务中通过实际会员注册和扫描接口核对新日志追加、暂停与恢复、执行编号筛选、文件下载和审计入口。服务端用例覆盖增量游标、筛选跨页、下载鉴权和一小时头像检查，使用不同的图片字节验证同一 QQ 换头像、内容相同跳过上传以及 Emby 自定义头像保护。
 
 ## Docker 冒烟
 

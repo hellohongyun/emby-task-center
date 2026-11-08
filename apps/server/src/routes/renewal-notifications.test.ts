@@ -13,6 +13,7 @@ import { createPublicSessionManager } from "../subscriptions/public-session";
 import { createCardKeys } from "../subscriptions/cards";
 import { issueVerificationCode } from "../subscriptions/verification";
 import { retryRenewalReceipts } from "../subscriptions/renewal-outbox";
+import { activateCardForTest, postSubscription } from "../test-support/card-activation";
 
 describe("administrator and card renewal notification HTTP flows", () => {
   let handle: DatabaseHandle;
@@ -150,8 +151,11 @@ describe("administrator and card renewal notification HTTP flows", () => {
 
   it("keeps first-time activation separate from renewal receipt and leaves unconfigured receipts pending", async () => {
     const card = createCardKeys(handle.db, { kind: "month", count: 1 })[0]!;
-    expect(await redeem(card, "new@example.invalid")).not.toHaveProperty("emailStatus");
-    expect(send).not.toHaveBeenCalled();
+    const activated = await activateCardForTest(base, handle.db, "100001037@qq.com", card);
+    expect(activated.status).toBe(200);
+    expect(await activated.json()).not.toHaveProperty("emailStatus");
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]?.[2]).toContain("邮箱验证码");
     expect(handle.db.select().from(renewalEmailOutbox).all()).toHaveLength(0);
     email.configured = false;
     const result = await post(`/api/submission-users/${user.id}/renew`, renew());
@@ -186,20 +190,25 @@ describe("administrator and card renewal notification HTTP flows", () => {
   });
   it("also rolls back first-time card consumption if member insertion fails", async () => {
     const card = createCardKeys(handle.db, { kind: "month", count: 1 })[0]!;
-    const address = "first-failure@example.invalid";
+    const address = "100001038@qq.com";
+    await post("/api/public/subscriptions/code", { email: address, cardCode: card });
+    const code = send.mock.calls[0]?.[2].match(/验证码：(\d{6})/)?.[1];
+    expect(code).toMatch(/^\d{6}$/);
+    const { registrationToken } = await post("/api/public/subscriptions/register/verify", {
+      email: address,
+      cardCode: card,
+      code,
+    });
+    const activation = { email: address, cardCode: card, registrationToken };
     handle.db.run(
       sql`CREATE TRIGGER fixture_fail_signup BEFORE INSERT ON submission_users BEGIN SELECT RAISE(ABORT,'fixture signup failure'); END`,
     );
-    const failed = await fetch(`${base}/api/public/subscriptions/activate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: address, cardCode: card, code: issueVerificationCode(handle.db, address) }),
-    });
+    const failed = await postSubscription(base, "activate", activation);
     expect(failed.status).toBe(500);
     expect(handle.db.select().from(cardKeys).where(eq(cardKeys.code, card)).get()?.status).toBe("unused");
     expect(handle.db.select().from(submissionUsers).where(eq(submissionUsers.email, address)).get()).toBeUndefined();
     handle.db.run(sql`DROP TRIGGER fixture_fail_signup`);
-    expect(await redeem(card, address)).not.toHaveProperty("emailStatus");
+    expect(await post("/api/public/subscriptions/activate", activation)).not.toHaveProperty("emailStatus");
     expect(handle.db.select().from(renewalEmailOutbox).all()).toHaveLength(0);
   });
 });
