@@ -15,6 +15,7 @@ export function useAdminSubmissions(requireAuth: () => void) {
     }
     if (!response.ok) {
       const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (body.error === "member_cleanup_pending") throw new Error("该会员的账号正在清理，请稍后刷新会员列表。");
       throw new Error(body.error ?? "request_failed");
     }
     return response.status === 204 ? (undefined as T) : (response.json() as Promise<T>);

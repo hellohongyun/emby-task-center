@@ -1,3 +1,11 @@
+import { mediaRequests } from "./media-requests-schema";
+import { renewalEmailOutbox } from "./renewal-outbox-schema";
+import { driveExpirySettings } from "./drive-expiry-schema";
+import { memberExpiryCleanupJobs, memberExpiryCleanupPolicy } from "./member-expiry-cleanup-schema";
+export { memberExpiryCleanupJobs, memberExpiryCleanupPolicy } from "./member-expiry-cleanup-schema";
+export { driveExpirySettings } from "./drive-expiry-schema";
+export { renewalEmailOutbox } from "./renewal-outbox-schema";
+export { mediaRequests } from "./media-requests-schema";
 import { sql } from "drizzle-orm";
 import { check, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { virtualLibraries, virtualLibraryItems, virtualLibraryPosters } from "./virtual-libraries-schema";
@@ -444,6 +452,9 @@ export const submissionUsers = sqliteTable("submission_users", {
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   /** 会员到期时间（ISO）；null 表示长期有效。 */
   subscriptionExpiresAt: text("subscription_expires_at"),
+  deferredMembershipMs: integer("deferred_membership_ms").notNull().default(0),
+  followsDriveExpiry: integer("follows_drive_expiry", { mode: "boolean" }).notNull().default(false),
+  driveExpirySyncPending: integer("drive_expiry_sync_pending", { mode: "boolean" }).notNull().default(false),
   /** 对应 Emby 用户名（兼容旧数据：仅用于提示，不自动调 Emby）。 */
   embyUsername: text("emby_username"),
   /** Emby 用户 Id（自动开户/到期停用/改密码的直接依据）。 */
@@ -926,6 +937,11 @@ export const memberUsageSegments = sqliteTable(
 );
 
 export const schema = {
+  driveExpirySettings,
+  memberExpiryCleanupJobs,
+  memberExpiryCleanupPolicy,
+  renewalEmailOutbox,
+  mediaRequests,
   virtualLibraryPosters,
   virtualLibraries,
   virtualLibraryItems,

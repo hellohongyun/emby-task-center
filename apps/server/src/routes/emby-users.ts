@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import type { AppDatabase } from "@emby-task-center/database/client";
 import { submissionUsers } from "@emby-task-center/database/schema";
 import { embyAccessAllowed, syncMemberEmbyAccess } from "../subscriptions/emby-access";
+import { holdEmbyRoleChange, isEmbyExpiryCleanupPending } from "../subscriptions/member-expiry-cleanup-guard";
 import type { Express, Request, RequestHandler, Response } from "express";
 import { z } from "zod";
 
@@ -31,6 +32,7 @@ export function registerEmbyUserRoutes(app: Express, emby: EmbyClient | undefine
   const service: EmbyUserService = createEmbyUserService(emby);
   const linkedMember = (id: string) =>
     database?.select().from(submissionUsers).where(eq(submissionUsers.embyUserId, id)).get();
+  const cleanupPending = (id: string) => database && isEmbyExpiryCleanupPending(database, id);
 
   app.get(
     "/api/emby/users",
@@ -88,11 +90,20 @@ export function registerEmbyUserRoutes(app: Express, emby: EmbyClient | undefine
       if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });
       if (Object.keys(parsed.data).some((key) => key.toLowerCase() === "isdisabled" && key !== "IsDisabled"))
         return void response.status(400).json({ error: "invalid_request" });
-      const member = linkedMember(String(request.params.id));
+      const id = String(request.params.id);
+      const changingRole = Object.keys(parsed.data).some((key) => key.toLowerCase() === "isadministrator");
+      if (changingRole && cleanupPending(id))
+        return void response.status(409).json({ error: "member_cleanup_pending" });
+      const member = linkedMember(id);
       const enabling = parsed.data.IsDisabled === false;
       if (enabling && member && database && !embyAccessAllowed(database, member.id))
         return void response.status(403).json({ error: "member_restore_blocked" });
-      await service.applyPolicy(String(request.params.id), parsed.data as never);
+      const release = database && changingRole ? holdEmbyRoleChange(database, id) : undefined;
+      try {
+        await service.applyPolicy(id, parsed.data as never);
+      } finally {
+        release?.();
+      }
       if (enabling && member && database && !(await syncMemberEmbyAccess(database, emby, member.id)))
         return void response.status(502).json({ error: "member_restore_failed" });
       response.json({ ok: true });
@@ -102,7 +113,9 @@ export function registerEmbyUserRoutes(app: Express, emby: EmbyClient | undefine
   app.delete(
     "/api/emby/users/:id",
     wrap(async (request, response) => {
-      await service.deleteUser(String(request.params.id));
+      const id = String(request.params.id);
+      if (cleanupPending(id)) return void response.status(409).json({ error: "member_cleanup_pending" });
+      await service.deleteUser(id);
       response.json({ ok: true });
     }),
   );

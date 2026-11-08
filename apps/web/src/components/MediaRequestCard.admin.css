@@ -1,0 +1,56 @@
+.admin-card {
+  padding: 12px;
+  border-radius: 11px;
+}
+.admin-card .work {
+  gap: 9px;
+}
+.admin-card .poster {
+  width: 52px;
+  height: 78px;
+}
+.admin-card .poster-placeholder {
+  gap: 4px;
+}
+.admin-card .film-mark {
+  font-size: 21px;
+}
+.admin-card h3 {
+  flex-basis: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+.admin-card .status {
+  font-weight: 650;
+}
+.admin-card .badges {
+  margin-top: 5px;
+}
+.admin-card .requester {
+  margin-top: 4px;
+  font-size: 11px;
+}
+.admin-card .request-copy,
+.admin-card .feedback {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 1px 6px;
+  margin-top: 8px;
+}
+.admin-card .copy-label {
+  margin: 0;
+  color: #a2b3bc;
+}
+.admin-card .feedback {
+  padding: 5px 7px;
+}
+.admin-card .expand {
+  grid-column: 2;
+  justify-self: start;
+}
+.admin-card footer {
+  gap: 7px;
+  margin-top: 7px;
+  padding-top: 5px;
+}

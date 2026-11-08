@@ -6,28 +6,24 @@ import type { AppView } from "../types";
 
 defineProps<{ query: string; view?: AppView }>();
 const emit = defineEmits<{ "update:query": [query: string]; publish: []; system: [] }>();
+const mobileTitles: Partial<Record<AppView, string>> = {
+  virtualLibraries: "虚拟媒体库",
+  mediaRequests: "求片与补集",
+  submissions: "会员与运营",
+  cardKeys: "卡密",
+  library: "媒体库",
+  missingEpisodes: "缺集总览",
+  system: "系统状态",
+  config: "系统设置",
+  logs: "日志",
+};
 </script>
 
 <template>
   <header class="app-header">
     <div class="mobile-brand">
-      <img class="brand-logo" src="/logo.svg" alt="" aria-hidden="true" /><span>{{
-        view === "virtualLibraries"
-          ? "虚拟媒体库"
-          : view === "cardKeys"
-            ? "卡密"
-            : view === "library"
-              ? "媒体库"
-              : view === "missingEpisodes"
-                ? "缺集总览"
-                : view === "system"
-                  ? "系统状态"
-                  : view === "config"
-                    ? "系统设置"
-                    : view === "logs"
-                      ? "日志"
-                      : "任务中心"
-      }}</span>
+      <img class="brand-logo" src="/logo.svg" alt="" aria-hidden="true" />
+      <span>{{ (view && mobileTitles[view]) || "任务中心" }}</span>
     </div>
     <label v-if="view === 'tasks'" class="global-search">
       <span class="sr-only">搜索已有任务</span><SvgIcon type="mdi" :path="mdiMagnify" :size="22" />

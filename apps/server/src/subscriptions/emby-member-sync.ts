@@ -28,6 +28,8 @@ import { readSetting } from "../settings/store";
 import { audit } from "./domain-utils";
 import { syncEmbyStreamLimit } from "./emby-account";
 import { createDatabaseSingleFlight } from "../util/database-single-flight";
+import { applyDriveExpiry } from "./drive-expiry";
+import { embyAccessAllowed, syncMemberEmbyAccess } from "./emby-access";
 
 export type AutoLinkSkipReason = "administrator" | "not_email" | "disabled" | "already_linked" | "conflict";
 
@@ -109,6 +111,8 @@ async function linkOrphanRound(
         .run();
       byEmbyId.set(user.Id, { ...existing, embyUserId: user.Id, embyUsername: email });
       await syncEmbyStreamLimit(database, emby, user.Id, existing.embyMaxStreams);
+      if (!embyAccessAllowed(database, existing.id, false, now))
+        await syncMemberEmbyAccess(database, emby, existing.id, false, now);
       audit(database, "system", "member.auto_linked", "submission_user", existing.id, undefined, {
         email,
         embyUserId: user.Id,
@@ -117,30 +121,37 @@ async function linkOrphanRound(
       result.adopted.push({ email, embyUserId: user.Id });
       continue;
     }
-    const created = database
-      .insert(submissionUsers)
-      .values({
-        email,
-        enabled: true,
-        subscriptionExpiresAt: expiresAt,
-        embyUserId: user.Id,
-        embyUsername: email,
-        note: "Emby 账号自动绑定",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      })
-      .returning()
-      .get();
+    const created = database.transaction(
+      (tx) =>
+        tx
+          .insert(submissionUsers)
+          .values({
+            email,
+            enabled: true,
+            ...applyDriveExpiry(tx, expiresAt, 0, now),
+            embyUserId: user.Id,
+            embyUsername: email,
+            note: "Emby 账号自动绑定",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          })
+          .returning()
+          .get(),
+      { behavior: "immediate" },
+    );
     byEmbyId.set(user.Id, created);
     byEmail.set(email, created);
     byName.set(email, created);
     await syncEmbyStreamLimit(database, emby, user.Id, created.embyMaxStreams);
+    if (!embyAccessAllowed(database, created.id, false, now))
+      await syncMemberEmbyAccess(database, emby, created.id, false, now);
+    const effectiveExpiry = created.subscriptionExpiresAt ?? expiresAt;
     audit(database, "system", "member.auto_linked", "submission_user", created.id, undefined, {
       email,
       embyUserId: user.Id,
-      expiresAt,
+      expiresAt: effectiveExpiry,
     });
-    result.linked.push({ email, embyUserId: user.Id, expiresAt });
+    result.linked.push({ email, embyUserId: user.Id, expiresAt: effectiveExpiry });
   }
 
   return result;

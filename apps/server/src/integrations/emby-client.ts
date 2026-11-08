@@ -1,5 +1,7 @@
 import { discardBody } from "../util/http";
 import { fetchImage } from "../util/image-request";
+import { createEmbyLibraryOrderSessionFactory, type EmbyLibraryOrderSession } from "./emby-library-order-client";
+import { createEmbyMemberCleanupSessionFactory, type EmbyMemberCleanupSession } from "./emby-member-cleanup-client";
 import { createEmbyLibraryReader } from "./emby-library-reader";
 export { normalizeEmbyDate } from "./emby-library-reader";
 
@@ -191,6 +193,8 @@ export interface EmbyClient {
   verify(input: { tmdbId: number; mediaType: "movie" | "tv"; episodes: number[] }): Promise<boolean>;
   /** 用户管理（可选能力，由支持用户管理的 Emby 客户端提供） */
   listUsers?(): Promise<EmbyUser[]>;
+  openLibraryOrderSession?(): EmbyLibraryOrderSession | undefined;
+  openMemberCleanupSession?(): EmbyMemberCleanupSession | undefined;
   /**
    * 按 Id 取单个用户。**GUID 与内部数字 id 都接受** —— Emby 活动日志里的 `UserId` 给的是
    * 内部数字 id（线上实测：同一个账号在 /Sessions 是 GUID `01234567…`，在活动日志里是 `1`），
@@ -324,6 +328,8 @@ export function createEmbyClient(options: {
   }
 
   return {
+    openLibraryOrderSession: createEmbyLibraryOrderSessionFactory(credentials),
+    openMemberCleanupSession: createEmbyMemberCleanupSessionFactory(credentials),
     get mediaStreamsCacheIdentity() {
       const live = credentials();
       const key = JSON.stringify([live.baseUrl, live.apiKey]);

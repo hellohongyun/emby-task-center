@@ -19,6 +19,7 @@ export const memberEmbyMaxStreams = ref<number | null>(null);
 export const memberConcurrency = ref<ConcurrencyMemberStatus | null>(null);
 export const memberUnfreeze = ref<MemberUnfreezeStatus | null>(null);
 export const activatedEmby = ref<ActivatedEmby | null>(null);
+export const renewalEmailStatus = ref<string | null>(null);
 export const explicitContentAccess = ref<boolean | null>(null);
 export const error = ref("");
 export const loading = ref(false);
@@ -31,6 +32,7 @@ export function invalidateSessionRequests(): void {
   for (const controller of pending.values()) controller.abort();
   pending.clear();
   loading.value = false;
+  renewalEmailStatus.value = null;
 }
 
 export function applyMember(member: PortalMember, address?: string): void {

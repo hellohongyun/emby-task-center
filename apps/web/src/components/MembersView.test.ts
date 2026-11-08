@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/vue";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/vue";
 import { describe, expect, it, vi } from "vitest";
 import MembersView from "./MembersView.vue";
 
@@ -7,6 +7,55 @@ function json(status: number, body: unknown) {
 }
 
 describe("MembersView", () => {
+  it("shows pending time and following memberships, and refreshes the cap without discarding the settings draft", async () => {
+    const user = { status: "active", enabled: true, subscriptionExpiresAt: "2028-08-31T15:59:59.999Z" };
+    let cap = { date: "2028-08-31", expiresAt: user.subscriptionExpiresAt };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const url = String(input);
+        if (url === "/api/submission-users")
+          return json(200, {
+            users: [
+              { ...user, id: 1, email: "following@example.com", followsDriveExpiry: true, deferredMembershipMs: 0 },
+              {
+                ...user,
+                id: 2,
+                email: "pending@example.com",
+                followsDriveExpiry: false,
+                deferredMembershipMs: 3 * 86_400_000 + 2 * 3_600_000,
+              },
+            ],
+          });
+        if (url === "/api/membership-drive-expiry") return json(200, { limit: cap });
+        if (url === "/api/emby/users") return json(200, { users: [] });
+        if (url === "/api/emby/sessions") return json(200, { sessions: [] });
+        return json(404, {});
+      }),
+    );
+    const view = render(MembersView, { props: { requireAuth: vi.fn() } });
+    try {
+      const following = within(await screen.findByRole("row", { name: /following@example.com/ }));
+      expect(following.getByText("长期跟随网盘")).toBeInTheDocument();
+      expect(following.getByRole("button", { name: "续期" })).toBeDisabled();
+      const pending = within(screen.getByRole("row", { name: /pending@example.com/ }));
+      expect(pending.getByText("待激活 3 天 2 小时")).toBeInTheDocument();
+      expect(pending.getByRole("button", { name: "续期" })).toBeEnabled();
+      await screen.findByText(/当前上限 2028-08-31/);
+      await fireEvent.update(screen.getByLabelText("网盘到期日"), "2029-01-01");
+      cap = { date: "2028-09-15", expiresAt: "2028-09-15T15:59:59.999Z" };
+      await fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+      await screen.findByText(/当前上限 2028-09-15/);
+      expect(screen.getByLabelText("网盘到期日")).toHaveValue("2029-01-01");
+      const refreshed = within(await screen.findByRole("row", { name: /pending@example.com/ }));
+      await fireEvent.click(refreshed.getByRole("button", { name: "续期" }));
+      expect(within(screen.getByRole("dialog")).getByText("续期后：").textContent).toContain("2028-09-15 当天结束");
+    } finally {
+      view.unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("renders a unified row joining the member with its Emby account and online sessions", async () => {
     const member = {
       id: 1,

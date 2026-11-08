@@ -34,4 +34,6 @@ pnpm build
 
 应用版本由根 `package.json` 的 `version` 统一管理，发布规则见 [版本规范](docs/versioning.md)。不要单独改写前端显示版本或覆盖既有固定镜像标签。
 
+从问题诊断、本地验收到源码推送、容器验证、GHCR 发布和服务器更新的完整步骤，见 [开发与发布流程](docs/development-release.md)。
+
 提交到本项目的贡献使用与项目相同的 [MIT 许可证](LICENSE)。引入第三方源码或依赖时保留其必要的许可和署名信息。

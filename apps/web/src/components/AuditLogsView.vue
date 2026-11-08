@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { formatMembershipDuration } from "../composables/membership-duration";
 
 interface AuditRow {
   id: number;
@@ -22,6 +23,7 @@ const actionFilter = ref("all");
 const actionGroups = [
   { value: "all", label: "全部动作" },
   { value: "member.", label: "会员操作" },
+  { value: "media_request.", label: "求片与补集" },
   { value: "provider.", label: "内容源" },
   { value: "settings.", label: "设置变更" },
 ];
@@ -55,7 +57,16 @@ function actionLabel(action: string): string {
     {
       "member.added": "添加会员",
       "member.updated": "更新会员",
+      "member.renewed": "管理员续期",
+      "member.drive_expiry_adjusted": "网盘到期日调整会员权益",
+      "settings.drive_expiry_updated": "更新网盘到期日",
+      "media_request.created": "提交求片或补集",
+      "media_request.updated": "处理求片或补集",
+      "media_request.description": "补充申请说明",
+      "media_request.retention_deleted": "自动清理已入库申请",
       "member.deleted": "删除会员",
+      "member.expiry_cleanup_deleted": "自动删除过期会员",
+      "member.expiry_cleanup_policy_changed": "更新过期账号自动删除规则",
       "member.mail_pref": "代设邮件偏好",
       // 追更已整体下线，但历史日志里还留着这几类动作：保留可读标签，别让旧记录变成裸 action 字符串。
       "follow.created": "新建追更任务（历史）",
@@ -69,6 +80,23 @@ function actionLabel(action: string): string {
       "article.updated": "更新平台说明",
     }[action] ?? action
   );
+}
+
+function driveExpiryDetails(row: AuditRow): string {
+  if (row.action !== "member.drive_expiry_adjusted" && row.action !== "settings.drive_expiry_updated") return "";
+  try {
+    const before = JSON.parse(row.before ?? "{}") ?? {};
+    const after = JSON.parse(row.after ?? "{}") ?? {};
+    if (row.action === "settings.drive_expiry_updated") return `${before.date ?? "未设置"} → ${after.date ?? "—"}`;
+    const change = Number(after.deferredMembershipMs ?? 0) - Number(before.deferredMembershipMs ?? 0);
+    const expiry = after.subscriptionExpiresAt ? new Date(after.subscriptionExpiresAt).toLocaleString() : "长期有效";
+    const adjustment = change
+      ? ` · ${change > 0 ? "暂存" : "已补回"} ${formatMembershipDuration(Math.abs(change))}`
+      : "";
+    return `实际到期 ${expiry}${adjustment}${after.followsDriveExpiry ? " · 长期跟随" : ""}`;
+  } catch {
+    return "";
+  }
 }
 
 const filtered = computed(() =>
@@ -102,7 +130,9 @@ const filtered = computed(() =>
         <small class="a-target"
           >{{ row.targetType }}<template v-if="row.targetId"> #{{ row.targetId }}</template> · {{ row.operator }}</small
         >
-        <small v-if="row.note" class="a-note">{{ row.note }}</small>
+        <small v-if="row.note || driveExpiryDetails(row)" class="a-note">{{
+          row.note || driveExpiryDetails(row)
+        }}</small>
       </li>
     </ul>
   </section>

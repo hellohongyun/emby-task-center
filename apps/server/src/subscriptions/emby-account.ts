@@ -1,4 +1,4 @@
-import { syncMemberEmbyAccess } from "./emby-access";
+import { embyAccessAllowed, syncMemberEmbyAccess } from "./emby-access";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 
@@ -7,7 +7,8 @@ import { submissionUsers } from "@emby-task-center/database/schema";
 import type { EmbyClient } from "../integrations/emby-client";
 import { createEmbyUserService } from "../integrations/emby-user-service";
 import { getConcurrencyPolicy } from "../integrations/concurrency-policy-config";
-import { memberStatus } from "./membership";
+import { getSubmissionUser, memberStatus } from "./membership";
+import { getDriveExpiry } from "./drive-expiry";
 
 function makePassword(): string {
   return randomBytes(12).toString("base64url");
@@ -107,12 +108,30 @@ export async function disableExpiredEmbyUsers(
   let count = 0;
   for (const member of members) {
     if (!member.embyUserId) continue;
+    const fresh = getSubmissionUser(database, member.id);
+    if (fresh?.embyUserId !== member.embyUserId || !fresh.enabled || memberStatus(fresh, now) !== "expired") continue;
+    let disabled = false;
     try {
       await service.setDisabled(member.embyUserId, true);
-      count++;
+      disabled = true;
     } catch {
-      /* 单用户失败不阻断 */
+      // A lost response can follow a successful policy write. Recheck even after failure.
     }
+    if (
+      getSubmissionUser(database, member.id)?.embyUserId === member.embyUserId &&
+      embyAccessAllowed(database, member.id, false, now)
+    ) {
+      const restored = await syncMemberEmbyAccess(database, emby, member.id, false, now);
+      if (!restored && getDriveExpiry(database)) {
+        database
+          .update(submissionUsers)
+          .set({ driveExpirySyncPending: true })
+          .where(eq(submissionUsers.id, member.id))
+          .run();
+      }
+      continue;
+    }
+    if (disabled) count++;
   }
   return count;
 }

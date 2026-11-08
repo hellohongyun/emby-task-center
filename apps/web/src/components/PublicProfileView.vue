@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { renewalEmailNotice } from "../composables/renewal-email-notice";
 import SvgIcon from "@jamescoyle/vue-icon";
 import { mdiCheckDecagram, mdiEmailOutline, mdiLogout, mdiTicketConfirmationOutline } from "@mdi/js";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -227,7 +228,10 @@ async function submitRenew() {
     renewCard.value = "";
     renewCardChecked.value = false;
     renewCardInfo.value = null;
-    renewMsg.value = "续费/开通成功，会员有效期已更新。";
+    const emailStatus = s.renewalEmailStatus.value;
+    const result = emailStatus === "unchanged" ? "卡密已兑换过。" : "卡密已兑换。";
+    const access = s.memberStatus.value === "expired" ? "会员仍处于过期状态，请联系管理员核对。" : "";
+    renewMsg.value = `${result}${access}${renewalEmailNotice(emailStatus)}`;
   } else renewMsg.value = s.error.value || "兑换失败";
 }
 
@@ -275,9 +279,7 @@ onBeforeUnmount(() => {
               >同时播放上限 <b>{{ s.memberEmbyMaxStreams.value }}</b> 路</span
             >
           </div>
-          <p v-if="s.memberStatus.value === 'expired'" class="expired-note">
-            会员已到期，请使用本页卡密续费后浏览影视内容。
-          </p>
+          <p v-if="s.memberStatus.value === 'expired'" class="expired-note">会员已到期，暂时无法浏览影视内容。</p>
         </div>
         <button type="button" class="logout" @click="s.logout()">
           <SvgIcon type="mdi" :path="mdiLogout" :size="14" />退出登录

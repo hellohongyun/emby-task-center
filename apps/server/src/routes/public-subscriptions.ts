@@ -1,4 +1,6 @@
 import { memberAccessError } from "../subscriptions/member-access";
+import { activateMembershipWithCard } from "../subscriptions/card-activation";
+import { deliverRenewalReceipt, type RenewalEmailStatus } from "../subscriptions/renewal-outbox";
 import { syncMemberEmbyAccess } from "../subscriptions/emby-access";
 import type { Express, Request, Response } from "express";
 import { eq } from "drizzle-orm";
@@ -10,7 +12,14 @@ import type { EmailNotifier } from "../notifications/email-service";
 import type { Logger } from "../logging/logger";
 import type { EmbyClient } from "../integrations/emby-client";
 import type { PublicSession } from "../subscriptions/public-session";
-import { inspectCard, redeemCard, resolveMembershipExpiry } from "../subscriptions/cards";
+import { expiryDisplay, inspectCard, type RedeemResult } from "../subscriptions/cards";
+import { getDriveExpiry } from "../subscriptions/drive-expiry";
+import { isMemberExpiryCleanupPending } from "../subscriptions/member-expiry-cleanup-guard";
+import {
+  cardMembershipExpiry,
+  isUnlimitedMembership,
+  visibleMembershipExpiryLabel,
+} from "../subscriptions/membership-expiry-grant";
 import { bindPendingCard, clearPendingCard, readPendingCard } from "../subscriptions/pending-cards";
 import { issueVerificationCode, verifyVerificationCode } from "../subscriptions/verification";
 import { getSubmissionUserByEmail, memberConcurrencyStatus, memberStatus } from "../subscriptions/membership";
@@ -87,7 +96,7 @@ function toMemberView(database: AppDatabase, user: typeof submissionUsers.$infer
      * 用户侧所有页面与提醒邮件都以它为主口径，为空才回落真实日期——见
      * docs/card-keys.md。管理员侧不看这个字段（要真日期核对）。
      */
-    membershipExpiryLabel: user.membershipExpiryLabel ?? null,
+    membershipExpiryLabel: visibleMembershipExpiryLabel(user),
     embyUsername: user.embyUsername ?? null,
     embyUserId: user.embyUserId ?? null,
     embyMaxStreams: user.embyMaxStreams ?? null,
@@ -99,6 +108,18 @@ function toMemberView(database: AppDatabase, user: typeof submissionUsers.$infer
 function toMemberViewByEmail(database: AppDatabase, email: string, now = new Date()) {
   const user = getSubmissionUserByEmail(database, email);
   return user ? toMemberView(database, user, now) : null;
+}
+
+function redeemedCardView(database: AppDatabase, card: RedeemResult, member: ReturnType<typeof toMemberView> | null) {
+  const capped = member && getDriveExpiry(database);
+  return {
+    code: card.code,
+    kind: card.kind,
+    name: card.name,
+    expiresAt: capped ? member.subscriptionExpiresAt : card.expiresAt,
+    expiryLabel: capped ? member.membershipExpiryLabel : card.expiryLabel,
+    idempotent: card.idempotent,
+  };
 }
 
 export function registerPublicSubscriptionRoutes(app: Express, options: PublicSubscriptionOptions): void {
@@ -172,8 +193,23 @@ export function registerPublicSubscriptionRoutes(app: Express, options: PublicSu
       return void response.status(400).json({ error: "card_required" });
     }
     // 给了卡密就真的去验：续费场景（已注册、但要兑换一张新卡）也靠这条路径拿到卡类型与天数
-    const inspection = inspectCard(options.database, cardCode, email);
+    const now = new Date();
+    const inspection = inspectCard(options.database, cardCode, email, now);
     if (!inspection.ok) return void response.status(400).json({ error: inspection.reason });
+    if (!inspection.idempotent && gate.user && isMemberExpiryCleanupPending(options.database, gate.user.id))
+      return void response.status(409).json({ error: "member_cleanup_pending" });
+    if (isUnlimitedMembership(gate.user) && !inspection.idempotent)
+      return void response.status(409).json({ error: "member_renewal_not_needed" });
+    const entitlement = getDriveExpiry(options.database)
+      ? inspection.idempotent && gate.user
+        ? gate.user
+        : cardMembershipExpiry(options.database, inspection, gate.user, now)
+      : null;
+    const expiresAt = entitlement ? entitlement.subscriptionExpiresAt : inspection.expiresAt;
+    const expiryLabel = entitlement
+      ? visibleMembershipExpiryLabel({ ...entitlement, membershipExpiryLabel: inspection.expiryLabel })
+      : inspection.expiryLabel;
+    const expiry = expiryDisplay({ expiresAt, expiryLabel, days: inspection.days }, now);
     response.json({
       ok: true,
       registered: gate.registered,
@@ -187,13 +223,13 @@ export function registerPublicSubscriptionRoutes(app: Express, options: PublicSu
         /** 管理员 DIY 的卡密名称（没起名字时回落类型标签）。 */
         name: inspection.name,
         /** 固定到期日（ISO）与它的 DIY 名称；两者都为 null 表示"兑换后 N 天"的相对卡。 */
-        expiresAt: inspection.expiresAt,
-        expiryLabel: inspection.expiryLabel,
+        expiresAt,
+        expiryLabel,
         /** 到期时间的主文案（名称优先）与真实日期小字：页面直接照抄，不自己拼。 */
-        expiryText: inspection.expiryText,
-        expiryDetail: inspection.expiryDetail,
+        expiryText: expiry.text,
+        expiryDetail: expiry.detail,
         /** 距到期还剩几天（相对卡为 null）。 */
-        expiryDays: inspection.expiryDays,
+        expiryDays: expiry.days,
         /** 彩蛋祝福文案：前端据此决定要不要弹窗（为空就是不弹，不拿通用话术糊弄）。 */
         blessing: inspection.blessing,
       },
@@ -266,93 +302,51 @@ export function registerPublicSubscriptionRoutes(app: Express, options: PublicSu
     if (boundCard && boundCard !== parsed.data.cardCode.trim().toUpperCase()) {
       return void response.status(400).json({ error: "card_mismatch" });
     }
-    if (getSubmissionUserByEmail(options.database, email)?.enabled === false)
-      return void response.status(403).json({ error: "member_disabled" });
+    const existingMember = getSubmissionUserByEmail(options.database, email);
+    if (existingMember?.enabled === false) return void response.status(403).json({ error: "member_disabled" });
+    if (existingMember && isMemberExpiryCleanupPending(options.database, existingMember.id)) {
+      const card = inspectCard(options.database, parsed.data.cardCode, email);
+      if (card.ok && !card.idempotent) return void response.status(409).json({ error: "member_cleanup_pending" });
+    }
     const verification = verifyVerificationCode(options.database, email, parsed.data.code);
     if (!verification.ok) {
       return void response
         .status(verification.reason === "too_many_attempts" ? 429 : 401)
         .json({ error: verification.reason === "too_many_attempts" ? "too_many_attempts" : "invalid_code" });
     }
-    // 兑换卡密（幂等：同一邮箱重复用同卡不重复计费；他人已用过的卡直接拒绝；过期卡拒绝）
-    let card: ReturnType<typeof redeemCard>;
+    // 核销、会员有效期与续期凭证在同一 SQLite 事务中提交，外部操作仍在事务外。
+    let activated: ReturnType<typeof activateMembershipWithCard>;
     try {
-      card = redeemCard(options.database, parsed.data.cardCode, email);
+      activated = activateMembershipWithCard(options.database, parsed.data.cardCode, email);
     } catch (caught) {
       const reason = (caught as { message?: string }).message ?? "";
       const known = ["invalid_card", "card_used", "card_expired"];
-      return void response.status(400).json({ error: known.includes(reason) ? reason : "invalid_card" });
+      if (reason === "member_disabled") return void response.status(403).json({ error: reason });
+      if (reason === "member_renewal_not_needed" || reason === "member_cleanup_pending")
+        return void response.status(409).json({ error: reason });
+      if (known.includes(reason)) return void response.status(400).json({ error: reason });
+      throw caught;
     }
-    // 卡密已核销，绑定使命完成
     clearPendingCard(email);
-    const now = new Date();
-    const timestamp = now.toISOString();
-    const existing = getSubmissionUserByEmail(options.database, email);
+    const { card, existing, receiptKey } = activated;
     // 幂等重试只返回当前结果：旧卡不能重新启用已停用/过期账号、清掉提醒或再次触发 Emby 开户。
     // 会员已被删除时也不能凭已消费的卡重新创建；长期会员的 null 到期时间同样必须原样保留。
     if (card.idempotent) {
       if (!existing) return void response.status(403).json({ error: "not_member" });
+      const member = toMemberView(options.database, existing);
       response.setHeader("set-cookie", options.publicSession.issueCookie(email));
       return void response.json({
         status: "activated",
         email,
-        member: toMemberView(options.database, existing),
-        card: {
-          code: card.code,
-          kind: card.kind,
-          name: card.name,
-          expiresAt: card.expiresAt,
-          expiryLabel: card.expiryLabel,
-          idempotent: true,
-        },
+        member,
+        card: redeemedCardView(options.database, card, member),
         emby: null,
+        emailStatus: "unchanged",
       });
     }
-    // 新用户：创建会员；老用户：从当前到期时间续期
-    const base =
-      existing?.subscriptionExpiresAt && Date.parse(existing.subscriptionExpiresAt) > now.getTime()
-        ? Date.parse(existing.subscriptionExpiresAt)
-        : now.getTime();
-    // 两条有效期口径的分流点（固定到期日 / base+days）唯一收在 cards.resolveMembershipExpiry。
-    const newExpiry = resolveMembershipExpiry(card, base);
-    /**
-     * 用户侧到期口径：带「到期时间名称」的卡把名称记到会员行上，用户侧所有页面与提醒邮件
-     * 优先显示它。不带名称的卡**显式清空**——换了卡就是换了口径，旧名称不能粘在新的到期时间上。
-     * 幂等兑换已在上面返回，不动这一列。
-     */
-    const expiryLabel = card.expiryLabel ?? null;
-
-    if (existing) {
-      options.database
-        .update(submissionUsers)
-        .set({
-          subscriptionExpiresAt: newExpiry,
-          membershipExpiryLabel: expiryLabel,
-          membershipReminderState: null,
-          membershipRemindedAt: null,
-          updatedAt: timestamp,
-        })
-        .where(eq(submissionUsers.id, existing.id))
-        .run();
-    } else {
-      // 新注册会员**默认登记并发上限**（不再是"留空跟随全局默认"）：刚入门的会员多设备同时播放
-      // 最容易触发冻结，先按后台配的默认值登记下来，Emby 侧同时设 SimultaneousStreamLimit。
-      // 登记值后台可改（系统设置 →「会员」→ 新注册会员默认并发上限），开通后也能在「会员与运营」单独调。
-      options.database
-        .insert(submissionUsers)
-        .values({
-          email,
-          subscriptionExpiresAt: newExpiry,
-          membershipExpiryLabel: expiryLabel,
-          enabled: true,
-          embyMaxStreams: readSetting(options.database, "member.newMemberMaxStreams"),
-          note: `卡密开通(${card.kind})`,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        } as never)
-        .returning()
-        .get();
-    }
+    const emailStatus: RenewalEmailStatus | undefined = receiptKey
+      ? await deliverRenewalReceipt(options.database, options.email, receiptKey)
+      : undefined;
     // 自动创建/关联 Emby 账号
     let emby: { embyUserId: string; embyUsername: string; password: string } | null = null;
     if (options.emby?.configured) {
@@ -404,22 +398,17 @@ export function registerPublicSubscriptionRoutes(app: Express, options: PublicSu
       return void response.status(403).json({ error: finalAccessError });
     }
     response.setHeader("set-cookie", options.publicSession.issueCookie(email));
+    const member = toMemberViewByEmail(options.database, email);
     response.json({
       status: "activated",
       email,
-      member: toMemberViewByEmail(options.database, email),
+      emailStatus,
+      member,
       /**
        * 这次兑换用的卡（名称 / 到期时间口径）：开通成功页据此显示
        * "你是用哪张卡开通的、到什么时候为止"，与预检那一步给的是同一套字段。
        */
-      card: {
-        code: card.code,
-        kind: card.kind,
-        name: card.name,
-        expiresAt: card.expiresAt,
-        expiryLabel: card.expiryLabel,
-        idempotent: card.idempotent,
-      },
+      card: redeemedCardView(options.database, card, member),
       emby: emby
         ? {
             embyUsername: emby.embyUsername,

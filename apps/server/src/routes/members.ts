@@ -9,6 +9,8 @@ import { embyAccessAllowed, syncMemberEmbyAccess } from "../subscriptions/emby-a
  * 数据表仍叫 submission_users（不改表结构），接口路径仍是 /api/submission-users。
  */
 import { readId } from "./route-utils";
+import { registerMemberRenewal } from "./member-renewal";
+import { registerMembershipDriveExpiry } from "./membership-drive-expiry";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 
@@ -19,6 +21,7 @@ import { audit, canSendMail } from "../subscriptions/domain-utils";
 import { sendMembershipEmail } from "../subscriptions/send-notifications";
 import { provisionEmbyAccount, syncEmbyStreamLimit } from "../subscriptions/emby-account";
 import { linkOrphanEmbyUsers } from "../subscriptions/emby-member-sync";
+import { isMemberExpiryCleanupPending } from "../subscriptions/member-expiry-cleanup-guard";
 import { restoreConcurrencyUser } from "../subscriptions/concurrency-escalation";
 import {
   addSubmissionUser,
@@ -61,6 +64,8 @@ export interface MemberRouteOptions {
 // P3：位置参数改为选项对象，调用点不再依赖参数顺序。
 export function registerMemberRoutes(app: Express, options: MemberRouteOptions): void {
   const { database, email, emby } = options;
+  registerMemberRenewal(app, options);
+  registerMembershipDriveExpiry(app, options);
   app.get("/api/submission-users", (_request: Request, response: Response) => {
     response.json({ users: listSubmissionUsers(database) });
   });
@@ -105,9 +110,19 @@ export function registerMemberRoutes(app: Express, options: MemberRouteOptions):
     const id = readId(request.params.id);
     const parsed = updateUserSchema.safeParse(request.body);
     if (!id || !parsed.success) return void response.status(400).json({ error: "invalid_request" });
-    const user = updateSubmissionUser(database, id, parsed.data);
+    const { subscriptionExpiresAt, enabled, embyUsername } = parsed.data;
+    const changesAccess = subscriptionExpiresAt !== undefined || enabled !== undefined || embyUsername !== undefined;
+    const user = database.transaction(
+      (tx) => {
+        if (changesAccess && isMemberExpiryCleanupPending(tx, id)) return "member_cleanup_pending";
+        const updated = updateSubmissionUser(tx, id, parsed.data);
+        if (updated) audit(tx, "admin", "member.updated", "submission_user", id, undefined, { ...parsed.data });
+        return updated;
+      },
+      { behavior: "immediate" },
+    );
+    if (user === "member_cleanup_pending") return void response.status(409).json({ error: user });
     if (!user) return void response.status(404).json({ error: "user_not_found" });
-    audit(database, "admin", "member.updated", "submission_user", id, undefined, { ...parsed.data });
     // 若改了并发上限且已关联 Emby 账号，同步到 Emby 用户策略的 SimultaneousStreamLimit（Emby 原生拒绝超出的并发流）。
     if (user.embyUserId) {
       try {
@@ -137,6 +152,8 @@ export function registerMemberRoutes(app: Express, options: MemberRouteOptions):
     if (!id) return void response.status(400).json({ error: "invalid_id" });
     const user = getSubmissionUser(database, id);
     if (!user) return void response.status(404).json({ error: "user_not_found" });
+    if (isMemberExpiryCleanupPending(database, id))
+      return void response.status(409).json({ error: "member_cleanup_pending" });
     let embyDeleted = false;
     if (user.embyUserId && emby?.deleteUser) {
       try {
@@ -146,12 +163,20 @@ export function registerMemberRoutes(app: Express, options: MemberRouteOptions):
         /* best-effort：Emby 不可达时仍要能移除会员 */
       }
     }
-    if (!deleteSubmissionUser(database, id)) return void response.status(404).json({ error: "user_not_found" });
-    audit(database, "admin", "member.deleted", "submission_user", id, undefined, {
-      email: user.email,
-      embyUserId: user.embyUserId ?? null,
-      embyDeleted,
-    });
+    const result = database.transaction(
+      (tx) => {
+        if (isMemberExpiryCleanupPending(tx, id)) return "member_cleanup_pending";
+        if (!deleteSubmissionUser(tx, id)) return "user_not_found";
+        audit(tx, "admin", "member.deleted", "submission_user", id, undefined, {
+          email: user.email,
+          embyUserId: user.embyUserId ?? null,
+          embyDeleted,
+        });
+        return null;
+      },
+      { behavior: "immediate" },
+    );
+    if (result) return void response.status(result === "member_cleanup_pending" ? 409 : 404).json({ error: result });
     response.status(204).end();
   });
 

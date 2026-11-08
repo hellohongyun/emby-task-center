@@ -12,6 +12,7 @@ import type { EmailNotifier } from "./notifications/email-service";
 import { registerAuthRoutes, type AuthLimitOptions } from "./routes/auth";
 import { registerIntegrationRoutes, type IntegrationStatusFlag } from "./routes/integrations";
 import { registerEmbyUserRoutes } from "./routes/emby-users";
+import { registerEmbyLibraryOrderRoutes } from "./routes/emby-library-order";
 import { registerCardRoutes } from "./routes/cards";
 import { registerLibraryRoutes } from "./routes/library";
 import { registerLogRoutes } from "./routes/logs";
@@ -20,6 +21,8 @@ import { registerPublicRoutes } from "./routes/public";
 import { registerPublicLibraryRoutes } from "./routes/public-library";
 import { registerPublicSubscriptionRoutes } from "./routes/public-subscriptions";
 import { registerMemberRoutes } from "./routes/members";
+import { registerMemberExpiryCleanupRoutes } from "./routes/member-expiry-cleanup";
+import { registerAdminMediaRequestRoutes, registerPublicMediaRequestRoutes } from "./routes/media-requests";
 import { registerMemberUsageRoutes } from "./routes/member-usage";
 import { registerAdminContentRoutes } from "./routes/admin-content";
 import { registerConcurrencyPolicyRoutes } from "./routes/concurrency-policy";
@@ -33,6 +36,7 @@ import { registerTmdbRoutes } from "./routes/tmdb";
 import { registerPublicTrendingRoutes, registerAdminTrendingRoutes } from "./trending/routes";
 import type { TrendingService } from "./trending/service";
 import { createPublicSessionManager } from "./subscriptions/public-session";
+import { getSubmissionUserByEmail } from "./subscriptions/membership";
 import type { TmdbClient } from "./tmdb/client";
 import type { PansouClient } from "./pansou/pansou-client";
 import type { ResourceTokenStore } from "./pansou/resource-tokens";
@@ -90,7 +94,9 @@ export interface AppOptions {
 export function createApp(options: AppOptions) {
   const app = express();
   const sessions = createSessionManager(options.auth);
-  const publicSession = createPublicSessionManager(options.auth.sessionSecret);
+  const publicSession = createPublicSessionManager(options.auth.sessionSecret, (email) =>
+    getSubmissionUserByEmail(options.database, email),
+  );
 
   app.disable("x-powered-by");
   app.use((_request, response, next) => {
@@ -113,6 +119,7 @@ export function createApp(options: AppOptions) {
   registerAuthRoutes(app, sessions, options.authLimits, () => publicSession.clearCookie());
   // 公开入口：在登录门之前注册，无需管理端会话；只有 TMDB 检索与门户只读接口，绝不返回内部数据。
   registerPublicRoutes(app, { database: options.database, publicSession, tmdb: options.tmdb });
+  registerPublicMediaRequestRoutes(app, { database: options.database, publicSession, tmdb: options.tmdb });
   // PanSou 聚合搜索：公开会员门禁内，后端代理转发，不暴露链接与具体网盘名。
   if (options.pansou && options.pansouTokens) {
     registerPansouRoutes(app, {
@@ -170,6 +177,7 @@ export function createApp(options: AppOptions) {
     logger: options.logger,
   });
   app.use("/api", sessions.requireSession);
+  registerAdminMediaRequestRoutes(app, { database: options.database });
   registerVirtualLibraryProxyRoutes(app, options.database, options.virtualLibraryProxy);
   registerVirtualLibraryRoutes(app, { database: options.database });
   registerLogRoutes(app, options.database, options.logger);
@@ -222,6 +230,8 @@ export function createApp(options: AppOptions) {
     services: options.integrationServices,
   });
   registerEmbyUserRoutes(app, options.integrationServices?.emby, options.database);
+  registerEmbyLibraryOrderRoutes(app, options.integrationServices?.emby);
+  registerMemberExpiryCleanupRoutes(app, options.database, options.integrationServices?.emby);
   // 会员使用记录（登录/播放/时段）：数据由后台采样器与 Emby 活动日志回填写入，这里只读 + 手动刷新。
   registerMemberUsageRoutes(app, {
     database: options.database,

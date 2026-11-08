@@ -27,6 +27,8 @@ import { safeError } from "../logging/safe-error";
 import { runProgressScanCycle } from "../scheduling/progress-scan-cycle";
 import { createConcurrencyEscalationRunner } from "./concurrency-escalation-runner";
 import { createSingleRoundRunner } from "./single-round-runner";
+import { startMediaRequestRetention } from "./media-request-retention";
+import { startMemberExpiryCleanup } from "./member-expiry-cleanup";
 import type { SettingsSnapshot } from "../settings/registry";
 import { getRuntimeSettings } from "../settings/runtime";
 import { ESCALATION_TICK_MS, enforceConcurrencyEscalation } from "../subscriptions/concurrency-escalation";
@@ -35,6 +37,7 @@ import { enforceStreamLimits } from "../subscriptions/stream-guard";
 import { StreamLimitResolver } from "../subscriptions/stream-limits";
 import { syncAllStreamLimits } from "../subscriptions/emby-account";
 import { runMembershipReminders } from "../subscriptions/reminders";
+import { syncDriveExpiryEmbyAccess } from "../subscriptions/drive-expiry-emby-sync";
 import { linkOrphanEmbyUsers } from "../subscriptions/emby-member-sync";
 import { syncEmbyActivityLog } from "../usage/activity-log";
 import { pruneUsageHistory } from "../usage/usage-store";
@@ -76,6 +79,8 @@ export function startRuntime(deps: RuntimeDeps): RuntimeHandle {
   const timers: Array<ReturnType<typeof setInterval>> = [];
   /** 需要单独清理的定时器（看门狗用 setTimeout 自适应排期，句柄只有一个）。 */
   const guardTimers: Array<() => void> = [];
+  guardTimers.push(startMediaRequestRetention(database, logger));
+  guardTimers.push(startMemberExpiryCleanup(database, emby, logger));
   let stopped = false;
 
   const scanRetry = createScanRetryGate();
@@ -399,6 +404,9 @@ export function startRuntime(deps: RuntimeDeps): RuntimeHandle {
   if (deps.embyEnabled) {
     timers.push(setInterval(() => void runMembershipReminderSweep(), 6 * 60 * 60_000));
     void runMembershipReminderSweep();
+    const syncDriveExpiry = () => void syncDriveExpiryEmbyAccess(database, emby).catch(() => undefined);
+    timers.push(setInterval(syncDriveExpiry, 5 * 60_000));
+    syncDriveExpiry();
 
     // ── 会员使用记录 ─────────────────────────────────────────────────────────
     // 采样：每隔 sampleSeconds 看一次"谁在播什么"，延长/封口使用区间并补登录、开播事件。

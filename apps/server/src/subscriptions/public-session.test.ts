@@ -41,4 +41,21 @@ describe("public session cookies", () => {
     });
     expect(createPublicSessionManager(secret).read(`emby_public_session=${token}`)).toEqual({ email: null });
   });
+
+  it("keeps legacy cookies for existing records but rejects them against a recreated record", () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-09-30T00:00:00Z");
+    vi.setSystemTime(now);
+    const secret = "legacy-secret";
+    const email = "member@example.invalid";
+    const legacy = createPublicSessionManager(secret).issueCookie(email);
+    let member = { id: 1, createdAt: new Date(now.getTime() - 1).toISOString() };
+    const sessions = createPublicSessionManager(secret, () => member);
+    const bound = sessions.issueCookie(email);
+    expect(sessions.read(legacy)).toEqual({ email });
+    member = { id: 2, createdAt: now.toISOString() };
+    expect(sessions.read(legacy)).toEqual({ email: null });
+    expect(sessions.read(bound)).toEqual({ email: null });
+    expect(sessions.read(sessions.issueCookie(email))).toEqual({ email });
+  });
 });

@@ -1,3 +1,7 @@
+import { reconcileMediaRequests } from "./media-requests-reconcile";
+import { reconcileRenewalOutbox } from "./renewal-outbox-reconcile";
+import { reconcileDriveExpiry } from "./drive-expiry-reconcile";
+import { reconcileMemberExpiryCleanup } from "./member-expiry-cleanup-reconcile";
 /**
  * 迁移后的"对账"段（P5：从 migrate.ts 原样搬出，逻辑未改）。
  *
@@ -18,6 +22,10 @@ import { reconcileVirtualLibraries } from "./virtual-libraries-reconcile";
 
 export function applyPostMigrationReconciliation(database: AppDatabase): void {
   reconcileVirtualLibraries(database);
+  reconcileMediaRequests(database);
+  reconcileRenewalOutbox(database);
+  reconcileDriveExpiry(database);
+  reconcileMemberExpiryCleanup(database);
   // 已下线的表：老库（首次对账时建过）里可能还留着，直接丢掉，幂等可反复执行。
   database.run(sql`DROP TABLE IF EXISTS emby_proxy_settings`);
   // 并发超限升级策略（单行）。

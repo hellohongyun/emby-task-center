@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from "nodemailer";
 
 import type { AppDatabase } from "@emby-task-center/database/client";
+import { retryRenewalReceipts } from "../subscriptions/renewal-outbox";
 
 export interface EmailOptions {
   host?: string;
@@ -82,6 +83,9 @@ export function createEmailNotifier(
           host: live.host,
           port: live.port,
           secure: live.secure,
+          connectionTimeout: 15_000,
+          greetingTimeout: 15_000,
+          socketTimeout: 30_000,
           // 只有用户名与口令都在时才加 auth：中继服务器不需要认证。
           ...(live.user && live.password ? { auth: { user: live.user, pass: live.password } } : {}),
         })
@@ -89,7 +93,7 @@ export function createEmailNotifier(
     return cachedTransporter;
   }
 
-  return {
+  const notifier: EmailNotifier = {
     get configured() {
       return isEmailConfigured(current());
     },
@@ -105,9 +109,7 @@ export function createEmailNotifier(
         html: buildTestHtml(),
       });
     },
-    retryPending: async () => {
-      // 旧自动化投递重发表已移除；直接发送即投递，无需重发队列。
-    },
+    retryPending: async (database) => retryRenewalReceipts(database, notifier),
     sendNotification: async (email, subject, text, html, cc) => {
       const transport = transporter();
       if (!transport) throw new Error("email_not_configured");
@@ -121,6 +123,7 @@ export function createEmailNotifier(
       });
     },
   };
+  return notifier;
 }
 
 function sender(options: EmailOptions): string {

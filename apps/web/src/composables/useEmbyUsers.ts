@@ -47,7 +47,10 @@ export function useEmbyUsers(requireAuth?: () => void, fetchImpl: typeof fetch =
         stop();
         throw new Error("unauthorized");
       }
-      if (!response.ok) throw new Error(body?.error ?? "request_failed");
+      if (!response.ok) {
+        if (body?.error === "member_cleanup_pending") throw new Error("该账号正在清理，请稍后刷新会员列表。");
+        throw new Error(body?.error ?? "request_failed");
+      }
       return body as T;
     } catch (caught) {
       if (active(controller) && (caught as Error).name === "AbortError")

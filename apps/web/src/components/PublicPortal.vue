@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import SvgIcon from "@jamescoyle/vue-icon";
-import { mdiHome, mdiAccountCircle, mdiLogout, mdiLibraryOutline, mdiMagnify } from "@mdi/js";
+import { mdiHome, mdiAccountCircle, mdiLogout, mdiLibraryOutline, mdiMagnify, mdiPlaylistPlus } from "@mdi/js";
 import { computed, onMounted, onBeforeUnmount } from "vue";
 
 import PublicHomeView from "./PublicHomeView.vue";
 import PublicLoginView from "./PublicLoginView.vue";
 import PublicProfileView from "./PublicProfileView.vue";
 import PublicLibraryView from "./PublicLibraryView.vue";
+import PublicRequestsView from "./PublicRequestsView.vue";
 import AnnouncementModal from "./AnnouncementModal.vue";
 import AppVersion from "./AppVersion.vue";
 import { memberStatusText, usePublicNavigation } from "../composables/usePublicNavigation";
@@ -17,6 +18,7 @@ const s = usePortalSession();
 const navItems = [
   { value: "home", label: "首页", icon: mdiHome },
   { value: "library", label: "影视库", icon: mdiLibraryOutline },
+  { value: "requests", label: "求片", icon: mdiPlaylistPlus },
   { value: "profile", label: "我的", icon: mdiAccountCircle },
 ] as const;
 
@@ -87,6 +89,7 @@ onBeforeUnmount(() => clearInterval(refreshTimer));
           @search="handleHomeSearch"
         />
         <PublicLibraryView v-else-if="s.contentAllowed.value && view === 'library'" :query="libraryQuery" />
+        <PublicRequestsView v-else-if="s.contentAllowed.value && view === 'requests'" />
         <PublicProfileView v-else @navigate="navigateTo" />
       </main>
 

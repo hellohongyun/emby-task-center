@@ -8,6 +8,7 @@ import {
   mdiLogout,
   mdiMonitorDashboard,
   mdiPlaylistRemove,
+  mdiPlaylistPlus,
   mdiTicketConfirmationOutline,
   mdiTune,
   mdiViewDashboardOutline,
@@ -47,6 +48,13 @@ const emit = defineEmits<{ view: [view: AppView]; logout: [] }>();
         @click="emit('view', 'virtualLibraries')"
       >
         <SvgIcon type="mdi" :path="mdiDatabaseSearchOutline" :size="20" />虚拟媒体库
+      </button>
+      <button
+        :class="['primary', { active: view === 'mediaRequests' }]"
+        type="button"
+        @click="emit('view', 'mediaRequests')"
+      >
+        <SvgIcon type="mdi" :path="mdiPlaylistPlus" :size="20" />求片与补集
       </button>
       <button :class="['primary', { active: view === 'system' }]" type="button" @click="emit('view', 'system')">
         <SvgIcon type="mdi" :path="mdiMonitorDashboard" :size="20" />系统状态

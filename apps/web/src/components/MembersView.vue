@@ -10,26 +10,51 @@ import {
   mdiLogin,
   mdiRefresh,
   mdiRestore,
+  mdiSort,
 } from "@mdi/js";
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 
-import type { EmbyUserRow, EmbySessionRow, SubmissionUser } from "../types";
+import type { EmbyUserRow, EmbySessionRow, MembershipDriveExpiry, SubmissionUser } from "../types";
 import { useAdminSubmissions } from "../composables/useAdminSubmissions";
 import { useEmbyUsers } from "../composables/useEmbyUsers";
 import { groupSessions } from "../library/session-groups";
 import SessionPlaybackCard from "./SessionPlaybackCard.vue";
+import MemberExpiryCleanupDialog from "./MemberExpiryCleanupDialog.vue";
+import MemberRenewalDialog from "./MemberRenewalDialog.vue";
+import EmbyLibraryOrderDialog from "./EmbyLibraryOrderDialog.vue";
+import MembershipDriveExpirySettings from "./MembershipDriveExpirySettings.vue";
+import { formatMembershipDuration } from "../composables/membership-duration";
 
 const props = defineProps<{ requireAuth: () => void }>();
 
 const admin = useAdminSubmissions(props.requireAuth);
 const eu = useEmbyUsers(props.requireAuth);
+const pageError = computed(() => {
+  if (admin.error.value) return admin.error.value;
+  return eu.error.value.startsWith("Emby 未配置") ? "Emby 未配置，可在系统设置连接。" : eu.error.value;
+});
 const busy = ref(false);
 const message = ref("");
+const renewingMember = ref<SubmissionUser | null>(null);
+const libraryOrderOpen = ref(false);
+const expiryCleanupOpen = ref(false);
+const driveExpiry = ref<MembershipDriveExpiry | null>();
+const driveSettings = ref<InstanceType<typeof MembershipDriveExpirySettings>>();
+const refreshingPage = ref(false);
+const expandedRows = reactive<Record<string | number, boolean>>({});
+async function renewalSaved(text: string) {
+  renewingMember.value = null;
+  message.value = text;
+  await Promise.all([admin.load(), eu.load(true)]);
+}
 
 /* ---- 统一用户行：会员 + Emby 账号 ——按 embyUserId 优先关联，用户名兜底，未关联的 Emby 账号单独成行 ---- */
 interface UserRow {
   member: SubmissionUser | null;
   emby: EmbyUserRow | null;
+}
+function rowKey(row: UserRow) {
+  return row.member?.id ?? `emby-${row.emby?.id}`;
 }
 const rows = computed<UserRow[]>(() => {
   const byId = new Map<string, EmbyUserRow>();
@@ -210,6 +235,16 @@ async function refreshAll() {
   await Promise.all([admin.load(), eu.load(), eu.loadSessions()]);
 }
 
+async function refreshPage() {
+  if (refreshingPage.value) return;
+  refreshingPage.value = true;
+  try {
+    await Promise.all([refreshAll(), driveSettings.value?.reload()]);
+  } finally {
+    refreshingPage.value = false;
+  }
+}
+
 /* ---- 在线会话/在线数 实时刷新：静默轮询（不闪 loading），离开页面即停 ---- */
 const AUTO_REFRESH_MS = 3000;
 let pollTimer: number | undefined;
@@ -247,7 +282,8 @@ function toIso(value: string): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 function formatExpiryDate(value: string | null): string {
-  if (!value) return "未设置";
+  if (!value) return "长期有效";
+  if (value === driveExpiry.value?.expiresAt) return driveExpiry.value.date;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "未设置";
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -305,13 +341,23 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
           <span class="head-icon" aria-hidden="true"><SvgIcon type="mdi" :path="mdiAccountGroup" :size="22" /></span>
           <h2>会员</h2>
         </div>
-        <p class="head-sub">会员与其 Emby 账号同排一行：状态、到期、并发、额度与在线情况，操作集中在行尾。</p>
       </div>
       <div class="head-actions">
         <button type="button" class="refresh" :disabled="busy" @click="syncEmbyAccounts">
           <SvgIcon type="mdi" :path="mdiAccountMultiple" :size="18" />同步 Emby 账号
         </button>
-        <button type="button" class="refresh" :disabled="admin.loading.value || eu.loading.value" @click="refreshAll">
+        <button type="button" class="refresh" @click="libraryOrderOpen = true">
+          <SvgIcon type="mdi" :path="mdiSort" :size="18" />统一媒体库顺序
+        </button>
+        <button type="button" class="refresh" @click="expiryCleanupOpen = true">
+          <SvgIcon type="mdi" :path="mdiDelete" :size="18" />过期自动删除
+        </button>
+        <button
+          type="button"
+          class="refresh"
+          :disabled="refreshingPage || admin.loading.value || eu.loading.value"
+          @click="refreshPage"
+        >
           <SvgIcon type="mdi" :path="mdiRefresh" :size="18" />刷新
         </button>
       </div>
@@ -325,13 +371,21 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
     </ul>
 
     <p v-if="message" class="msg" role="status">{{ message }}</p>
-    <p v-if="admin.error.value || eu.error.value" class="error" role="alert">
-      {{ admin.error.value || eu.error.value }}
-    </p>
+    <p v-if="pageError" class="error" role="alert">{{ pageError }}</p>
+
+    <MembershipDriveExpirySettings
+      ref="driveSettings"
+      :require-auth="requireAuth"
+      @loaded="driveExpiry = $event"
+      @members-changed="refreshAll"
+    />
 
     <!-- 添加 -->
-    <section class="panel add">
-      <h3>添加用户 <span class="panel-hint">邮箱即 Emby 用户名，一步开通</span></h3>
+    <details class="panel add">
+      <summary>
+        <SvgIcon type="mdi" :path="mdiAccountPlus" :size="18" />添加用户
+        <span class="panel-hint">邮箱即 Emby 用户名</span>
+      </summary>
       <form class="add-form" @submit.prevent="addMember">
         <label class="field">
           <span>邮箱 <em class="req">*</em></span>
@@ -344,6 +398,7 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
         <label class="field">
           <span>到期时间</span>
           <input v-model="memberForm.subscriptionExpiresAt" type="datetime-local" />
+          <small>留空为长期会员，网盘到期设置生效后随其调整。</small>
         </label>
         <label class="field">
           <span>并发上限</span>
@@ -357,34 +412,41 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
           <SvgIcon type="mdi" :path="mdiAccountPlus" :size="16" />添加用户
         </button>
       </form>
-    </section>
+    </details>
 
     <!-- 统一用户表 -->
-    <section class="panel">
+    <section class="panel member-list">
       <h3>
-        会员 <span class="count-chip">{{ rows.length }}</span>
+        会员列表 <span class="count-chip">{{ rows.length }}</span>
       </h3>
       <div v-if="admin.loading.value || eu.loading.value" class="empty">正在读取…</div>
       <div v-else-if="!rows.length" class="empty">暂无用户。请先添加用户（邮箱即 Emby 用户名）。</div>
       <div v-else class="table-wrap">
-        <table class="users-table">
-          <thead>
-            <tr>
-              <th>邮箱 / 会员</th>
-              <th>会员状态</th>
-              <th>到期日期</th>
-              <th>Emby 用户</th>
-              <th>Emby 状态</th>
-              <th>并发上限</th>
-              <th title="每日 / 首批额度（管理员记录用；投稿链路已移除，不再消费）">额度（日/首批）</th>
-              <th>超限状态</th>
-              <th>最近活动</th>
-              <th>操作</th>
+        <table class="users-table" role="table" aria-label="会员列表">
+          <thead role="rowgroup">
+            <tr role="row">
+              <th role="columnheader">邮箱 / 会员</th>
+              <th role="columnheader">会员状态</th>
+              <th role="columnheader">实际到期</th>
+              <th role="columnheader">操作</th>
+              <th role="columnheader">Emby 用户</th>
+              <th role="columnheader">Emby 状态</th>
+              <th role="columnheader">并发上限</th>
+              <th role="columnheader" title="每日 / 首批额度（管理员记录用；投稿链路已移除，不再消费）">
+                额度（日/首批）
+              </th>
+              <th role="columnheader">超限状态</th>
+              <th role="columnheader">最近活动</th>
             </tr>
           </thead>
-          <tbody>
-            <tr v-for="row in rows" :key="row.member?.id ?? 'emby-' + row.emby?.id">
-              <td>
+          <tbody role="rowgroup">
+            <tr
+              v-for="row in rows"
+              :key="rowKey(row)"
+              role="row"
+              :class="{ expanded: expandedRows[rowKey(row)], orphan: !row.member }"
+            >
+              <td class="member-cell" role="cell">
                 <template v-if="row.member"
                   ><b class="email">{{ row.member.email }}</b
                   ><small v-if="row.member.note" class="email-note">{{ row.member.note }}</small></template
@@ -394,13 +456,13 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
                   ><small class="email-note">{{ unboundReason(row) }}</small></template
                 >
               </td>
-              <td>
+              <td class="state-cell" role="cell">
                 <span v-if="row.member" :class="['member-badge', memberClass(row.member.status)]">{{
                   memberStatusLabel(row.member.status)
                 }}</span>
                 <span v-else class="dim">—</span>
               </td>
-              <td>
+              <td class="expiry-cell" role="cell" data-label="实际到期">
                 <span
                   v-if="row.member"
                   :class="['expiry', memberClass(row.member.status)]"
@@ -411,12 +473,95 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
                   "
                   >{{ formatExpiryDate(row.member.subscriptionExpiresAt) }}</span
                 >
-                <span v-else class="dim">—</span>
+                <small v-if="row.member?.followsDriveExpiry" class="expiry-detail following">长期跟随网盘</small>
+                <small v-else-if="(row.member?.deferredMembershipMs ?? 0) > 0" class="expiry-detail deferred">
+                  待激活 {{ formatMembershipDuration(row.member?.deferredMembershipMs ?? 0) }}
+                </small>
+                <span v-if="!row.member" class="dim">—</span>
               </td>
-              <td>
+              <td class="actions" role="cell">
+                <div class="row-actions">
+                  <template v-if="row.member">
+                    <button
+                      type="button"
+                      class="primary renew-primary"
+                      :disabled="row.member.followsDriveExpiry"
+                      @click="renewingMember = row.member"
+                    >
+                      续期
+                    </button>
+                    <button
+                      v-if="concurrencyMeta(row.member).active"
+                      type="button"
+                      class="warn secondary-action"
+                      @click="restoreMember(row)"
+                    >
+                      <SvgIcon type="mdi" :path="mdiRestore" :size="13" />恢复
+                    </button>
+                    <button type="button" class="danger secondary-action" @click="removeMember(row)">移除会员</button>
+                  </template>
+                  <template v-if="row.emby">
+                    <button
+                      type="button"
+                      class="secondary-action"
+                      :class="{ danger: !row.emby.isDisabled }"
+                      :disabled="eu.isUserBusy(row.emby.id)"
+                      @click="eu.setDisabled(row.emby.id, !row.emby.isDisabled)"
+                    >
+                      <SvgIcon type="mdi" :path="row.emby.isDisabled ? mdiLockOpen : mdiLock" :size="13" />{{
+                        row.emby.isDisabled ? "启用" : "停用"
+                      }}
+                    </button>
+                    <button
+                      type="button"
+                      class="secondary-action"
+                      :disabled="eu.isUserBusy(row.emby.id)"
+                      @click="togglePasswordEdit(row.emby.id)"
+                    >
+                      改密码
+                    </button>
+                    <!-- 会员行上的 Emby 账号由「移除会员」一并删除，这里只保留孤儿 Emby 账号（没有会员那半行）的删除入口 -->
+                    <button
+                      v-if="!row.member"
+                      type="button"
+                      class="danger secondary-action"
+                      :disabled="eu.isUserBusy(row.emby.id)"
+                      @click="removeEmby(row)"
+                    >
+                      <SvgIcon type="mdi" :path="mdiDelete" :size="13" />删除
+                    </button>
+                  </template>
+                  <button
+                    type="button"
+                    class="mobile-more"
+                    :aria-expanded="!!expandedRows[rowKey(row)]"
+                    @click="expandedRows[rowKey(row)] = !expandedRows[rowKey(row)]"
+                  >
+                    {{ expandedRows[rowKey(row)] ? "收起详情" : "详情与操作" }}
+                  </button>
+                </div>
+                <div v-if="row.emby && editingPassword[row.emby.id]" class="password-row secondary-action">
+                  <input
+                    v-model="passwordEdit[row.emby.id]"
+                    type="text"
+                    maxlength="200"
+                    placeholder="新 Emby 密码"
+                    @keyup.enter="savePassword(row.emby.id)"
+                  />
+                  <button
+                    type="button"
+                    class="primary"
+                    :disabled="!passwordEdit[row.emby.id] || eu.busy.value"
+                    @click="savePassword(row.emby.id)"
+                  >
+                    保存
+                  </button>
+                </div>
+              </td>
+              <td class="mobile-detail emby-identity" role="cell" data-label="Emby 用户">
                 <b class="emby-name">{{ row.emby?.name ?? row.member?.embyUsername ?? "—" }}</b>
               </td>
-              <td>
+              <td class="mobile-detail" role="cell" data-label="Emby 状态">
                 <div class="emby-state">
                   <div class="emby-badges">
                     <span v-if="row.emby?.isAdmin" class="badge admin">管理员</span>
@@ -434,7 +579,7 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
                   <span v-else class="dim">未绑定</span>
                 </div>
               </td>
-              <td>
+              <td class="mobile-detail member-only-detail" role="cell" data-label="并发上限">
                 <span v-if="row.member" class="editable"
                   ><input
                     :value="row.member.embyMaxStreams ?? ''"
@@ -443,11 +588,12 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
                     max="20"
                     placeholder="不限"
                     :disabled="busy"
+                    aria-label="并发上限"
                     @change="setMaxStreams(row, ($event.target as HTMLInputElement).value)"
                 /></span>
                 <span v-else class="dim">—</span>
               </td>
-              <td>
+              <td class="mobile-detail member-only-detail" role="cell" data-label="额度（日 / 首批）">
                 <div v-if="row.member" class="quota-cell">
                   <input
                     :value="row.member.processPerDay ?? ''"
@@ -472,7 +618,7 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
                 </div>
                 <span v-else class="dim">—</span>
               </td>
-              <td>
+              <td class="mobile-detail member-only-detail" role="cell" data-label="超限状态">
                 <template v-if="row.member">
                   <span :class="['cc-badge', concurrencyMeta(row.member).cls]">{{
                     concurrencyMeta(row.member).label
@@ -480,67 +626,8 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
                 </template>
                 <span v-else class="dim">—</span>
               </td>
-              <td class="dim last-activity">{{ row.emby ? dateLabel(row.emby.lastActivityDate) : "—" }}</td>
-              <td class="actions">
-                <div class="row-actions">
-                  <template v-if="row.member">
-                    <button
-                      v-if="concurrencyMeta(row.member).active"
-                      type="button"
-                      class="warn"
-                      @click="restoreMember(row)"
-                    >
-                      <SvgIcon type="mdi" :path="mdiRestore" :size="13" />恢复
-                    </button>
-                    <button type="button" class="danger" @click="removeMember(row)">移除会员</button>
-                  </template>
-                  <template v-if="row.emby">
-                    <button
-                      type="button"
-                      :class="{ danger: !row.emby.isDisabled }"
-                      :disabled="eu.isUserBusy(row.emby.id)"
-                      @click="eu.setDisabled(row.emby.id, !row.emby.isDisabled)"
-                    >
-                      <SvgIcon type="mdi" :path="row.emby.isDisabled ? mdiLockOpen : mdiLock" :size="13" />{{
-                        row.emby.isDisabled ? "启用" : "停用"
-                      }}
-                    </button>
-                    <button
-                      type="button"
-                      :disabled="eu.isUserBusy(row.emby.id)"
-                      @click="togglePasswordEdit(row.emby.id)"
-                    >
-                      改密码
-                    </button>
-                    <!-- 会员行上的 Emby 账号由「移除会员」一并删除，这里只保留孤儿 Emby 账号（没有会员那半行）的删除入口 -->
-                    <button
-                      v-if="!row.member"
-                      type="button"
-                      class="danger"
-                      :disabled="eu.isUserBusy(row.emby.id)"
-                      @click="removeEmby(row)"
-                    >
-                      <SvgIcon type="mdi" :path="mdiDelete" :size="13" />删除
-                    </button>
-                  </template>
-                </div>
-                <div v-if="row.emby && editingPassword[row.emby.id]" class="password-row">
-                  <input
-                    v-model="passwordEdit[row.emby.id]"
-                    type="text"
-                    maxlength="200"
-                    placeholder="新 Emby 密码"
-                    @keyup.enter="savePassword(row.emby.id)"
-                  />
-                  <button
-                    type="button"
-                    class="primary"
-                    :disabled="!passwordEdit[row.emby.id] || eu.busy.value"
-                    @click="savePassword(row.emby.id)"
-                  >
-                    保存
-                  </button>
-                </div>
+              <td class="mobile-detail dim last-activity" role="cell" data-label="最近活动">
+                {{ row.emby ? dateLabel(row.emby.lastActivityDate) : "—" }}
               </td>
             </tr>
           </tbody>
@@ -548,6 +635,21 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
       </div>
     </section>
 
+    <EmbyLibraryOrderDialog v-if="libraryOrderOpen" :require-auth="requireAuth" @close="libraryOrderOpen = false" />
+    <MemberExpiryCleanupDialog
+      v-if="expiryCleanupOpen"
+      :require-auth="requireAuth"
+      @close="expiryCleanupOpen = false"
+    />
+    <MemberRenewalDialog
+      v-if="renewingMember"
+      :member="renewingMember"
+      :drive-expiry="driveExpiry"
+      require-drive-expiry
+      :require-auth="requireAuth"
+      @close="renewingMember = null"
+      @saved="renewalSaved"
+    />
     <!--
       在线会话：详情对齐 Emby 客户端的播放状态（片名/季节集/进度/设备/直连或转码/编码音轨）。
       默认只铺"正在播放"的那几条——挂在上面没播的（含本应用自己连上去的会话）折叠成一行，
@@ -609,10 +711,10 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
 /* 页头 */
 .head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .head-main {
   min-width: 0;
@@ -627,7 +729,6 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
   display: flex;
   align-items: center;
   gap: 11px;
-  margin-bottom: 6px;
 }
 .head-icon {
   width: 42px;
@@ -645,12 +746,6 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
   font-weight: 760;
   color: var(--text);
   letter-spacing: 0.01em;
-}
-.head-sub {
-  margin: 0;
-  color: var(--text-dim);
-  font-size: 13px;
-  line-height: 1.6;
 }
 .refresh {
   min-height: 40px;
@@ -677,24 +772,26 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
 /* 概览统计 */
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px;
-  margin: 0 0 4px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
   padding: 0;
   list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 .stats li {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 12px 15px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
+  padding: 9px 13px;
+}
+.stats li + li {
+  border-left: 1px solid var(--line);
 }
 .stats b {
   flex: none;
-  font-size: 22px;
+  font-size: 19px;
   font-weight: 780;
   color: var(--text);
   font-variant-numeric: tabular-nums;
@@ -976,6 +1073,19 @@ button:disabled {
   font-size: 12px;
   white-space: nowrap;
 }
+.expiry-detail {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.expiry-detail.following {
+  color: var(--accent-strong);
+}
+.expiry-detail.deferred {
+  color: var(--warn);
+}
 .expiry.ok {
   color: var(--text-dim);
 }
@@ -1181,28 +1291,20 @@ button:disabled {
   .members {
     padding: 16px;
   }
-  .stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
   .add-form {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
 }
 @media (max-width: 720px) {
-  .head {
-    flex-direction: column;
-  }
   .sessions-head {
     flex-direction: column;
     align-items: flex-start;
   }
 }
 @media (max-width: 420px) {
-  .stats {
-    grid-template-columns: 1fr 1fr;
-  }
   .add-form {
     grid-template-columns: 1fr;
   }
 }
 </style>
+<style scoped src="./MembersView.responsive.css"></style>

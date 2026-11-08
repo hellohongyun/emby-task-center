@@ -2,6 +2,7 @@ import { asc, eq } from "drizzle-orm";
 
 import type { AppDatabase } from "@emby-task-center/database/client";
 import { concurrencyEscalationState, submissionUsers } from "@emby-task-center/database/schema";
+import { applyDriveExpiry } from "./drive-expiry";
 
 export type MemberStatus = "active" | "expiring" | "expired" | "none";
 
@@ -111,23 +112,28 @@ export function addSubmissionUser(
     processFirstBatch?: number;
   },
 ) {
-  const timestamp = new Date().toISOString();
-  return database
-    .insert(submissionUsers)
-    .values({
-      email: input.email.toLowerCase().trim(),
-      enabled: true,
-      subscriptionExpiresAt: input.subscriptionExpiresAt ?? null,
-      embyUsername: input.embyUsername ?? null,
-      embyMaxStreams: input.embyMaxStreams ?? null,
-      processPerDay: input.processPerDay ?? SUBMISSION_DAILY_LIMIT,
-      processFirstBatch: input.processFirstBatch ?? SUBMISSION_FIRST_BATCH,
-      note: input.note ?? null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    })
-    .returning()
-    .get();
+  const now = new Date();
+  const timestamp = now.toISOString();
+  return database.transaction(
+    (tx) =>
+      tx
+        .insert(submissionUsers)
+        .values({
+          email: input.email.toLowerCase().trim(),
+          enabled: true,
+          ...applyDriveExpiry(tx, input.subscriptionExpiresAt ?? null, 0, now),
+          embyUsername: input.embyUsername ?? null,
+          embyMaxStreams: input.embyMaxStreams ?? null,
+          processPerDay: input.processPerDay ?? SUBMISSION_DAILY_LIMIT,
+          processFirstBatch: input.processFirstBatch ?? SUBMISSION_FIRST_BATCH,
+          note: input.note ?? null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        })
+        .returning()
+        .get(),
+    { behavior: "immediate" },
+  );
 }
 
 export function updateSubmissionUser(
@@ -145,14 +151,31 @@ export function updateSubmissionUser(
 ) {
   const timestamp = new Date().toISOString();
   const values: Partial<typeof submissionUsers.$inferInsert> = { updatedAt: timestamp };
-  if (input.subscriptionExpiresAt !== undefined) values.subscriptionExpiresAt = input.subscriptionExpiresAt;
   if (input.embyUsername !== undefined) values.embyUsername = input.embyUsername;
   if (input.embyMaxStreams !== undefined) values.embyMaxStreams = input.embyMaxStreams;
   if (input.note !== undefined) values.note = input.note;
   if (input.enabled !== undefined) values.enabled = input.enabled;
   if (input.processPerDay !== undefined) values.processPerDay = input.processPerDay;
   if (input.processFirstBatch !== undefined) values.processFirstBatch = input.processFirstBatch;
-  return database.update(submissionUsers).set(values).where(eq(submissionUsers.id, id)).returning().get() ?? null;
+  if (input.subscriptionExpiresAt === undefined)
+    return database.update(submissionUsers).set(values).where(eq(submissionUsers.id, id)).returning().get() ?? null;
+  const requestedExpiry = input.subscriptionExpiresAt;
+  return database.transaction(
+    (tx) => {
+      const current = getSubmissionUser(tx, id);
+      if (!current) return null;
+      if (current.subscriptionExpiresAt !== requestedExpiry) {
+        const entitlement = applyDriveExpiry(tx, requestedExpiry, 0, new Date(timestamp));
+        Object.assign(values, entitlement, {
+          deferredMembershipMs: Math.max(current.deferredMembershipMs, entitlement.deferredMembershipMs),
+          membershipReminderState: null,
+          membershipRemindedAt: null,
+        });
+      }
+      return tx.update(submissionUsers).set(values).where(eq(submissionUsers.id, id)).returning().get() ?? null;
+    },
+    { behavior: "immediate" },
+  );
 }
 
 /** 计算会员今日剩余投稿额度（沿用首次批量→每日额度的模型，可由管理员设置）。 */

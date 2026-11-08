@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
-import { cardKeys, verificationCodes } from "@emby-task-center/database/schema";
+import { cardKeys, renewalEmailOutbox, submissionUsers, verificationCodes } from "@emby-task-center/database/schema";
 import { createApp } from "../app";
 import { staticCredentialVerifier } from "../auth/test-session";
 import { createLibraryService } from "../library/service";
@@ -118,6 +118,38 @@ describe("卡密兑换的两条关键语义", () => {
     const second = await activate("repeat@example.com", code);
     expect(second.status).toBe(200);
     expect(second.body.member?.subscriptionExpiresAt).toBe(expiryAfterFirst);
+  });
+
+  it.each([null, "legacy-unlimited"])("长期会员（%s）保留权益，不消耗新卡，已核销旧卡仍可重放", async (expiry) => {
+    const email = "lifetime@example.com";
+    const used = await createCard();
+    expect((await activate(email, used)).status).toBe(200);
+    database.db
+      .update(submissionUsers)
+      .set({ subscriptionExpiresAt: expiry })
+      .where(eq(submissionUsers.email, email))
+      .run();
+
+    const cardCode = await createCard("year");
+    const preview = await fetch(`${baseUrl}/api/public/subscriptions/card/check`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, cardCode }),
+    });
+    const result = await activate(email, cardCode);
+    expect({ status: preview.status, body: await preview.json() }).toEqual({
+      status: 409,
+      body: { error: "member_renewal_not_needed" },
+    });
+    expect(result).toEqual({ status: 409, body: { error: "member_renewal_not_needed" } });
+    expect(database.db.select().from(cardKeys).where(eq(cardKeys.code, cardCode)).get()).toMatchObject({
+      status: "unused",
+    });
+    expect(database.db.select().from(renewalEmailOutbox).all()).toEqual([]);
+    expect(await activate(email, used)).toMatchObject({
+      status: 200,
+      body: { member: { subscriptionExpiresAt: expiry }, emailStatus: "unchanged" },
+    });
   });
 
   it("已被使用的卡：另一个邮箱兑换会被拒绝（card_used），归属不变", async () => {

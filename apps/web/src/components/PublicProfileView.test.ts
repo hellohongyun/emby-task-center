@@ -81,7 +81,7 @@ describe("PublicProfileView 并发状态", () => {
     render(PublicProfileView);
     await screen.findByText("member@example.com");
     expect(screen.getByText(/请先在本页续费/)).toBeInTheDocument();
-    expect(screen.getByText(/会员已到期，请使用本页卡密续费/)).toBeInTheDocument();
+    expect(screen.getByText(/会员已到期，暂时无法浏览影视内容/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "申请解冻" })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("新 Emby 密码（至少 6 位）")).not.toBeInTheDocument();
     expect(screen.getByText("续费 / 兑换卡密")).toBeInTheDocument();

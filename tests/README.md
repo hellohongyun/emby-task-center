@@ -28,11 +28,75 @@ pnpm exec vitest run apps/server/src/virtual-libraries apps/server/src/routes/vi
 
 `modern-discovery-proxy.test.ts` 使用真实本地 HTTP 与临时数据库，按 Emby 4.10 的动态首页分区、真实 Id 与 Guid 不同、`text/plain` 的 Partial 配置保存，以及上游错误返回无关条目的行为验证发现链路。首页分类缓存只存分区 ID 和类型，并验证凭据隔离、内容继续鉴权及未知分区透传。`home-sections`、`discovery-items` 和 `home-section-cache` 的聚焦用例补充分页、隐藏后数量、缓存过期和父范围约束。
 
+`emby-library-order.test.ts` 使用真实管理端 HTTP 和模拟 Emby 会话，验证鉴权、只读预览、逐账号可见库顺序、过期与重复提交、并发批次、预览冲突及单账号失败。`emby-library-order-client.test.ts` 使用本地 HTTP 验证仅通过 Emby 部分配置接口提交 `OrderedViews` 及连接隔离。`EmbyLibraryOrderDialog.test.ts` 覆盖预览与确认交互。另以构建后的网页、本地 HTTP 上游及内存数据库验收 320／390／1440 像素下的预览、确认、结果展示和弹窗边界。
+
+`emby-library-order-proxy-linkage.test.ts` 使用真实管理 API、本地 Emby HTTP 与播放器反代，核对确认前没有写入、同步后实际可见列表、自有虚拟库锚点、隐藏与音轨设置、客户端鉴权及 206 分段读取。单元回归还验证上游保存成功但实际顺序未变时报告核对失败。
+
 缺集聚焦回归覆盖合并集闭区间持久化与重扫、所选启用库独立计算、停用库历史保留、公开 Emby 库 ID（含 GUID）与本地行号碰撞、删除前真实库存复核、当前库 Emby 跳转、只读 worker 一致快照与生命周期。前端覆盖切库清除选择、空库切换、待核对提示、迟到响应、401、超时和离页取消。只在临时数据库与本地上游中执行删除；真实库核对仅执行只读查询。
 
 `apps/server/src/library/emby-unnumbered-specials.test.ts` 另覆盖无集号 S00 的保留与严格边界：正季、未知季缺号及非法数字仍拒绝；同真实 ID 去重，不同特别篇保留。临时文件 SQLite 验证库存文件数、正常合并集行、重扫稳定和重开持久化，不写真实 Emby。
 
 性能回归使用包含 1200 个分集的本地夹具，断言整部剧列表和作品筛选只执行一次上游查询，并验证季、分集、Counts、Latest/Resume、NextUp 及旧容器的范围。身份检查缓存测试覆盖分页和展示头复用、并发合并、用户/凭据/上游隔离、映射变更失效与取消重试；这些用例验证请求数量和行为，不用不稳定的耗时阈值代替正确性检查。
+
+## 求片与管理员续期回归
+
+```powershell
+pnpm exec vitest run apps/server/src/routes/media-requests.test.ts apps/server/src/routes/media-requests-auth.test.ts apps/server/src/media-requests/persistence.test.ts apps/server/src/routes/member-renewal.test.ts packages/database/src/schema-drift.test.ts
+pnpm --filter @emby-task-center/web test src/components/MediaRequestForm.test.ts src/components/PublicRequestsView.mobile-flow.test.ts src/components/MediaRequestEditor.test.ts src/components/MediaRequestQuickActions.test.ts src/components/MediaRequestList.test.ts src/components/MediaRequestList.actions.test.ts src/composables/media-request-api.test.ts src/components/MemberRenewalDialog.test.ts src/components/PublicPortal-policy.test.ts
+```
+
+求片测试验证真实 `createApp` 管理员／会员会话用途隔离、动态权限、会员记录与说明编辑隔离、TMDB 身份及真实季号校验、同季重复保护、管理员反馈与编辑冲突。临时文件库测试验证表对账幂等、重开持久化及历史申请重新开启的重复保护。组件测试覆盖先确认作品与分季、补集必填说明、重复申请提示、处理冲突保留草稿和离页取消。
+
+会话回归通过真实邮箱验证码登录、删号、同邮箱重建及重新登录，验证旧会话不能读取或编辑新账号的申请。另覆盖旧版会话对既有会员的兼容，以及历史申请含时区偏移或异常版本值时的安全编辑、过期版本冲突与清理起点保留。卡密回归验证长期会员拒绝兑换新卡、卡密保持未使用以及旧卡幂等回执。
+
+已入库申请保留期可聚焦运行：
+
+```powershell
+pnpm exec vitest run apps/server/src/media-requests/retention.test.ts apps/server/src/scheduling/media-request-retention.test.ts packages/database/src/media-requests-retention-upgrade.test.ts apps/server/src/routes/media-requests.test.ts
+```
+
+这些测试使用临时 SQLite 和受控时间，验证仅已入库满 7 天可删除、精确时间边界、非法时间保留、反馈编辑不重置计时、重新打开取消计时、批次上限及删除与审计同事务。升级测试验证历史时间只回填一次且迁移不删记录；调度测试验证启动检查、每小时检查、互斥、失败重试及停止行为。另在独立本地验收库通过真实 HTTP 和 320／390 像素浏览器验证清理前后管理员与会员列表、保留提示、时间详情和旧记录修改被拒绝；仅删除本轮专属夹具申请，并核对会员与媒体库存不变。
+
+移动端界面回归另验证状态快捷筛选沿用服务端查询、处理面板的焦点与 Escape／取消行为、保存期间防重复及禁止关闭、正文滚动锁还原和冲突恢复；分步提交保留剧集必选分季及补集说明校验。界面调整不改变求片身份、去重或状态更新规则。
+
+快捷处理回归验证开始处理与标为已入库保留原反馈、版本检查、同卡写操作互斥、双击不跨两个阶段、失败不改状态和离页取消。列表回归验证确认后原位更新、不整页重读、保留筛选和搜索、移出当前筛选时更新数量并提示结果，以及旧刷新响应不能覆盖新状态。真实本地 HTTP／浏览器验收另通过延迟响应检查忙状态、真实并发修改检查 409、四个状态选项只改草稿并在保存时提交；仍仅使用独立测试会员和资源夹具。
+
+会员页专项组件测试覆盖切换提交／记录页签保留草稿、返回修改、提交回执与新申请，以及海报失败占位。真实网页另完成 320／390／1440 像素的搜索、填写、核对、记录及后台处理验收，核对主要触控区域至少 44px、长说明和长邮箱不横向溢出。手机处理面板在 600px 高视口下仍可滚动正文并点击底部保存，未被底部导航遮挡；缩小视口只模拟可用高度，不代替真实手机软键盘验证。
+
+另以本地独立文件数据库和真实网页 HTTP 完成会员单季补集、后台反馈、会员查看结果，以及两种管理员续期方式的浏览器验收。320、390、1440 像素宽度下检查门户、管理页和续期弹窗，未见横向溢出或页面异常；手机端通过「更多」进入求片管理。TMDB 与会员使用本地夹具，邮件仅本地捕获；播放器反代仅验证无凭据公共信息请求可转发，未验证真实账号登录或播放。
+
+管理员续期测试验证增加天数与服务器时区固定日期、旧有效期校验、跨数据库重开的幂等重放、停用／冻结限制及 Emby 恢复失败的部分成功提示。前端另验证 HTTP 局域网可用的操作 UUID、重复提交保护、请求超时和卸载后的迟到响应隔离。测试仅操作临时 SQLite 与本地夹具，不调用真实 Emby、TMDB 或 SMTP。
+
+续期名称与邮件投递可聚焦运行：
+
+```powershell
+pnpm exec vitest run apps/server/src/routes/member-renewal.test.ts apps/server/src/routes/renewal-notifications.test.ts apps/server/src/subscriptions/renewal-outbox.test.ts apps/server/src/subscriptions/renewal-receipt.test.ts apps/server/src/notifications/renewal-email-notifier.test.ts apps/server/src/notifications/renewal-smtp.integration.test.ts packages/database/src/schema-drift.test.ts
+pnpm --filter @emby-task-center/web test src/components/MemberRenewalDialog.test.ts src/composables/portal-renewal-email.test.ts src/composables/usePortalSession-races.test.ts src/components/PublicProfileView.test.ts
+```
+
+后端验证两种续费通过现有通知器发送、必发凭证不受临期提醒开关影响、自定义名称与真实日期、HTML 转义、正常重放不重复投递、失败／未配置待发、重启持久化、跨连接租约互斥与慢发送续租。另用 SQLite 触发器模拟入队／开户写入失败，验证卡密、有效期和通知一起回滚；发送完成后的状态标记失败不误报投递成功。前端验证名称填写及清空、待发提示不误报已发送、会员切换后的旧投递状态隔离。
+
+`renewal-smtp.integration.test.ts` 使用实际 `createEmailNotifier`／Nodemailer、真实 HTTP 续期接口、临时内存 SQLite 和本地 TCP SMTP 服务，核对实际信封收件人与解码后的 MIME 正文；模拟 SMTP 451 拒信，验证有效期保留、现有 `retryPending` 补发和正常重放去重。该测试不模拟通知器方法，不连接外部 SMTP，也不证明真实邮件提供商的认证、TLS 或最终收件箱投递已通过。
+
+## 过期账号自动删除
+
+```powershell
+pnpm exec vitest run apps/server/src/routes/member-expiry-cleanup.test.ts apps/server/src/routes/member-expiry-cleanup-guards.test.ts apps/server/src/integrations/emby-member-cleanup-client.test.ts apps/server/src/scheduling/member-expiry-cleanup.test.ts packages/database/src/schema-drift.test.ts
+pnpm --filter @emby-task-center/web test src/components/MemberExpiryCleanupDialog.test.ts src/components/MembersView.test.ts
+```
+
+隔离 SQLite、管理端 HTTP 与回环 Emby 测试覆盖默认关闭、旧会员、精确到期边界、无绑定会员、管理员与冻结权益保护、连接切换、预览冲突、删除失败和响应丢失后的重试核对，以及续期、卡密和网盘上限修改与清理并发时的保护。定时测试验证启动检查、下一轮读取新设置及停止行为。构建后的网页使用真实管理端 API 和回环 Emby，在 320／390／1440 像素下验证预览、启用、定向清理和关闭。删除仅作用于测试数据。
+
+## 网盘到期上限
+
+```powershell
+pnpm exec vitest run apps/server/src/subscriptions/drive-expiry.test.ts apps/server/src/subscriptions/drive-expiry-conservation.test.ts apps/server/src/subscriptions/drive-expiry-emby-sync.test.ts apps/server/src/routes/membership-drive-expiry.test.ts apps/server/src/notifications/renewal-smtp.integration.test.ts
+pnpm --filter @emby-task-center/web test src/components/MembershipDriveExpirySettings.test.ts src/components/MemberRenewalDialog.test.ts src/components/MembersView.test.ts
+```
+
+覆盖升级前后的权益保留、首次设置及缩短上限、断档后部分补回、长期跟随、权限、重复兑换和续期幂等，以及 Emby 同步失败后补偿。独立本地验收以临时数据库、真实 HTTP 和 320／390 像素浏览器验证会员列表、续期预览及门户隐私。邮件仅在本地捕获，Emby 权限测试使用上游夹具。
+
+深度回归用文件 SQLite 核对多会员在反复续期、上限变更和重启后的毫秒权益守恒，并用触发器验证事务回滚。并发回归覆盖旧上限续期预览被拒绝，以及 Emby 旧停用请求写入成功但响应丢失时按新有效期恢复。SMTP 回归在回环 TCP 服务模拟拒信和补发，解码实际投递正文验证仅显示当次实际到期日。
 
 ## 浏览器测试
 

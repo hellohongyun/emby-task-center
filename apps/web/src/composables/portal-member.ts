@@ -151,6 +151,10 @@ export function friendlyError(code?: string): string {
       return "该卡密已被使用（同一张卡不能给两个账号兑换）。";
     case "card_expired":
       return "这张卡密已经过了它的到期时间，无法再兑换，请联系发卡人。";
+    case "member_renewal_not_needed":
+      return "当前会员无需兑换卡密续费。";
+    case "member_cleanup_pending":
+      return "账号正在处理，请稍后重试或联系管理员。卡密尚未使用。";
     case "card_required":
       return "请先验证卡密，通过后再获取验证码。";
     case "card_mismatch":

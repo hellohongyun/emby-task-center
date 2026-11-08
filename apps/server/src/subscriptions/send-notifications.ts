@@ -66,6 +66,7 @@ export function buildHtml(subject: string, text: string, posterUrl?: string | nu
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
     .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#68bd68;font-weight:700;text-decoration:none;">$1</a>')
     .replace(/\n/g, "<br/>");
   const poster = posterUrl
@@ -87,7 +88,13 @@ export function escapeHtml(value: string): string {
  */
 export async function sendMembershipEmail(
   email: EmailNotifier | undefined,
-  user: { email: string; subscriptionExpiresAt: string | null; membershipExpiryLabel?: string | null },
+  user: {
+    email: string;
+    subscriptionExpiresAt: string | null;
+    membershipExpiryLabel?: string | null;
+    deferredMembershipMs?: number;
+    followsDriveExpiry?: boolean;
+  },
   now = new Date(),
 ): Promise<boolean> {
   if (!email || !email.configured) return false;
@@ -95,7 +102,7 @@ export async function sendMembershipEmail(
   if (status !== "expiring" && status !== "expired") return false;
   try {
     const subject = status === "expired" ? "[会员到期] 你的会员已到期" : "[会员临期] 你的会员即将到期";
-    const named = user.membershipExpiryLabel?.trim();
+    const named = user.deferredMembershipMs || user.followsDriveExpiry ? null : user.membershipExpiryLabel?.trim();
     const expiryText = named
       ? named
       : user.subscriptionExpiresAt

@@ -1,0 +1,42 @@
+.status-choices {
+  margin-top: 18px;
+}
+.status-choices legend {
+  padding: 0;
+  color: #b4c5ce;
+  font-size: 13px;
+}
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 9px;
+}
+.status-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: 44px;
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid #344852;
+  border-radius: 9px;
+  background: #12222d;
+  cursor: pointer;
+}
+.status-choice.selected {
+  border-color: #79b88a;
+  background: #1b3528;
+  color: #c9ecd0;
+}
+.status-choice input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #8ac693;
+}
+.status-choice input:focus-visible {
+  outline: 2px solid #8ac693;
+  outline-offset: 3px;
+}

@@ -18,6 +18,7 @@ export type AppView =
   | "missingEpisodes"
   | "library"
   | "virtualLibraries"
+  | "mediaRequests"
   | "system"
   | "logs"
   | "config"
@@ -71,11 +72,18 @@ export interface DashboardSummary {
   }>;
 }
 
+export interface MembershipDriveExpiry {
+  date: string;
+  expiresAt: string;
+}
+
 export interface SubmissionUser {
   id: number;
   email: string;
   enabled: boolean;
   subscriptionExpiresAt: string | null;
+  deferredMembershipMs?: number;
+  followsDriveExpiry?: boolean;
   embyUsername: string | null;
   embyUserId: string | null;
   embyMaxStreams: number | null;

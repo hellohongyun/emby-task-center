@@ -21,6 +21,7 @@ import {
   memberConcurrency,
   memberUnfreeze,
   activatedEmby,
+  renewalEmailStatus,
   explicitContentAccess,
   error,
   loading,
@@ -160,6 +161,7 @@ export function usePortalSession() {
         email: string;
         member: PortalMember;
         emby?: ActivatedEmby | null;
+        emailStatus?: string;
       }>("/api/public/subscriptions/activate", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -168,6 +170,7 @@ export function usePortalSession() {
       if (started !== sessionGeneration()) return false;
       applyMember(body.member, body.email);
       activatedEmby.value = body.emby ?? null;
+      renewalEmailStatus.value = body.emailStatus ?? null;
       await loadMember();
       return started === sessionGeneration();
     } catch (caught) {
@@ -281,6 +284,7 @@ export function usePortalSession() {
     memberConcurrency,
     memberUnfreeze,
     activatedEmby,
+    renewalEmailStatus,
     error,
     loading,
     loadMember,

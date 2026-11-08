@@ -34,7 +34,11 @@ export function requirePublicMember(database: AppDatabase, session: PublicSessio
       path === "/api/public/platforms" ||
       path === "/api/public/articles";
     if (anonymous) return next();
-    const { email } = session.read(request.headers.cookie);
+    const { email, memberMissing } = session.read(request.headers.cookie);
+    if (memberMissing) {
+      response.setHeader("set-cookie", session.clearCookie());
+      return void response.status(403).json({ error: "not_member" });
+    }
     if (!email) return void response.status(401).json({ error: "unauthorized" });
     const profile =
       path === "/api/public/subscriptions/member" ||

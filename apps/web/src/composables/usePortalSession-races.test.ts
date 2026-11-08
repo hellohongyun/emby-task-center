@@ -69,10 +69,11 @@ describe("portal session request ownership", () => {
     const first =
       kind === "login" ? s.loginWithCode("old@example.com", "123456") : s.activate("old@example.com", "123456", "card");
     const second = s.loginWithCode("new@example.com", "654321");
-    old.resolve(json({ ...profile(), emby: { password: "secret" } }));
+    old.resolve(json({ ...profile(), emby: { password: "secret" }, emailStatus: "pending" }));
     expect(await first).toBe(false);
     expect(s.loading.value).toBe(true);
     expect(s.activatedEmby.value).toBeNull();
+    expect(s.renewalEmailStatus.value).toBeNull();
     newer.resolve(json(profile("new@example.com")));
     expect(await second).toBe(true);
     expect(s.loggedInEmail.value).toBe("new@example.com");

@@ -45,15 +45,16 @@ function select(next: TabKey) {
 <template>
   <div class="members-page">
     <header class="page-head">
-      <div>
+      <div class="page-title">
         <h1>会员与运营</h1>
-        <p>会员与 Emby 账号、使用记录与时段统计。（邮件偏好、公告与平台说明在「系统设置」）</p>
+        <p>管理会员有效期、Emby 账号与观看记录。</p>
       </div>
       <nav class="tabs" aria-label="会员与运营分区">
         <button
           v-for="item in TABS"
           :key="item.key"
           type="button"
+          :aria-pressed="activeTab === item.key"
           :class="{ active: activeTab === item.key }"
           @click="select(item.key)"
         >
@@ -71,8 +72,13 @@ function select(next: TabKey) {
   padding: 0 0 32px;
 }
 .page-head {
-  padding: 22px 22px 0;
-  max-width: 1320px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-sizing: border-box;
+  padding: 18px 22px 0;
+  max-width: 1180px;
   margin: 0 auto;
 }
 .page-head h1 {
@@ -89,25 +95,50 @@ function select(next: TabKey) {
 .tabs {
   display: inline-flex;
   gap: 4px;
-  margin-top: 14px;
   padding: 3px;
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
   background: var(--surface);
 }
 .tabs button {
-  min-height: 30px;
+  min-height: 38px;
   padding: 0 15px;
   border: 0;
   border-radius: var(--radius-pill);
   color: var(--text-dim);
   background: transparent;
   font-size: 12.5px;
+  white-space: nowrap;
   cursor: pointer;
 }
 .tabs button.active {
   color: var(--accent-ink);
   background: var(--accent);
   font-weight: 700;
+}
+.tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (max-width: 600px) {
+  .page-head {
+    padding: 6px 16px 0;
+  }
+  .page-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .tabs button {
+    min-height: 44px;
+  }
 }
 </style>

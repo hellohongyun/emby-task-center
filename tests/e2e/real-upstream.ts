@@ -55,6 +55,13 @@ export async function startEmbyFixture(options: { missingEpisodes?: boolean } = 
       };
     } else if (path === "/Library/VirtualFolders") {
       body = [{ ItemId: "fixture-movies", Name: "隔离测试电影库", CollectionType: "movies", Locations: [] }];
+    } else if (path === "/Users/fixture-user") {
+      body = {
+        Id: "fixture-user",
+        Name: "隔离测试会员",
+        Policy: { IsAdministrator: false },
+        Configuration: { OrderedViews: ["fixture-movies"], MyMediaExcludes: [] },
+      };
     } else if (path === "/Users/fixture-user/Views") {
       body = {
         Items: [

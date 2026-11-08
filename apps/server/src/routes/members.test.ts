@@ -157,8 +157,8 @@ describe("member (submission_users) admin API", () => {
   it("exposes a scoped TMDB search to the public page", async () => {
     const anonymous = await fetch(`${baseUrl}/api/public/tmdb/search?q=matrix`);
     expect(anonymous.status).toBe(401);
-    addSubmissionUser(database.db, { email: "search@example.invalid" });
-    const memberCookie = createPublicSessionManager(sessionSecret).issueCookie("search@example.invalid");
+    const member = addSubmissionUser(database.db, { email: "search@example.invalid" });
+    const memberCookie = createPublicSessionManager(sessionSecret, () => member).issueCookie("search@example.invalid");
     const search = await fetch(`${baseUrl}/api/public/tmdb/search?q=matrix`, { headers: { cookie: memberCookie } });
     expect(search.status).toBe(200);
     const body = (await search.json()) as { results: Array<{ tmdbId: number; title: string }> };

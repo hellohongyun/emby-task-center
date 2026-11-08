@@ -28,6 +28,10 @@ export function issueSessionToken(options: SessionTokenOptions & { expiresAt: nu
 
 /** 只接受带版本、用途的新格式；旧 token 必须重新登录，不能保留原来的跨用途漏洞。 */
 export function readSessionToken(token: string, options: SessionTokenOptions, now = new Date()): string | null {
+  return readSessionTokenClaims(token, options, now)?.payload ?? null;
+}
+
+export function readSessionTokenClaims(token: string, options: SessionTokenOptions, now = new Date()) {
   if (token.length > 1200) return null;
   const parts = token.split(".");
   if (parts.length !== 5) return null;
@@ -40,5 +44,5 @@ export function readSessionToken(token: string, options: SessionTokenOptions, no
   if (!payload || !encodedPayload.test(payload) || !signature || !/^[A-Za-z0-9_-]{43}$/.test(signature)) return null;
   const expected = sign(`${tokenVersion}.${purpose}.${expiresText}.${payload}`, options);
   if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
-  return payload;
+  return { payload, expiresAt };
 }

@@ -7,7 +7,8 @@
   "exports": {
     "./media": "./src/media.ts",
     "./task": "./src/task.ts",
-    "./virtual-library": "./src/virtual-library.ts"
+    "./virtual-library": "./src/virtual-library.ts",
+    "./media-request": "./src/media-request.ts"
   },
   "dependencies": {
     "zod": "^4.4.3"

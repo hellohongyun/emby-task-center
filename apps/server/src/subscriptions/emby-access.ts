@@ -29,10 +29,20 @@ export async function syncMemberEmbyAccess(
   ignoreFreeze = false,
   now = new Date(),
 ): Promise<boolean> {
+  return (await syncMemberEmbyAccessState(database, emby, memberId, ignoreFreeze, now)) === "enabled";
+}
+
+export async function syncMemberEmbyAccessState(
+  database: AppDatabase,
+  emby: EmbyClient | undefined,
+  memberId: number,
+  ignoreFreeze = false,
+  now = new Date(),
+): Promise<"enabled" | "disabled" | "unconfirmed"> {
   const startedAt = Date.now();
   const currentTime = () => new Date(now.getTime() + Date.now() - startedAt);
   const member = getSubmissionUser(database, memberId);
-  if (!member) return false;
+  if (!member) return "unconfirmed";
   const frozenUntil =
     database.select().from(concurrencyEscalationState).where(eq(concurrencyEscalationState.memberId, memberId)).get()
       ?.disabledUntil ?? null;
@@ -47,27 +57,29 @@ export async function syncMemberEmbyAccess(
       .get();
     return (latest?.disabledUntil ?? null) === frozenUntil;
   };
-  let allowed = stillAllowed();
-  if (!member.embyUserId || !emby?.configured) return allowed;
+  const allowed = stillAllowed();
+  if (!member.embyUserId || !emby?.configured) return allowed ? "enabled" : "disabled";
   const service = createEmbyUserService(emby);
   try {
     await service.setDisabled(member.embyUserId, !allowed);
+    if (allowed && !stillAllowed()) {
+      await service.setDisabled(member.embyUserId, true);
+      return "unconfirmed";
+    }
+    const users = await service.listUsers();
     const freshAllowed = stillAllowed();
     if (allowed && !freshAllowed) {
       await service.setDisabled(member.embyUserId, true);
-      return false;
+      return "unconfirmed";
     }
-    allowed = freshAllowed;
-    const users = await service.listUsers();
-    if (allowed && !stillAllowed()) {
-      await service.setDisabled(member.embyUserId, true);
-      return false;
-    }
-    return allowed && users.find((user) => user.id === member.embyUserId)?.isDisabled === false;
+    if (allowed !== freshAllowed || getSubmissionUser(database, memberId)?.embyUserId !== member.embyUserId)
+      return "unconfirmed";
+    if (users.find((user) => user.id === member.embyUserId)?.isDisabled !== !allowed) return "unconfirmed";
+    return allowed ? "enabled" : "disabled";
   } catch {
     if (!stillAllowed()) {
       await service.setDisabled(member.embyUserId, true).catch(() => undefined);
     }
-    return false;
+    return "unconfirmed";
   }
 }
