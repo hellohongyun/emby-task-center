@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import SettingsCenterView from "./SettingsCenterView.vue";
 
+const legacyAdminSettings = [
+  { key: "admin.passwordHash", label: "管理员口令", secret: true, value: "****" },
+  { key: "admin.mustChangePassword", label: "仍需修改默认口令", secret: false, value: true },
+].map((entry) => ({ ...entry, group: "admin", hasValue: true, source: "db" as const }));
+
 const payload = {
   groups: [
     {
@@ -18,6 +23,7 @@ const payload = {
           source: "db" as const,
           value: "admin",
         },
+        ...legacyAdminSettings,
       ],
     },
     {
@@ -80,13 +86,15 @@ function jsonResponse(body: unknown, status = 200) {
 afterEach(() => vi.restoreAllMocks());
 
 describe("SettingsCenterView", () => {
-  it("renders registry groups, labels and masks secrets", async () => {
+  it("renders editable settings, masks secrets and ignores legacy admin credential entries", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(payload)));
     render(SettingsCenterView, { props: {} });
 
     await waitFor(() => expect(screen.getByText("邮件通知")).toBeInTheDocument());
     expect(screen.getByText("管理员用户名")).toBeInTheDocument();
     expect(screen.getByText("SMTP 密码")).toBeInTheDocument();
+    expect(screen.queryByText("admin.passwordHash")).not.toBeInTheDocument();
+    expect(screen.queryByText("admin.mustChangePassword")).not.toBeInTheDocument();
     // 密钥字段不渲染明文也不渲染掩码：只显示"已配置"状态 + 留空即不修改的占位提示。
     expect(screen.getByText("密钥·已配置")).toBeInTheDocument();
     expect(screen.queryByText("****")).toBeNull();
@@ -94,13 +102,31 @@ describe("SettingsCenterView", () => {
     expect(screen.getAllByText("默认值").length).toBeGreaterThan(0);
   });
 
-  it("warns while the default password is still in use", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(payload)));
+  it("warns about the default password and changes it through the dedicated endpoint", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(payload))
+      .mockResolvedValueOnce(jsonResponse({ status: "ok", admin: { ...payload.admin, mustChangePassword: false } }));
+    vi.stubGlobal("fetch", fetchMock);
     render(SettingsCenterView, { props: {} });
 
     await waitFor(() => expect(screen.getByText(/仍在使用初始化默认口令/)).toBeInTheDocument());
     // 提示里不应该复述默认口令本身
     expect(screen.queryByText(/admin123/)).toBeNull();
+    await fireEvent.update(screen.getByLabelText("当前口令"), "old-fixture-password");
+    await fireEvent.update(screen.getByLabelText(/新口令（/), "new-fixture-password");
+    await fireEvent.update(screen.getByLabelText("确认新口令"), "new-fixture-password");
+    await fireEvent.click(screen.getByRole("button", { name: "修改口令" }));
+
+    expect(await screen.findByText("管理员口令已更新。")).toBeInTheDocument();
+    expect(screen.queryByText(/仍在使用初始化默认口令/)).not.toBeInTheDocument();
+    const [url, init] = fetchMock.mock.calls[1]!;
+    expect(url).toBe("/api/settings/admin-password");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({
+      currentPassword: "old-fixture-password",
+      newPassword: "new-fixture-password",
+    });
   });
 
   it("renders multi-line copy settings (mail body / member notice) as a textarea", async () => {

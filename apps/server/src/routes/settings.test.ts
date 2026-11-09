@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
 import { createApp } from "../app";
-import { ensureDefaultAdminAccount } from "../settings/admin-account";
-import { staticCredentialVerifier } from "../auth/test-session";
+import { ensureDefaultAdminAccount, verifyAdminCredentials } from "../settings/admin-account";
+import { readSetting } from "../settings/store";
 import { createLibraryService } from "../library/service";
 import { createTmdbClient } from "../tmdb/client";
 
@@ -41,12 +41,16 @@ describe("settings API", () => {
   beforeEach(async () => {
     directory = mkdtempSync(join(tmpdir(), "emby-settings-api-"));
     database = createDatabase(join(directory, "settings.sqlite"));
-    // 让数据库里的管理员口令与测试用的口令一致：改口令接口走真实哈希校验，
-    // 而会话层用的是 staticCredentialVerifier，两者必须对得上。
     ensureDefaultAdminAccount(database.db, { password: sharedPassword });
     const app = createApp({
       database: database.db,
-      auth: { sessionSecret: "session-signing-secret", verifyCredentials: staticCredentialVerifier(sharedPassword) },
+      auth: {
+        sessionSecret: "session-signing-secret",
+        verifyCredentials: (username, password) => {
+          const result = verifyAdminCredentials(database.db, username, password);
+          return result.status === "ok" ? result : null;
+        },
+      },
       tmdb: createTmdbClient({ token: "tmdb-server-token" }),
       library: createLibraryService([], undefined),
     });
@@ -54,11 +58,7 @@ describe("settings API", () => {
     await new Promise<void>((resolve) => server.once("listening", resolve));
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-    const login = await fetch(`${baseUrl}/api/auth/login`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password: sharedPassword }),
-    });
+    const login = await loginWith(sharedPassword);
     expect(login.status).toBe(200);
     cookie = login.headers.get("set-cookie")!.split(";", 1)[0];
   });
@@ -75,6 +75,14 @@ describe("settings API", () => {
     const response = await fetch(`${baseUrl}/api/settings`, { headers: { cookie } });
     expect(response.status).toBe(200);
     return (await response.json()) as SettingsPayload;
+  }
+
+  function loginWith(password: string) {
+    return fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "admin", password }),
+    });
   }
 
   it("requires an admin session", async () => {
@@ -121,6 +129,28 @@ describe("settings API", () => {
     expect(token).toMatchObject({ secret: true, hasValue: true, value: "****" });
   });
 
+  it("keeps the admin password settings out of the generic form and rejects direct writes", async () => {
+    const originalHash = readSetting(database.db, "admin.passwordHash");
+    const payload = await readSettingsPayload();
+    const keys = payload.groups.flatMap((section) => section.settings.map(({ key }) => key));
+    expect(keys).toContain("admin.username");
+    expect(keys).not.toContain("admin.passwordHash");
+    expect(keys).not.toContain("admin.mustChangePassword");
+    expect(payload.admin).toMatchObject({ hasPassword: true, mustChangePassword: true });
+
+    const response = await fetch(`${baseUrl}/api/settings`, {
+      method: "PATCH",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ values: { "admin.passwordHash": "plain-input", "admin.mustChangePassword": false } }),
+    });
+    expect(response.status).toBe(400);
+    const result = (await response.json()) as SettingsPayload;
+    expect(result.rejected?.map(({ key }) => key).sort()).toEqual(["admin.mustChangePassword", "admin.passwordHash"]);
+    expect(readSetting(database.db, "admin.passwordHash")).toBe(originalHash);
+    expect(readSetting(database.db, "admin.mustChangePassword")).toBe(true);
+    expect((await loginWith(sharedPassword)).status).toBe(200);
+  });
+
   it("writes valid values and reports the new snapshot", async () => {
     const response = await fetch(`${baseUrl}/api/settings`, {
       method: "PATCH",
@@ -152,16 +182,19 @@ describe("settings API", () => {
     expect(body.rejected.map((item) => item.key).sort()).toEqual(["library.scanMode", "nope.key"]);
   });
 
-  it("applies the valid half of a partially invalid patch", async () => {
+  it("applies valid settings while reporting rejected keys", async () => {
     const response = await fetch(`${baseUrl}/api/settings`, {
       method: "PATCH",
       headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({ values: { "email.host": "smtp.example.com", "email.port": -1 } }),
+      body: JSON.stringify({
+        values: { "email.host": "smtp.example.com", "email.port": -1, "admin.passwordHash": "plain-input" },
+      }),
     });
     expect(response.status).toBe(200);
     const payload = (await response.json()) as SettingsPayload;
     expect(payload.updated).toEqual(["email.host"]);
-    expect(payload.rejected?.map((item) => item.key)).toEqual(["email.port"]);
+    expect(payload.rejected?.map((item) => item.key).sort()).toEqual(["admin.passwordHash", "email.port"]);
+    expect((await loginWith(sharedPassword)).status).toBe(200);
   });
 
   it("changes the admin password behind the current one", async () => {
@@ -186,5 +219,6 @@ describe("settings API", () => {
     });
     expect(ok.status).toBe(200);
     await expect(ok.json()).resolves.toMatchObject({ status: "ok", admin: { mustChangePassword: false } });
+    expect((await loginWith("a-long-enough-password")).status).toBe(200);
   });
 });

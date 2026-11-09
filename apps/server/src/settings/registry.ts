@@ -77,6 +77,8 @@ export interface SettingDefinition {
    * 仍然照常读写、参与 PATCH 校验，只是不展示。
    */
   hidden?: boolean;
+  /** 由应用内部流程管理，通用设置接口不返回该字段，也不接受写入。 */
+  internal?: boolean;
   /** 多行长文本（邮件正文、会员端提示文案）：配置页渲染成 textarea，而不是一行 input。 */
   multiline?: boolean;
   /** 首次启动（DB 无值）时从该 env 变量导入。 */
@@ -204,15 +206,17 @@ export const SETTINGS = {
   "admin.passwordHash": {
     group: "admin",
     label: "管理员口令",
-    help: "首次启动写入默认口令，登录后可在本页修改；接口只回显掩码。",
+    help: "首次启动写入默认口令，之后通过专用改密流程更新。",
     schema: z.string().default(""),
     secret: true,
+    internal: true,
   },
   "admin.mustChangePassword": {
     group: "admin",
     label: "仍需修改默认口令",
     help: "仍在使用初始化默认口令时为真，后台页会显示提醒。",
     schema: booleanSetting(true),
+    internal: true,
   },
 
   /* ------------------------------------------------------------------ 会话 */

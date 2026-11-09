@@ -11,6 +11,17 @@ const props = defineProps<{ requireAuth?: (() => void) | undefined }>();
 const emit = defineEmits<{ saved: [] }>();
 
 const settings = useSettings(props.requireAuth);
+const editableGroups = computed(() =>
+  settings.groups.value
+    .map((group) => ({
+      ...group,
+      settings: group.settings.filter(
+        (entry) => entry.key !== "admin.passwordHash" && entry.key !== "admin.mustChangePassword",
+      ),
+    }))
+    .filter((group) => group.settings.length > 0),
+);
+const editableEntries = computed(() => editableGroups.value.flatMap((group) => group.settings));
 const draft = reactive<Record<string, string>>({});
 const password = reactive({ current: "", next: "", confirm: "" });
 const rejected = ref<Record<string, string>>({});
@@ -23,7 +34,7 @@ onScopeDispose(() => {
 
 /** 需要重启的键 → 注册表里的中文标签，提示里直接说人话而不是键名。 */
 const restartLabels = computed(() =>
-  settings.restartRequired.value.map((key) => settings.entries.value.find((entry) => entry.key === key)?.label ?? key),
+  settings.restartRequired.value.map((key) => editableEntries.value.find((entry) => entry.key === key)?.label ?? key),
 );
 
 onMounted(async () => {
@@ -37,7 +48,7 @@ async function reload() {
 
 function syncDraft() {
   if (!active) return;
-  for (const entry of settings.entries.value) {
+  for (const entry of editableEntries.value) {
     // 密钥只回掩码：输入框留空表示"不修改"，绝不把 "****" 填进去。
     draft[entry.key] = entry.secret ? "" : settingToInput(entry);
   }
@@ -46,7 +57,7 @@ function syncDraft() {
 /** 只有真正改动过的项才提交；密钥留空代表"不修改"。 */
 const dirty = computed<Record<string, unknown>>(() => {
   const values: Record<string, unknown> = {};
-  for (const entry of settings.entries.value) {
+  for (const entry of editableEntries.value) {
     // <input type="number"> 的 v-model 会把值转成 number，这里统一成字符串再比较/解析。
     const rawValue = draft[entry.key];
     const raw = rawValue === undefined || rawValue === null ? "" : String(rawValue);
@@ -188,7 +199,7 @@ function toggleChoice(entry: PublicSettingEntry, value: string, checked: boolean
 
     <p v-if="settings.loading.value && !settings.loaded.value" class="empty" role="status">正在读取配置…</p>
 
-    <article v-for="section in settings.groups.value" :key="section.group" class="card">
+    <article v-for="section in editableGroups" :key="section.group" class="card">
       <h3>{{ section.label }}</h3>
       <div class="grid">
         <label v-for="entry in section.settings" :key="entry.key">

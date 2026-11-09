@@ -212,7 +212,11 @@ function writeSettingsPatch(
 /** 接口视图：密钥只回掩码 + hasValue，绝不回明文。 */
 export function toPublicSettings(read: SettingsReadResult): PublicSettingEntry[] {
   // hidden 的设置项交给专属面板维护，不进「配置项」表单（同一条设置只有一个入口）。
-  return SETTING_KEYS.filter((key) => settingDefinition(key).hidden !== true).map((key) => {
+  const publicKeys = SETTING_KEYS.filter((key) => {
+    const { hidden, internal } = settingDefinition(key);
+    return !hidden && !internal;
+  });
+  return publicKeys.map((key) => {
     const definition: SettingDefinition = settingDefinition(key);
     const secret = definition.secret === true;
     const value = read.values[key];

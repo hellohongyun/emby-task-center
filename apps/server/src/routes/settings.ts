@@ -11,7 +11,7 @@ import { z } from "zod";
 
 import type { AppDatabase } from "@emby-task-center/database/client";
 import { changeAdminPassword, readAdminAccount } from "../settings/admin-account";
-import { SETTING_GROUP_LABELS, SETTING_GROUP_ORDER } from "../settings/registry";
+import { isSettingKey, settingDefinition, SETTING_GROUP_LABELS, SETTING_GROUP_ORDER } from "../settings/registry";
 import { RESTART_ONLY_KEYS } from "../settings/runtime";
 import { readSettings, toPublicSettings, writeSettings } from "../settings/store";
 
@@ -64,7 +64,15 @@ export function registerSettingsRoutes(app: Express, database: AppDatabase, hook
       response.status(400).json({ error: "invalid_request" });
       return;
     }
-    const result = writeSettings(database, parsed.data.values);
+    const { values } = parsed.data;
+    const rejected: { key: string; error: string }[] = [];
+    for (const key of Object.keys(values)) {
+      if (!isSettingKey(key) || !settingDefinition(key).internal) continue;
+      delete values[key];
+      rejected.push({ key, error: "此设置不能通过通用配置接口修改" });
+    }
+    const result = writeSettings(database, values);
+    result.rejected.push(...rejected);
     if (result.updated.length === 0 && result.rejected.length > 0) {
       response.status(400).json({ ...settingsPayload(database), error: "invalid_settings", rejected: result.rejected });
       return;

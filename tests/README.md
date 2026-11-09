@@ -12,6 +12,8 @@
 
 `apps/server/src/routes/http-direct-login.test.ts` 使用生产模式、临时 SQLite 与本地 HTTP 服务验证管理员和会员登录 Cookie 不带 `Secure`、携带 Cookie 可访问各自接口、退出会清除两类 Cookie，以及响应不下发 HSTS。另验证伪造 `X-Forwarded-For` / `X-Forwarded-Proto` 不能绕过直连 IP 登录锁定；通过检查实际 Cookie 响应头，避免浏览器对 localhost 的特殊处理掩盖问题。这些用例不监听生产端口、不写真实数据库，也不调用外网。
 
+`settings.test.ts` 使用临时 SQLite 和真实口令校验，验证通用设置接口隐藏口令哈希与默认口令标记并拒绝直接写入。混合提交中的其他有效设置仍可保存，管理员通过专用接口校验旧口令并改密后，可用新口令登录。
+
 虚拟媒体库的聚焦回归可运行：
 
 ```powershell
