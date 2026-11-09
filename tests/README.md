@@ -134,6 +134,8 @@ pnpm exec playwright test -c playwright.real.config.ts tests/e2e/missing-episode
 
 `share-115.spec.ts` 使用编译后的应用、临时 SQLite 和本地 TgtoDrive HTTP 夹具，在手机宽度的会员门户与桌面管理员后台验证批量粘贴、访问码归属、部分成功与重提、权限隔离、异常核对和重启后的记录。可在 `pnpm build` 后执行 `pnpm exec playwright test -c playwright.deep.config.ts tests/e2e/share-115.spec.ts`。
 
+`apps/server/src/routes/tasks.test.ts` 验证网页构建产物放在 `.local` 等隐藏目录下时，首页和直接访问 `/login/115-shares` 均能加载应用。
+
 ```powershell
 pnpm exec vitest run apps/server/src/library/deep-scan-linkage.test.ts apps/server/src/routes/member-lifecycle-linkage.test.ts apps/server/src/shutdown.test.ts apps/server/src/fatal-errors.test.ts
 pnpm build

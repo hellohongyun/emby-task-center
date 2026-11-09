@@ -1,6 +1,5 @@
 import { requirePublicMember } from "./subscriptions/member-access";
 import express, { type ErrorRequestHandler, type RequestHandler } from "express";
-import { join } from "node:path";
 
 import type { AppDatabase } from "@emby-task-center/database/client";
 import { createSessionManager, type SessionOptions } from "./auth/session";
@@ -263,7 +262,7 @@ export function createApp(options: AppOptions) {
     // 公开门户：非 API 路径回退到 SPA（index.html），由前端按路由渲染门户页面
     app.use((request, response, next) => {
       if (request.path.startsWith("/api/") || request.path === "/health") return next();
-      response.sendFile(join(webDistPath, "index.html"), (error) => {
+      response.sendFile("index.html", { root: webDistPath }, (error) => {
         if (error) next();
       });
     });

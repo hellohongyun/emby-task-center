@@ -41,8 +41,8 @@ describe("REST API", () => {
     database = createDatabase(join(directory, "api.sqlite"));
     tmdbAuthorization = null;
     tmdbRequests = [];
-    webRoot = join(directory, "web");
-    mkdirSync(webRoot);
+    webRoot = join(directory, ".local", "web");
+    mkdirSync(webRoot, { recursive: true });
     writeFileSync(join(webRoot, "index.html"), '<div id="app">production-spa</div>');
     libraryScanItems = [
       {
@@ -242,8 +242,8 @@ describe("REST API", () => {
     expect(await response.json()).toEqual({ error: "unauthorized" });
   });
 
-  it("serves the compiled SPA entrypoint from the application server", async () => {
-    const response = await fetch(`${baseUrl}/`);
+  it.each(["/", "/login/115-shares"])("serves the SPA at %s under a hidden web root", async (path) => {
+    const response = await fetch(`${baseUrl}${path}`);
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
