@@ -3,6 +3,7 @@ import SvgIcon from "@jamescoyle/vue-icon";
 import {
   mdiAccountGroup,
   mdiClose,
+  mdiCloudDownloadOutline,
   mdiDatabaseSearchOutline,
   mdiDotsHorizontal,
   mdiFormatListNumbered,
@@ -27,6 +28,7 @@ const moreItems: { key: AppView; label: string; icon: string }[] = [
   { key: "submissions", label: "会员与运营", icon: mdiAccountGroup },
   { key: "libraryOrder", label: "媒体库顺序", icon: mdiSortVariant },
   { key: "mediaRequests", label: "求片与补集", icon: mdiPlaylistPlus },
+  { key: "share115", label: "115 转存", icon: mdiCloudDownloadOutline },
   { key: "cardKeys", label: "卡密", icon: mdiTicketConfirmationOutline },
   { key: "system", label: "系统状态", icon: mdiMonitorDashboard },
   { key: "config", label: "系统设置", icon: mdiTune },

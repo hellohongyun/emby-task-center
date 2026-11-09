@@ -45,6 +45,7 @@
 | 缺集检测 | 对比 Emby 库存与 TMDB 已播信息，列出具体缺失集号和编号疑点，辅助整理剧集。 |
 | 门户内容 | 会员门户提供热榜和影视库浏览，标注内容是否已在库，方便朋友发现可看的内容。 |
 | 求片与补集 | 会员确认作品及剧集分季后提交申请，管理员人工处理并反馈进度。 |
+| 115 分享转存 | 会员和管理员可粘贴分享文案或批量提交 115 链接，由 TgtoDrive 自动转存。 |
 
 ### 运营与监控
 
@@ -69,7 +70,7 @@ Emby 客户端（可选）
        └─ Emby / TgtoDrive
 ```
 
-应用通过 Emby API 读取媒体库和会话信息，使用 SQLite 保存配置、库存、任务和使用记录。它不下载媒体、不搬运文件，也不需要挂载媒体目录；播放、字幕和 WebSocket 仍由上游 Emby 处理。
+应用通过 Emby API 读取媒体库和会话信息，使用 SQLite 保存配置、库存、任务和使用记录。启用 115 分享转存后，应用将转存任务交给 TgtoDrive。应用无需挂载媒体目录，播放、字幕和 WebSocket 由上游 Emby 处理。
 
 ## 部署
 
@@ -148,6 +149,7 @@ docker compose -f compose.build.yaml up -d --build
 | [虚拟媒体库](docs/virtual-libraries.md) | 选片、映射和 Emby 客户端接入 |
 | [会员访问](docs/member-access.md) | 有效期、停用、冻结和账号恢复 |
 | [求片与补集](docs/media-requests.md) | 电影与分季申请、补集说明和人工处理 |
+| [115 分享转存](docs/share-115.md) | TgtoDrive 配置、会员和管理员提交、转存状态与异常核实 |
 | [测试说明](tests/README.md) | 单元测试、浏览器测试和 Docker 冒烟 |
 | [贡献指南](CONTRIBUTING.md) | 开发环境、提交规范和检查命令 |
 | [开发与发布流程](docs/development-release.md) | 从问题定位、本地验收到源码推送、镜像发布及服务器更新 |

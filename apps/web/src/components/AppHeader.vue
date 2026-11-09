@@ -9,6 +9,7 @@ const emit = defineEmits<{ "update:query": [query: string]; publish: []; system:
 const mobileTitles: Partial<Record<AppView, string>> = {
   virtualLibraries: "虚拟媒体库",
   mediaRequests: "求片与补集",
+  share115: "115 转存",
   submissions: "会员与运营",
   libraryOrder: "媒体库顺序",
   cardKeys: "卡密",

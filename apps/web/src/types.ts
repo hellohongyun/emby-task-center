@@ -19,6 +19,7 @@ export type AppView =
   | "library"
   | "virtualLibraries"
   | "mediaRequests"
+  | "share115"
   | "system"
   | "logs"
   | "config"

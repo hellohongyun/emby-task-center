@@ -2,6 +2,7 @@
 import SvgIcon from "@jamescoyle/vue-icon";
 import {
   mdiAccountGroup,
+  mdiCloudDownloadOutline,
   mdiDatabaseSearchOutline,
   mdiFormatListNumbered,
   mdiHome,
@@ -56,6 +57,9 @@ const emit = defineEmits<{ view: [view: AppView]; logout: [] }>();
         @click="emit('view', 'mediaRequests')"
       >
         <SvgIcon type="mdi" :path="mdiPlaylistPlus" :size="20" />求片与补集
+      </button>
+      <button :class="['primary', { active: view === 'share115' }]" type="button" @click="emit('view', 'share115')">
+        <SvgIcon type="mdi" :path="mdiCloudDownloadOutline" :size="20" />115 转存
       </button>
       <button :class="['primary', { active: view === 'system' }]" type="button" @click="emit('view', 'system')">
         <SvgIcon type="mdi" :path="mdiMonitorDashboard" :size="20" />系统状态

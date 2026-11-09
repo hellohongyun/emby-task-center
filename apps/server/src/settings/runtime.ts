@@ -38,6 +38,7 @@ export interface RuntimeSettings {
   embyWebUrl: string;
   /** 邮件通知（SMTP）：后台保存后立刻用于发信与「连接与自检」状态卡片。 */
   email: RuntimeEmailSettings;
+  share115: { enabled: boolean; baseUrl: string; token: string };
 }
 
 let snapshot: RuntimeSettings = {
@@ -45,6 +46,7 @@ let snapshot: RuntimeSettings = {
   embyBaseUrl: "",
   embyApiKey: "",
   embyWebUrl: "",
+  share115: { enabled: false, baseUrl: "", token: "" },
   email: {
     host: "",
     port: 587,
@@ -63,6 +65,11 @@ function readRuntimeSettings(database: AppDatabase): RuntimeSettings {
     embyBaseUrl: values["emby.baseUrl"] || "",
     embyApiKey: values["emby.apiKey"] || "",
     embyWebUrl: values["emby.webUrl"] || "",
+    share115: {
+      enabled: values["tgto.share115Enabled"],
+      baseUrl: values["tgto.baseUrl"].trim(),
+      token: values["tgto.openApiToken"],
+    },
     email: {
       host: values["email.host"] || "",
       port: values["email.port"],

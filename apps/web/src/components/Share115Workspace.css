@@ -1,0 +1,152 @@
+.share-workspace {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 880px);
+  min-width: 0;
+  margin: 0 auto;
+  padding: 24px 0;
+  color: var(--text);
+}
+.admin-workspace {
+  width: min(100%, 1120px);
+  padding-top: 8px;
+}
+.share-heading h1,
+.share-heading p,
+h2,
+.records-head p,
+.hint,
+.notice,
+.error,
+.empty {
+  margin: 0;
+}
+.share-heading h1 {
+  margin-bottom: 4px;
+  font-size: 24px;
+}
+.share-heading p,
+.records-head p,
+.hint,
+.empty {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.share-panel {
+  display: grid;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-raised);
+}
+h2 {
+  font-size: 16px;
+}
+.share-form label,
+.filters label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+small {
+  margin-left: 5px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+input,
+textarea,
+select,
+button {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--input);
+  font: inherit;
+}
+input,
+textarea,
+select {
+  width: 100%;
+  min-width: 0;
+}
+textarea {
+  resize: vertical;
+}
+button {
+  flex: none;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+button.primary {
+  justify-self: start;
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+}
+.records-head,
+.filters,
+.filters form,
+.pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.records-head {
+  justify-content: space-between;
+  align-items: center;
+}
+.filters form {
+  flex: 1 1 240px;
+}
+.filters form label {
+  flex: 1 1 150px;
+}
+.filters > label {
+  flex: 0 1 160px;
+}
+.share-records {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.notice,
+.error {
+  font-size: 13px;
+}
+.notice {
+  color: var(--accent-strong);
+}
+.error {
+  color: var(--danger);
+}
+.batch-errors {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+.pages {
+  justify-content: center;
+  align-items: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+@media (max-width: 560px) {
+  .share-workspace {
+    padding-block: 14px;
+  }
+  .share-panel {
+    padding: 12px;
+  }
+}

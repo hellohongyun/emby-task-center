@@ -27,6 +27,7 @@ import { installShutdown } from "./shutdown";
 import { createVirtualLibraryProxy } from "./virtual-libraries/proxy";
 import { startQqAvatarRefresh } from "./subscriptions/qq-avatar-refresh";
 import { drainQqAvatarSync } from "./subscriptions/member-qq-avatar";
+import { startShare115Worker } from "./share-115/worker";
 
 // P3：bootstrap 变量集中解析（其余配置一律来自数据库设置）。
 const bootstrap = readBootstrapEnv();
@@ -96,7 +97,7 @@ const tmdb = createTmdbClient({ token: settings["tmdb.token"] });
 // 全库缺集检测器：同一实例交给 HTTP 路由（读状态/手动触发）与后台定时任务（每小时一轮）。
 // Emby 用来校验 TMDB 标识（库里同名但 TMDB id 对不上的条目不报缺集）。
 const missingEpisodeScanner = createMissingEpisodeScanner({ database: database.db, tmdb, emby });
-// 新版架构：TgtoDrive 负责搜索/转存/整理/STRM，emby-task-center 只做跟踪提醒。
+// TgtoDrive 执行搜索、转存、整理和 STRM，应用记录会员转存任务及处理结果。
 // 并发限播由会话看门狗执行（见 scheduling/runtime.ts），不在请求层拦截。
 // 旧版 AI 通知/队列（LitePan + AI 自动化）已移除。
 const embyEnabled = settings["emby.enabled"] && Boolean(embyBaseUrl && embyApiKey);
@@ -130,6 +131,11 @@ const tgtoDriveClient = createTgtoDriveClientFromConfig({
   baseUrl: settings["tgto.baseUrl"],
   username: settings["tgto.username"],
   password: settings["tgto.password"],
+});
+const share115 = startShare115Worker({
+  database: database.db,
+  logger,
+  readConfig: () => getRuntimeSettings().share115,
 });
 const virtualLibraryProxy = createVirtualLibraryProxy({
   database: database.db,
@@ -176,6 +182,7 @@ const app = createApp({
   pansouTokens,
   pansouEnabledPlatforms,
   tgtoDrive: tgtoDriveClient,
+  share115,
   usageSampleIntervalMs: Math.max(10_000, settings["usage.sampleSeconds"] * 1_000),
   missingEpisodeScanner,
 });
@@ -214,12 +221,14 @@ installShutdown({
   stopRuntime: () => {
     runtime.stop();
     avatarRefresh.stop();
+    share115.stop();
   },
   cleanup: [
     { name: "virtual_library_proxy", close: () => virtualLibraryProxy.close() },
     { name: "public_library", close: () => app.locals.closePublicLibrary?.() },
     { name: "missing_root_reader", close: () => closeMissingRootReader(database.db) },
     { name: "library", close: () => library.close?.() },
+    { name: "share_115", close: () => share115.close() },
     {
       name: "qq_avatar_refresh",
       close: async () => {

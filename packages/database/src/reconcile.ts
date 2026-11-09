@@ -1,5 +1,6 @@
 import { reconcileMediaRequests } from "./media-requests-reconcile";
 import { reconcileRenewalOutbox } from "./renewal-outbox-reconcile";
+import { reconcileShare115 } from "./share-115-reconcile";
 import { reconcileDriveExpiry } from "./drive-expiry-reconcile";
 import { reconcileMemberExpiryCleanup } from "./member-expiry-cleanup-reconcile";
 /**
@@ -24,6 +25,7 @@ import { reconcileLogMetadata } from "./log-metadata-reconcile";
 export function applyPostMigrationReconciliation(database: AppDatabase): void {
   reconcileVirtualLibraries(database);
   reconcileMediaRequests(database);
+  reconcileShare115(database);
   reconcileRenewalOutbox(database);
   reconcileDriveExpiry(database);
   reconcileMemberExpiryCleanup(database);

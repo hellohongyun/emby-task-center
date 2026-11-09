@@ -23,6 +23,11 @@ import { registerPublicSubscriptionRoutes } from "./routes/public-subscriptions"
 import { registerMemberRoutes } from "./routes/members";
 import { registerMemberCleanupRoutes } from "./routes/member-expiry-cleanup";
 import { registerAdminMediaRequestRoutes, registerPublicMediaRequestRoutes } from "./routes/media-requests";
+import {
+  registerAdminShare115Routes,
+  registerPublicShare115Routes,
+  type Share115Availability,
+} from "./routes/share-115";
 import { registerMemberUsageRoutes } from "./routes/member-usage";
 import { registerAdminContentRoutes } from "./routes/admin-content";
 import { registerConcurrencyPolicyRoutes } from "./routes/concurrency-policy";
@@ -82,6 +87,7 @@ export interface AppOptions {
   pansouEnabledPlatforms?: readonly PansouPlatformKey[];
   /** TgtoDrive 管理台客户端（面板源资源搜索，替代 PanSou 资源）。 */
   tgtoDrive?: TgtoDriveClient;
+  share115?: Share115Availability;
   /** 使用记录采样周期（毫秒）；与后台采样定时任务用同一个值。 */
   usageSampleIntervalMs?: number;
   /**
@@ -120,6 +126,8 @@ export function createApp(options: AppOptions) {
   // 公开入口：在登录门之前注册，无需管理端会话；只有 TMDB 检索与门户只读接口，绝不返回内部数据。
   registerPublicRoutes(app, { database: options.database, publicSession, tmdb: options.tmdb });
   registerPublicMediaRequestRoutes(app, { database: options.database, publicSession, tmdb: options.tmdb });
+  const share115Routes = { database: options.database, service: options.share115, logger: options.logger };
+  registerPublicShare115Routes(app, { ...share115Routes, publicSession });
   // PanSou 聚合搜索：公开会员门禁内，后端代理转发，不暴露链接与具体网盘名。
   if (options.pansou && options.pansouTokens) {
     registerPansouRoutes(app, {
@@ -178,6 +186,7 @@ export function createApp(options: AppOptions) {
   });
   app.use("/api", sessions.requireSession);
   registerAdminMediaRequestRoutes(app, { database: options.database });
+  registerAdminShare115Routes(app, share115Routes);
   registerVirtualLibraryProxyRoutes(app, options.database, options.virtualLibraryProxy);
   registerVirtualLibraryRoutes(app, { database: options.database });
   registerLogRoutes(app, options.database, options.logger);

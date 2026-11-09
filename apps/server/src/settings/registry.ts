@@ -453,6 +453,19 @@ export const SETTINGS = {
     secret: true,
     env: "TGTO_DRIVE_PASSWORD",
   },
+  "tgto.openApiToken": {
+    group: "tgto",
+    label: "TgtoDrive OpenAPI 令牌",
+    schema: z.string().trim().max(512).default(""),
+    secret: true,
+    env: "TGTO_DRIVE_OPENAPI_TOKEN",
+  },
+  "tgto.share115Enabled": {
+    group: "tgto",
+    label: "115 自动转存",
+    schema: z.boolean().default(false),
+    env: "TGTO_DRIVE_SHARE_115_ENABLED",
+  },
   // tgto.botUsername / tgto.ingestSource / tgto.ingestDryRun 与整个 telegram 组
   // 都是"确认资源 → 机器人转存"链路的配置，该链路删除后一并不需要了。
 

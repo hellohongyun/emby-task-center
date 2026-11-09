@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import SvgIcon from "@jamescoyle/vue-icon";
-import { mdiHome, mdiAccountCircle, mdiLogout, mdiLibraryOutline, mdiMagnify, mdiPlaylistPlus } from "@mdi/js";
-import { computed, onMounted, onBeforeUnmount } from "vue";
+import {
+  mdiHome,
+  mdiAccountCircle,
+  mdiCloudDownloadOutline,
+  mdiLogout,
+  mdiLibraryOutline,
+  mdiMagnify,
+  mdiPlaylistPlus,
+} from "@mdi/js";
+import { computed, defineAsyncComponent, onMounted, onBeforeUnmount } from "vue";
 
 import PublicHomeView from "./PublicHomeView.vue";
 import PublicLoginView from "./PublicLoginView.vue";
@@ -13,12 +21,14 @@ import AppVersion from "./AppVersion.vue";
 import { memberStatusText, usePublicNavigation } from "../composables/usePublicNavigation";
 import { usePortalSession } from "../composables/usePortalSession";
 
+const Share115Workspace = defineAsyncComponent(() => import("./Share115Workspace.vue"));
 const s = usePortalSession();
 
 const navItems = [
   { value: "home", label: "首页", icon: mdiHome },
   { value: "library", label: "影视库", icon: mdiLibraryOutline },
   { value: "requests", label: "求片", icon: mdiPlaylistPlus },
+  { value: "share115", label: "115 转存", icon: mdiCloudDownloadOutline },
   { value: "profile", label: "我的", icon: mdiAccountCircle },
 ] as const;
 
@@ -90,6 +100,7 @@ onBeforeUnmount(() => clearInterval(refreshTimer));
         />
         <PublicLibraryView v-else-if="s.contentAllowed.value && view === 'library'" :query="libraryQuery" />
         <PublicRequestsView v-else-if="s.contentAllowed.value && view === 'requests'" />
+        <Share115Workspace v-else-if="s.contentAllowed.value && view === 'share115'" :key="s.loggedInEmail.value" />
         <PublicProfileView v-else @navigate="navigateTo" />
       </main>
 

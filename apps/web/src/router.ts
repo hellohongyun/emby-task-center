@@ -26,6 +26,7 @@ export const VIEW_SEGMENTS: ReadonlyArray<{ view: AppView; segment: string; labe
   { view: "library", segment: "library", label: "媒体库" },
   { view: "virtualLibraries", segment: "virtual-libraries", label: "虚拟媒体库" },
   { view: "mediaRequests", segment: "media-requests", label: "求片与补集" },
+  { view: "share115", segment: "115-shares", label: "115 转存" },
   { view: "system", segment: "system", label: "系统状态" },
   { view: "logs", segment: "logs", label: "日志" }, // 含「操作审计」Tab
   { view: "config", segment: "config", label: "系统设置" },
@@ -104,6 +105,7 @@ export function createAppRouter(): Router {
           { path: "library", component: () => import("./views/LibraryPage.vue") },
           { path: "virtual-libraries", component: () => import("./views/VirtualLibrariesPage.vue") },
           { path: "media-requests", component: () => import("./views/MediaRequestsPage.vue") },
+          { path: "115-shares", component: () => import("./views/Share115Page.vue") },
           { path: "system", component: () => import("./views/SystemPage.vue") },
           { path: "logs", component: () => import("./views/LogsPage.vue") },
           { path: "config", component: () => import("./views/SystemSettingsPage.vue") },

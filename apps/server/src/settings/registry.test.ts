@@ -51,6 +51,7 @@ describe("settings registry", () => {
       "member.groupInviteCode",
       "email.password",
       "tgto.password",
+      "tgto.openApiToken",
       // AI 文案的 API Key：只由服务端使用，接口回掩码、日志脱敏
       "ai.apiKey",
     ];

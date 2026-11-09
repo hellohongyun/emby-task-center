@@ -1,5 +1,6 @@
 import { mediaRequests } from "./media-requests-schema";
 import { renewalEmailOutbox } from "./renewal-outbox-schema";
+import { share115Submissions, share115TransferJobs } from "./share-115-schema";
 import { driveExpirySettings } from "./drive-expiry-schema";
 import {
   memberExpiryCleanupJobs,
@@ -14,6 +15,7 @@ export {
 export { driveExpirySettings } from "./drive-expiry-schema";
 export { renewalEmailOutbox } from "./renewal-outbox-schema";
 export { mediaRequests } from "./media-requests-schema";
+export { share115Statuses, share115Submissions, share115TransferJobs } from "./share-115-schema";
 import { sql } from "drizzle-orm";
 import { check, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { virtualLibraries, virtualLibraryItems, virtualLibraryPosters } from "./virtual-libraries-schema";
@@ -963,6 +965,8 @@ export const schema = {
   memberInactivityCleanupPolicy,
   renewalEmailOutbox,
   mediaRequests,
+  share115Submissions,
+  share115TransferJobs,
   virtualLibraryPosters,
   virtualLibraries,
   virtualLibraryItems,

@@ -5,13 +5,13 @@ import type { usePortalSession } from "./usePortalSession";
 /**
  * 公开门户的页面切换与跨页搜索交接（P4：从 PublicPortal.vue 抽出）。
  *
- * 门户内部有首页 / 影视库 / 求片 / 我的，切换与"首页或搜索框发起搜索 →
+ * 门户内部页面的切换与"首页或搜索框发起搜索 →
  * 跳到影视库并带上关键词"这套交互原本混在组件里，这里独立出来，组件只管渲染。
  *
  * 历史：原本文档说 5 个页面（含「投稿」「追更」），并有一条「热榜点选 → 预填投稿草稿」的
  * 交接路径；投稿功能删除后，热榜点选改为直接进影视库搜索同名作品。
  */
-export type PublicView = "home" | "library" | "requests" | "profile";
+export type PublicView = "home" | "library" | "requests" | "share115" | "profile";
 
 export interface UsePublicNavigationOptions {
   /** 门户会话（用于"我的"里的邮箱与会员状态摘要）。 */
