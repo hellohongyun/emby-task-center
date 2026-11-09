@@ -184,10 +184,8 @@ export function registerEmbyLibraryOrderRoutes(
       const names = Object.fromEntries(catalog.entries.map(({ id, name }) => [id, name]));
       const aliases = Object.fromEntries(catalog.entries.map((entry) => [entry.id, [...entry.aliases]]));
       const expanded = expandLibraryOrder(order, aliases);
-      const directIds = new Set(catalog.entries.filter((entry) => entry.direct).map(({ id }) => id));
-      const nativeOrder = expandLibraryOrder(
-        order.filter((id) => directIds.has(id)),
-        aliases,
+      const proxyOnlyIds = new Set(
+        catalog.entries.filter((entry) => !entry.direct).flatMap((entry) => [...entry.aliases]),
       );
       const proxyPreview = requested ? undefined : upstream;
       const before = active ? expandLibraryOrder(active.order, active.aliases) : undefined;
@@ -196,7 +194,8 @@ export function registerEmbyLibraryOrderRoutes(
         previewTarget(
           account,
           catalog.snapshots.get(account.id),
-          nativeOrder,
+          expanded,
+          proxyOnlyIds,
           proxyPreview
             ? {
                 before,
@@ -223,6 +222,7 @@ export function registerEmbyLibraryOrderRoutes(
         names,
         aliases,
         ownedIds,
+        proxyOnlyIds,
         targets,
       });
       response.json({

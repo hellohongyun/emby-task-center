@@ -30,7 +30,7 @@ pnpm exec vitest run apps/server/src/virtual-libraries apps/server/src/routes/vi
 
 `modern-discovery-proxy.test.ts` 使用真实本地 HTTP 与临时数据库，按 Emby 4.10 的动态首页分区、真实 Id 与 Guid 不同、`text/plain` 的 Partial 配置保存，以及上游错误返回无关条目的行为验证发现链路。首页分类缓存只存分区 ID 和类型，并验证凭据隔离、内容继续鉴权及未知分区透传。`home-sections`、`discovery-items` 和 `home-section-cache` 的聚焦用例补充分页、隐藏后数量、缓存过期和父范围约束。
 
-`emby-library-order.test.ts` 使用真实管理端 HTTP 和模拟 Emby 会话，验证鉴权、草稿与审计、直连和反代预览、全量及单账号范围、可见库顺序、未知令牌保留、新增媒体库和过期草稿冲突。`emby-library-order-client.test.ts` 使用本地 HTTP 验证仅通过 Emby 部分配置接口提交 `OrderedViews`。`emby-library-order-plan.test.ts` 验证 GUID 归一化、未知令牌保留，以及写入后必须回读到显式保存的顺序。`LibraryOrderPage.test.ts` 验证排序、搜索、草稿、双预览、仅反代变化时的确认和部分成功结果。
+`emby-library-order.test.ts` 使用真实管理端 HTTP 和模拟 Emby 会话，验证鉴权、草稿与审计、直连和反代预览、全量及单账号范围、可见库顺序、未知令牌保留、新增媒体库和过期草稿冲突。连续同步回归覆盖直连接口返回注入库、Emby 丢弃注入库标识、可见库列表换序及账号实际修改顺序。`emby-library-order-client.test.ts` 使用本地 HTTP 验证仅通过 Emby 部分配置接口提交 `OrderedViews`。`emby-library-order-plan.test.ts` 验证 GUID 归一化、未知令牌保留，以及写入后必须回读到显式保存的顺序。`LibraryOrderPage.test.ts` 验证排序、搜索、草稿、双预览、仅反代变化时的确认和部分成功结果。
 
 `emby-library-order-proxy-linkage.test.ts` 使用真实管理 API、独立的本地 Emby 和 TgtoDrive HTTP 上游，以及本项目反代。验证 Emby Web「首页设置」实际使用的 `/Views` 查询按模板排列原生库、上游注入库和本项目虚拟库，覆盖隐藏项、单账号同步边界、反代重启、客户端鉴权及 206 分段读取。管理 API 测试另覆盖上游部分失败时保留已有模板及逐账号的反代预览错误提示。上游和 SQLite 均为测试夹具。
 
@@ -47,7 +47,7 @@ pnpm exec vitest run apps/server/src/routes/media-requests.test.ts apps/server/s
 pnpm --filter @emby-task-center/web test src/components/MediaRequestForm.test.ts src/components/PublicRequestsView.mobile-flow.test.ts src/components/MediaRequestEditor.test.ts src/components/MediaRequestQuickActions.test.ts src/components/MediaRequestList.test.ts src/components/MediaRequestList.actions.test.ts src/composables/media-request-api.test.ts src/components/MemberRenewalDialog.test.ts src/components/PublicPortal-policy.test.ts
 ```
 
-求片测试验证真实 `createApp` 管理员／会员会话用途隔离、动态权限、会员记录与说明编辑隔离、TMDB 身份及真实季号校验、同季重复保护、管理员反馈与编辑冲突。临时文件库测试验证表对账幂等、重开持久化及历史申请重新开启的重复保护。组件测试覆盖先确认作品与分季、补集必填说明、重复申请提示、处理冲突保留草稿和离页取消。
+求片测试验证真实 `createApp` 管理员／会员会话用途隔离、动态权限、会员记录与说明编辑隔离、TMDB 身份及真实季号校验、同季重复保护、管理员反馈与编辑冲突。临时文件库测试验证表对账幂等、重开持久化及历史申请重新开启的重复保护。组件测试覆盖搜索、分季确认、补集必填说明、步骤间键盘焦点、页签切换保留草稿、重复申请提示、处理冲突和离页取消。
 
 会话回归通过真实邮箱验证码登录、删号、同邮箱重建及重新登录，验证旧会话不能读取或编辑新账号的申请。另覆盖旧版会话对既有会员的兼容，以及历史申请含时区偏移或异常版本值时的安全编辑、过期版本冲突与清理起点保留。卡密回归验证长期会员拒绝兑换新卡、卡密保持未使用以及旧卡幂等回执。
 

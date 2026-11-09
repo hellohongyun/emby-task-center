@@ -74,15 +74,16 @@ export async function readCatalog(
       for (const user of proxyEntry.visibleUsers) directEntry.visibleUsers.add(user);
     }
   }
-  for (const entry of entries) if (!entry.direct) entry.kind = "proxy";
-
-  const virtualCount = entries.filter((entry) => entry.direct && entry.kind === "virtual").length;
-  if (virtualCount) {
-    warnings.push(
-      `${virtualCount} 个非原生媒体库不在 Emby Library/VirtualFolders 中，写入 OrderedViews 后可能不生效；反代会按模板排序。`,
-    );
+  for (const entry of entries) {
+    if (!entry.direct) entry.kind = "proxy";
+    else if (entry.kind === "virtual") entry.direct = false;
   }
-  const proxyOnly = entries.filter((entry) => entry.proxy && !entry.direct && entry.kind !== "owned").length;
+
+  const virtualCount = entries.filter((entry) => entry.kind === "virtual").length;
+  if (virtualCount) {
+    warnings.push(`${virtualCount} 个非原生媒体库仅由本项目反代按模板排序。`);
+  }
+  const proxyOnly = entries.filter((entry) => entry.kind === "proxy").length;
   if (proxyOnly) {
     warnings.push(
       `${proxyOnly} 个媒体库只存在于反代上游，Emby 直连不会保存它们的顺序；请让客户端使用本项目反代，反代会按同一份模板排序。`,

@@ -219,7 +219,7 @@ describe("Emby library order admin HTTP flow", () => {
     expect(body.libraries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "电影", kind: "native", visibleUsers: 4 }),
-        expect.objectContaining({ name: "虚拟库", kind: "virtual", visibleUsers: 2 }),
+        expect.objectContaining({ name: "虚拟库", kind: "virtual", direct: false, visibleUsers: 2 }),
         expect.objectContaining({ name: "已隐藏", kind: "native", visibleUsers: 1 }),
       ]),
     );
@@ -247,8 +247,8 @@ describe("Emby library order admin HTTP flow", () => {
         isAdministrator: true,
         isDisabled: false,
         status: "change",
-        before: ["剧集", "电影", "动漫", "虚拟库"],
-        after: ["动漫", "电影", "剧集", "虚拟库"],
+        before: ["剧集", "电影", "动漫"],
+        after: ["动漫", "电影", "剧集"],
         proxyBefore: ["电影", "剧集", "动漫", "虚拟库"],
         proxyAfter: ["动漫", "电影", "剧集", "虚拟库"],
       },
@@ -258,8 +258,8 @@ describe("Emby library order admin HTTP flow", () => {
         isAdministrator: true,
         isDisabled: false,
         status: "unchanged",
-        before: ["电影", "剧集", "虚拟库"],
-        after: ["电影", "剧集", "虚拟库"],
+        before: ["电影", "剧集"],
+        after: ["电影", "剧集"],
         proxyBefore: ["电影", "剧集", "虚拟库"],
         proxyAfter: ["电影", "剧集", "虚拟库"],
       },
@@ -296,7 +296,7 @@ describe("Emby library order admin HTTP flow", () => {
       { id: "disabled", name: "disabled", isAdministrator: false, isDisabled: true, status: "unchanged" },
     ]);
     expect(updateOrder).toHaveBeenCalledTimes(2);
-    expect(updateOrder).toHaveBeenCalledWith("admin", [anime.guid, films.guid, tv.guid, virtual.guid]);
+    expect(updateOrder).toHaveBeenCalledWith("admin", [anime.guid, films.guid, tv.guid]);
     expect(updateOrder).toHaveBeenCalledWith("member", [films.guid, tv.guid, extras.id, "unavailable", hidden.guid]);
     const actions = database.db
       .select({ action: auditLogs.action })
@@ -306,6 +306,44 @@ describe("Emby library order admin HTTP flow", () => {
     expect(actions).toContain("emby_library_order.saved");
     expect(actions).toContain("emby_library_order.applied");
     await apply(previewBody.previewToken, 409);
+  });
+
+  it("verifies repeated sync without injected libraries and guards actual account changes", async () => {
+    await save([anime.guid, films.guid, tv.guid, virtual.guid]);
+    const first = await apply((await preview()).previewToken);
+    expect(first.proxyActivated).toBe(true);
+    expect(first.users.map(({ status }: { status: string }) => status)).toEqual([
+      "updated",
+      "unchanged",
+      "updated",
+      "unchanged",
+    ]);
+    updateOrder.mockClear();
+    updateOrder.mockImplementation(async (id, orderedViews) => {
+      preferences[id]!.orderedViews = orderedViews.filter((token) => token !== virtual.guid);
+    });
+
+    await save([virtual.guid, tv.guid, anime.guid, films.guid]);
+    const second = await preview();
+    views.admin!.reverse();
+    preferences.member!.orderedViews.reverse();
+    views.disabled!.push({ id: "108", guid: "22222222222222222222222222222222", name: "新增原生库" });
+
+    const result = await apply(second.previewToken);
+    expect(result.proxyActivated).toBe(true);
+    expect(result.users).toEqual([
+      expect.objectContaining({ id: "admin", status: "updated" }),
+      expect.objectContaining({ id: "otherAdmin", status: "updated" }),
+      expect.objectContaining({ id: "member", status: "skipped", reason: "library_order_user_changed" }),
+      expect.objectContaining({ id: "disabled", status: "skipped", reason: "library_order_user_changed" }),
+    ]);
+    expect(second.users.find(({ id }) => id === "admin")).toMatchObject({
+      after: [tv.name, anime.name, films.name],
+      proxyAfter: [virtual.name, tv.name, anime.name, films.name],
+    });
+    expect(updateOrder).toHaveBeenCalledTimes(2);
+    expect(updateOrder).toHaveBeenCalledWith("admin", [tv.guid, anime.guid, films.guid]);
+    expect(updateOrder).toHaveBeenCalledWith("otherAdmin", [tv.guid, films.guid, virtual.guid]);
   });
 
   it("supports a single-account test preview and rejects a changed global order", async () => {

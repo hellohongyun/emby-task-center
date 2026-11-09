@@ -83,7 +83,10 @@ defineExpose({ refresh: () => load(true) });
         <h2>我的申请</h2>
         <p>{{ resultText }}</p>
       </div>
-      <button class="refresh" type="button" :disabled="api.busy.value.list" @click="load()">刷新</button>
+      <div class="list-head-actions">
+        <button class="refresh" type="button" :disabled="api.busy.value.list" @click="load()">刷新</button>
+        <slot name="member-actions" />
+      </div>
     </header>
     <p v-if="!admin" class="retention-note">{{ mediaRequestRetentionNotice }}</p>
     <div class="list-controls">
@@ -147,7 +150,7 @@ defineExpose({ refresh: () => load(true) });
         @refresh="load()"
       />
     </div>
-    <footer v-if="total > 0 && !api.error.value" class="pagination">
+    <footer v-if="total > (admin ? 0 : pageSize) && !api.error.value" class="pagination">
       <span>第 {{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }} 页</span>
       <div>
         <button type="button" :disabled="page <= 1 || api.busy.value.list" @click="turn(-1)">上一页</button

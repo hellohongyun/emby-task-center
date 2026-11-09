@@ -17,6 +17,7 @@ export type LibraryOrderPreview = {
   names: Record<string, string>;
   aliases: Record<string, string[]>;
   ownedIds: string[];
+  proxyOnlyIds: ReadonlySet<string>;
   targets: Target[];
 };
 
@@ -37,7 +38,7 @@ export async function applyLibraryOrder({
   isCurrent: (upstream?: string) => boolean;
   readProxyState: () => { configured: boolean; enabled: boolean; running: boolean };
 }) {
-  const { proxyUpstream: upstream, order, names, aliases, ownedIds, targets } = preview;
+  const { proxyUpstream: upstream, order, names, aliases, ownedIds, proxyOnlyIds, targets } = preview;
   audit(
     database,
     "admin",
@@ -49,7 +50,7 @@ export async function applyLibraryOrder({
     "开始同步媒体库顺序",
   );
   const excluded = new Set(ownedIds);
-  const users = await inBatches(targets, (target) => applyTarget(session, target, excluded, isCurrent));
+  const users = await inBatches(targets, (target) => applyTarget(session, target, excluded, proxyOnlyIds, isCurrent));
   const proxy = readProxyState();
   let proxyActivated = false;
   let proxyReason: string | undefined;

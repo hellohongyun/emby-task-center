@@ -81,10 +81,13 @@ describe("member request mobile flow", () => {
     await fireEvent.click(screen.getByRole("button", { name: "确认提交" }));
     expect(await screen.findByText(/申请 #42 已提交/)).toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: "查看我的申请" }));
-    expect(screen.getByRole("tab", { name: "我的申请" })).toHaveAttribute("aria-selected", "true");
+    const recordsTab = screen.getByRole("tab", { name: "我的申请" });
+    expect(recordsTab).toHaveAttribute("aria-selected", "true");
+    expect(recordsTab).toHaveFocus();
     expect(await screen.findByText("待处理")).toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: "+ 提交申请" }));
     expect(screen.getByLabelText("搜索作品")).toHaveValue("");
+    expect(screen.getByRole("tab", { name: "提交申请" })).toHaveFocus();
     view.unmount();
   });
   it("leaves visible poster fallbacks after a result or selected work image fails", async () => {

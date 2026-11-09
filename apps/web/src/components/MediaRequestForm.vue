@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import type { MediaRequest } from "@emby-task-center/contracts/media-request";
 import MediaRequestPicker from "./MediaRequestPicker.vue";
 import { useMediaRequestApi } from "../composables/media-request-api";
@@ -15,7 +15,8 @@ const description = ref("");
 const confirmed = ref(false);
 const message = ref("");
 const saved = ref(false);
-const pickerKey = ref(0);
+const picker = ref<InstanceType<typeof MediaRequestPicker> | null>(null);
+const stageHeading = ref<HTMLHeadingElement | null>(null);
 defineExpose({
   startNew: () => {
     if (saved.value) reset();
@@ -23,6 +24,8 @@ defineExpose({
 });
 const review = ref(false);
 const receipt = ref<MediaRequest | null>(null);
+const stage = computed(() => (saved.value ? "receipt" : review.value ? "review" : media.value ? "details" : "search"));
+watch(stage, () => stageHeading.value?.focus(), { flush: "post" });
 const selectedSeason = computed(() => media.value?.seasons?.find((item) => String(item.seasonNumber) === season.value));
 const scope = computed(() =>
   media.value?.mediaType === "movie"
@@ -37,13 +40,7 @@ const detailsValid = computed(
     (media.value.mediaType === "movie" || !!selectedSeason.value) &&
     (kind.value !== "supplement" || !!description.value.trim()),
 );
-const valid = computed(
-  () =>
-    media.value &&
-    confirmed.value &&
-    detailsValid.value &&
-    (kind.value !== "supplement" || description.value.trim().length > 0),
-);
+const valid = computed(() => confirmed.value && detailsValid.value);
 function select(value: RequestMedia | null) {
   api.error.value = "";
   media.value = value;
@@ -85,44 +82,31 @@ async function submit() {
 function reset() {
   api.cancel();
   select(null);
-  description.value = "";
-  pickerKey.value++;
+}
+async function continueRequest() {
+  reset();
+  await nextTick();
+  picker.value?.focusSearch();
 }
 </script>
 
 <template>
   <section class="member-request-form" aria-label="提交求片申请">
     <template v-if="!saved">
-      <ol class="request-steps" aria-label="申请步骤">
-        <li :class="{ active: !media, complete: !!media }">
-          <span>{{ media ? "✓" : "1" }}</span
-          >选作品
-        </li>
-        <li :class="{ active: media && !review, complete: review }">
-          <span>{{ review ? "✓" : "2" }}</span
-          >填申请
-        </li>
-        <li :class="{ active: review }"><span>3</span>确认提交</li>
-      </ol>
-      <header class="step-heading">
-        <h2>{{ !media ? "想看什么？" : review ? "确认这份申请" : "申请哪些内容？" }}</h2>
-        <p>
-          {{
-            !media
-              ? "请核对海报和年份，选择对应作品。"
-              : review
-                ? "核对作品和申请范围后提交。"
-                : "电影申请整部，剧集每条申请对应一个季。"
-          }}
-        </p>
-      </header>
-      <MediaRequestPicker
-        v-show="!review"
-        :key="pickerKey"
-        :disabled="api.busy.value.submit || saved"
-        @select="select"
-      />
-      <template v-if="media">
+      <MediaRequestPicker v-show="!media" ref="picker" :disabled="api.busy.value.submit" @select="select" />
+      <div v-if="media" class="request-stage">
+        <header class="step-heading">
+          <ol class="request-steps" aria-label="申请步骤">
+            <li class="complete"><span aria-hidden="true">✓</span>选作品</li>
+            <li :class="{ complete: review }" :aria-current="review ? undefined : 'step'">
+              <span aria-hidden="true">{{ review ? "✓" : "2" }}</span
+              >填申请
+            </li>
+            <li :aria-current="review ? 'step' : undefined"><span aria-hidden="true">3</span>确认提交</li>
+          </ol>
+          <h2 ref="stageHeading" tabindex="-1">{{ review ? "确认这份申请" : "填写申请内容" }}</h2>
+          <p v-if="review">核对作品和申请范围后提交。</p>
+        </header>
         <div class="selected-work">
           <div class="selected-poster">
             <img
@@ -140,8 +124,9 @@ function reset() {
             <p v-if="media.originalTitle && media.originalTitle !== media.title" class="original-title">
               {{ media.originalTitle }}
             </p>
-            <small>已核对作品资料 · TMDB {{ media.tmdbId }}</small>
+            <small>TMDB {{ media.tmdbId }}</small>
           </div>
+          <button v-if="!review" type="button" class="change-work" @click="picker?.changeSelection()">更换作品</button>
         </div>
         <form @submit.prevent="review ? submit() : advance()">
           <fieldset v-if="!review" :disabled="api.busy.value.submit">
@@ -158,12 +143,6 @@ function reset() {
                 </option>
               </select>
             </label>
-            <p v-if="media.mediaType === 'tv' && !media.seasons?.length" class="form-error" role="alert">
-              该剧暂缺可确认的分季资料，无法提交，请稍后重试。
-            </p>
-            <p v-if="selectedSeason" class="season-hint">
-              {{ scope }}<span v-if="selectedSeason.airDate"> · 首播 {{ selectedSeason.airDate }}</span>
-            </p>
             <label v-if="media.mediaType === 'tv'" class="form-field"
               >申请类型
               <select v-model="kind" @change="confirmed = false">
@@ -171,7 +150,11 @@ function reset() {
                 <option value="supplement">补集：补充这一季缺少的集</option>
               </select>
             </label>
-            <label class="form-field"
+            <p v-if="media.mediaType === 'tv' && !media.seasons?.length" class="form-error" role="alert">
+              该剧暂缺可确认的分季资料，无法提交，请稍后重试。
+            </p>
+            <p v-if="selectedSeason?.airDate" class="season-hint">本季首播于 {{ selectedSeason.airDate }}</p>
+            <label class="form-field form-field--note"
               >{{ kind === "supplement" ? "缺少的集号或补集说明（必填）" : "申请说明（可选）" }}
               <textarea
                 v-model="description"
@@ -205,7 +188,7 @@ function reset() {
                 <dt>分季首播</dt>
                 <dd>{{ selectedSeason.airDate }}</dd>
               </div>
-              <div>
+              <div class="summary-description">
                 <dt>申请说明</dt>
                 <dd class="summary-note">{{ description.trim() || "未填写" }}</dd>
               </div>
@@ -244,13 +227,18 @@ function reset() {
             </button>
           </div>
         </form>
-      </template>
+      </div>
     </template>
-    <div v-else class="request-receipt">
-      <span class="receipt-check" aria-hidden="true">✓</span>
-      <p class="eyebrow">申请已保存</p>
-      <h2>{{ message.startsWith("已有") ? "找到你之前的申请" : "已收到你的申请" }}</h2>
-      <p class="receipt-message" role="status">{{ message }}</p>
+    <div v-else class="request-stage request-receipt">
+      <header class="receipt-heading">
+        <span class="receipt-check" aria-hidden="true">✓</span>
+        <div>
+          <h2 ref="stageHeading" tabindex="-1">
+            {{ message.startsWith("已有") ? "找到你之前的申请" : "已收到你的申请" }}
+          </h2>
+          <p class="receipt-message" role="status">{{ message }}</p>
+        </div>
+      </header>
       <div v-if="receipt" class="receipt-work">
         <strong>{{ receipt.title }}</strong
         ><span
@@ -260,7 +248,7 @@ function reset() {
       </div>
       <div class="receipt-actions">
         <button type="button" class="primary" @click="emit('viewRecords')">查看我的申请</button
-        ><button type="button" class="secondary" @click="reset">继续申请其他作品或分季</button>
+        ><button type="button" class="secondary" @click="continueRequest">继续申请其他作品或分季</button>
       </div>
     </div>
   </section>

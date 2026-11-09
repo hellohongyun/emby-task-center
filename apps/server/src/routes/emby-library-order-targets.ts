@@ -2,6 +2,7 @@ import type { Account } from "../integrations/emby-library-order-catalog";
 import type { EmbyLibraryOrderSession } from "../integrations/emby-library-order-client";
 import {
   matchesLibraryOrder,
+  nativeLibraryOrder,
   planLibraryOrderFromTokens,
   readLibraryOrder,
   viewIdentity,
@@ -52,7 +53,8 @@ function proxyOrders(proxy: ProxyPreview) {
 export function previewTarget(
   account: Account,
   target: LibraryOrderSnapshot | undefined,
-  nativeOrder: string[],
+  order: string[],
+  proxyOnlyIds: ReadonlySet<string>,
   proxy?: ProxyPreview,
 ): Target {
   const proxyOrder = proxy ? proxyOrders(proxy) : {};
@@ -62,7 +64,8 @@ export function previewTarget(
       row: { ...account, status: "failed", before: [], after: [], reason: "library_order_read_failed", ...proxyOrder },
     };
   }
-  const plan = planLibraryOrderFromTokens(nativeOrder, target);
+  const native = nativeLibraryOrder(target, proxyOnlyIds);
+  const plan = planLibraryOrderFromTokens(order, native);
   return {
     account,
     row: {
@@ -72,7 +75,7 @@ export function previewTarget(
       after: plan.after,
       ...proxyOrder,
     },
-    snapshot: target.fingerprint,
+    snapshot: native.fingerprint,
     plan,
   };
 }
@@ -81,15 +84,17 @@ export async function applyTarget(
   session: EmbyLibraryOrderSession,
   { account, snapshot, plan }: Target,
   ownedIds: ReadonlySet<string>,
+  proxyOnlyIds: ReadonlySet<string>,
   isCurrent: () => boolean,
 ): Promise<ApplyRow> {
   const { id } = account;
   const skipped = (reason: string): ApplyRow => ({ ...account, status: "skipped", reason });
   const failed = (reason: string): ApplyRow => ({ ...account, status: "failed", reason });
+  const read = async () => nativeLibraryOrder(await readLibraryOrder(session, id, ownedIds), proxyOnlyIds);
   if (!snapshot || !plan) return failed("library_order_read_failed");
   if (!isCurrent()) return skipped("library_order_connection_changed");
   try {
-    const current = await readLibraryOrder(session, id, ownedIds);
+    const current = await read();
     if (current.fingerprint !== snapshot) return skipped("library_order_user_changed");
   } catch {
     return failed("library_order_read_failed");
@@ -102,7 +107,7 @@ export async function applyTarget(
     return failed("library_order_write_failed");
   }
   try {
-    if (matchesLibraryOrder(await readLibraryOrder(session, id, ownedIds), plan)) {
+    if (matchesLibraryOrder(await read(), plan)) {
       return { ...account, status: "updated" };
     }
   } catch {

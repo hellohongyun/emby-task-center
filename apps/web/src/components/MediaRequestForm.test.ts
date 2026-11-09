@@ -53,16 +53,19 @@ describe("media request submission and handling", () => {
     vi.stubGlobal("fetch", mock);
     const view = render(MediaRequestForm);
     await selectSeries();
+    expect(screen.getByRole("heading", { name: "填写申请内容" })).toHaveFocus();
     expect(screen.getByRole("button", { name: "下一步，核对申请" })).toBeDisabled();
     await fireEvent.update(screen.getByLabelText("申请分季"), "2");
     await fireEvent.update(screen.getByLabelText("申请类型"), "supplement");
     expect(screen.getByRole("button", { name: "下一步，核对申请" })).toBeDisabled();
     await fireEvent.update(screen.getByLabelText("缺少的集号或补集说明（必填）"), "E03–E05，缺少中文字幕");
     await fireEvent.click(screen.getByRole("button", { name: "下一步，核对申请" }));
+    expect(screen.getByRole("heading", { name: "确认这份申请" })).toHaveFocus();
     expect(screen.getByRole("button", { name: "确认提交" })).toBeDisabled();
     await fireEvent.click(screen.getByRole("checkbox"));
     await fireEvent.click(screen.getByRole("button", { name: "确认提交" }));
     await screen.findByText(/已有未结束申请 #1/);
+    expect(screen.getByRole("heading", { name: "找到你之前的申请" })).toHaveFocus();
     const post = mock.mock.calls.find(([, init]) => init?.method === "POST")!;
     expect(JSON.parse(post[1]!.body as string)).toEqual({
       kind: "supplement",
@@ -73,6 +76,8 @@ describe("media request submission and handling", () => {
     });
     expect(view.emitted("submitted")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "确认提交" })).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole("button", { name: "继续申请其他作品或分季" }));
+    expect(screen.getByLabelText("搜索作品")).toHaveFocus();
   });
 
   it("does not permit a TV request without authoritative season metadata", async () => {
@@ -102,6 +107,7 @@ describe("media request submission and handling", () => {
     await selectSeries();
     await fireEvent.update(screen.getByLabelText("申请说明（可选）"), "第一部剧缺少 E13");
     await fireEvent.click(screen.getByRole("button", { name: "更换作品" }));
+    expect(screen.getByLabelText("搜索作品")).toHaveFocus();
     await fireEvent.click(screen.getByRole("button", { name: /另一部剧.*选择/ }));
     await waitFor(() => expect(screen.getByLabelText("申请说明（可选）")).toHaveValue(""));
     expect(screen.getByLabelText("申请分季")).toHaveValue("");

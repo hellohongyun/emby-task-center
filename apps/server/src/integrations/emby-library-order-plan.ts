@@ -49,26 +49,51 @@ export function libraryOrderSnapshot(preferences: Preferences, views: View[], ow
   // MyMediaExcludes only controls the home "My Media" row; it is not a
   // per-library visibility flag. /Views already applies the real hidden policy.
   const visible = views.filter((view) => !keys(view).some((key) => ownedIds.has(key)));
+  return {
+    ...viewOrder(
+      preferences.orderedViews.filter((id) => !ownedIds.has(viewIdentity(id))),
+      visible,
+    ),
+    isAdministrator: preferences.isAdministrator,
+    personalOrder: preferences.orderedViews,
+    hiddenViews: preferences.hiddenViews,
+  };
+}
+
+function viewOrder(orderedViews: string[], visible: View[]) {
   const visibleIndex = indexViews(visible);
-  const explicit = preferences.orderedViews.flatMap((token) => {
+  const explicit = orderedViews.flatMap((token) => {
     const view = visibleIndex.get(viewIdentity(token));
     return view ? [view] : [];
   });
   return {
-    orderedViews: preferences.orderedViews.filter((id) => !ownedIds.has(viewIdentity(id))),
-    personalOrder: preferences.orderedViews,
-    hiddenViews: preferences.hiddenViews,
+    orderedViews,
     visible,
     explicitOrder: [...new Set(explicit)],
     // Emby's /Views endpoint does not necessarily return the user's configured
     // order. OrderedViews is the source of truth for what the client shows.
     templateOrder: [...new Set([...explicit, ...visible])],
     index: visibleIndex,
-    fingerprint: JSON.stringify([preferences, views]),
   };
 }
 
-export function planLibraryOrderFromTokens(order: string[], target: LibraryOrderSnapshot) {
+export function nativeLibraryOrder(snapshot: LibraryOrderSnapshot, proxyOnlyIds: ReadonlySet<string>) {
+  const visible = snapshot.visible.filter((view) => !keys(view).some((key) => proxyOnlyIds.has(key)));
+  return {
+    ...viewOrder(snapshot.orderedViews, visible),
+    // The order of /Views is independent of the account's saved preferences.
+    fingerprint: JSON.stringify([
+      snapshot.isAdministrator,
+      snapshot.personalOrder,
+      snapshot.hiddenViews,
+      visible.map((view) => JSON.stringify(keys(view))).sort(),
+    ]),
+  };
+}
+
+type ViewOrder = ReturnType<typeof viewOrder>;
+
+export function planLibraryOrderFromTokens(order: string[], target: ViewOrder) {
   const desired: View[] = [];
   const seen = new Set<View>();
   for (const token of order) {
@@ -110,9 +135,6 @@ export function planLibraryOrderFromTokens(order: string[], target: LibraryOrder
   return { before, after, expected, update: [...update, ...pending] };
 }
 
-export function matchesLibraryOrder(
-  actual: LibraryOrderSnapshot,
-  plan: ReturnType<typeof planLibraryOrderFromTokens>,
-): boolean {
+export function matchesLibraryOrder(actual: ViewOrder, plan: ReturnType<typeof planLibraryOrderFromTokens>): boolean {
   return Boolean(plan.update && sameOrder(viewIds(actual.explicitOrder), plan.expected));
 }
