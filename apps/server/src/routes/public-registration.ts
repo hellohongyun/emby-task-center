@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { AppDatabase } from "@emby-task-center/database/client";
 import type { EmailNotifier } from "../notifications/email-service";
+import { buildVerificationEmail } from "../notifications/email-template";
 import { workflowLog, type WorkflowLog, type WorkflowLogger } from "../logging/workflow-log";
 import { readGroupRegistrationSettings } from "../settings/group-registration";
 import type { CardActivationMode } from "../subscriptions/card-activation";
@@ -14,7 +15,6 @@ import { isUnlimitedMembership } from "../subscriptions/membership-expiry-grant"
 import { getSubmissionUserByEmail, memberStatus } from "../subscriptions/membership";
 import { createPendingCardRegistrations } from "../subscriptions/pending-cards";
 import { createRateLimiter } from "../subscriptions/rate-limit";
-import { buildHtml } from "../subscriptions/send-notifications";
 import { issueVerificationCode, verifyVerificationCode } from "../subscriptions/verification";
 import { publicCardPreview } from "./public-card-preview";
 
@@ -206,12 +206,9 @@ export function registerPublicRegistrationRoutes(
       const code = issueVerificationCode(database, email);
       binding = log && cardCode ? pending.bind(email, cardCode, invitation, log.runId) : undefined;
       if (!binding) pending.clear(email);
-      const text = gate.registered
-        ? `你的「天鸿影院」登录验证码：${code}（10 分钟内有效）。如非本人操作请忽略。`
-        : `你的「天鸿影院」邮箱验证码：${code}（10 分钟内有效）。验证后可填写会员资料。`;
-      const subject = "[天鸿影院] 邮箱验证码";
+      const { subject, text, html } = buildVerificationEmail(code, gate.registered);
       log?.write("info", "registration_email_sending", "正在发送注册邮箱验证码");
-      await options.email?.sendNotification(email, subject, text, buildHtml(subject, text));
+      await options.email?.sendNotification(email, subject, text, html);
       log?.write("info", "registration_email_sent", "注册邮箱验证码已提交给 SMTP", undefined, Date.now() - started);
       response.json({ sent: true, registered: gate.registered, needsCard, expired: gate.expired });
     } catch {

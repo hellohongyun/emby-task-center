@@ -1,4 +1,4 @@
-import { buildHtml } from "./send-notifications";
+import { renderEmail } from "../notifications/email-template";
 
 export interface RenewalReceipt {
   email: string;
@@ -13,7 +13,7 @@ function expiryText(value: string | null): string {
 }
 
 /** A transaction receipt describes membership time; it does not assert Emby access. */
-export function buildRenewalReceipt(receipt: RenewalReceipt) {
+export function buildRenewalReceipt(receipt: RenewalReceipt, portalUrl?: string, sample = false) {
   const subject = "[会员续期] 你的会员有效期已更新";
   const label = receipt.expiryLabel?.trim();
   const lines = [
@@ -28,8 +28,15 @@ export function buildRenewalReceipt(receipt: RenewalReceipt) {
     "",
     "本通知记录这次续期的结果；若已再次续期，请以门户显示为准。",
     "账号停用、并发冻结等状态仍按当前规则处理。",
-    "—— 天鸿影院",
   );
-  const text = lines.join("\n");
-  return { subject, text, html: buildHtml(subject, text) };
+  return renderEmail(
+    {
+      subject,
+      heading: "你的会员有效期已更新",
+      category: "会员续期",
+      text: lines.join("\n"),
+      action: portalUrl ? { label: "打开会员门户", url: portalUrl } : undefined,
+    },
+    sample,
+  );
 }

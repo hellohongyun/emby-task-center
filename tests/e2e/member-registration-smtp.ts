@@ -1,7 +1,10 @@
 import { createServer, type Socket } from "node:net";
 
-function readPlainText(raw: string): string {
-  const part = /Content-Type: text\/plain[^\r\n]*\r\n([\s\S]*?)\r\n\r\n([\s\S]*?)(?:\r\n--|$)/i.exec(raw);
+function readTextPart(raw: string, format: "plain" | "html"): string {
+  const part = new RegExp(
+    "Content-Type: text/" + format + "[^\\r\\n]*\\r\\n([\\s\\S]*?)\\r\\n\\r\\n([\\s\\S]*?)(?:\\r\\n--|$)",
+    "i",
+  ).exec(raw);
   if (!part?.[1] || !part[2]) return "";
   const [, headers, body] = part;
   if (/Content-Transfer-Encoding: base64/i.test(headers)) return Buffer.from(body, "base64").toString("utf8");
@@ -14,7 +17,7 @@ function readPlainText(raw: string): string {
 
 export async function startRegistrationSmtpSink() {
   const sockets = new Set<Socket>();
-  const messages: Array<{ recipient: string; text: string }> = [];
+  const messages: Array<{ recipient: string; text: string; html: string }> = [];
   let fail = false;
   const server = createServer((socket) => {
     sockets.add(socket);
@@ -34,7 +37,8 @@ export async function startRegistrationSmtpSink() {
         pending = pending.slice(end + 2);
         if (body) {
           if (line === ".") {
-            messages.push({ recipient, text: readPlainText(body.join("\r\n")) });
+            const raw = body.join("\r\n");
+            messages.push({ recipient, text: readTextPart(raw, "plain"), html: readTextPart(raw, "html") });
             body = null;
             socket.write("250 Message accepted\r\n");
           } else body.push(line.startsWith("..") ? line.slice(1) : line);

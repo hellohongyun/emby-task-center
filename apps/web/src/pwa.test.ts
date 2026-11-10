@@ -1,3 +1,4 @@
+import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -23,8 +24,8 @@ describe("PWA support", () => {
   it("serves a valid web app manifest with installable icons", () => {
     const manifest = JSON.parse(readFileSync(resolve(publicDir, "manifest.json"), "utf8")) as Manifest;
 
-    expect(manifest.name).toBeTruthy();
-    expect(manifest.short_name).toBeTruthy();
+    expect(manifest.name).toBe(SITE_BRAND_NAME);
+    expect(manifest.short_name).toBe(SITE_BRAND_NAME);
     expect(manifest.start_url).toBe("/");
     expect(manifest.display).toBe("standalone");
 
@@ -48,6 +49,8 @@ describe("PWA support", () => {
     expect(main).toContain('navigator.serviceWorker.register("/sw.js")');
 
     const html = readFileSync(resolve(publicDir, "../index.html"), "utf8");
+    expect(html).toContain(`<title>${SITE_BRAND_NAME}</title>`);
+    expect(html).toContain(`name="apple-mobile-web-app-title" content="${SITE_BRAND_NAME}"`);
     expect(html).toContain('rel="manifest"');
     expect(html).toContain('href="/icons/icon-192.png"');
   });

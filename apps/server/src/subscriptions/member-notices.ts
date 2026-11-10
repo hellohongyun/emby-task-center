@@ -11,6 +11,7 @@
 import type { AppDatabase } from "@emby-task-center/database/client";
 import { embyServerAddress } from "../integrations/emby-address";
 import { getConcurrencyPolicy } from "../integrations/concurrency-policy-config";
+import { renderEmail, type RenderedEmail } from "../notifications/email-template";
 import {
   DEFAULT_EMBY_ONBOARD_NOTICE,
   DEFAULT_EMBY_ONBOARD_TITLE,
@@ -32,6 +33,7 @@ export interface EmbyNoticeInputs {
   maxStreams: number | null;
   /** Emby 服务器地址；缺省取「系统设置 → Emby 地址」，与后台配置保持一致。 */
   serverAddress?: string;
+  platformUrl?: string;
 }
 
 function streamLimitNote(limit: number): string {
@@ -55,21 +57,26 @@ function noticeContext(
     password: inputs.password.trim() || "（沿用原密码）",
     maxStreams: limit > 0 ? limit : "不限",
     streamLimitNote: streamLimitNote(limit),
-    platformUrl: policy.portalUrl || "（未配置平台地址）",
+    platformUrl: (inputs.platformUrl ?? policy.portalUrl) || "（未配置平台地址）",
   };
 }
 
 /** 开通邮件：主题与正文都后台可改；留空回落默认文案。 */
-export function buildEmbyWelcomeEmail(
-  database: AppDatabase,
-  inputs: EmbyNoticeInputs,
-): { subject: string; text: string } {
+export function buildEmbyWelcomeEmail(database: AppDatabase, inputs: EmbyNoticeInputs, sample = false): RenderedEmail {
   const { values } = readSettings(database);
   const context = noticeContext(database, values, inputs);
-  return {
-    subject: values["member.welcomeEmailSubject"].trim() || DEFAULT_WELCOME_EMAIL_SUBJECT,
-    text: renderTemplate(values["member.welcomeEmailBody"].trim() || DEFAULT_WELCOME_EMAIL_BODY, context),
-  };
+  const body = values["member.welcomeEmailBody"].trim() || DEFAULT_WELCOME_EMAIL_BODY;
+  return renderEmail(
+    {
+      subject: values["member.welcomeEmailSubject"].trim() || DEFAULT_WELCOME_EMAIL_SUBJECT,
+      text: renderTemplate(body, context),
+      heading: "你的 Emby 账号已开通",
+      category: "会员开通",
+      action:
+        body === DEFAULT_WELCOME_EMAIL_BODY ? { label: "打开 Emby", url: String(context.serverAddress) } : undefined,
+    },
+    sample,
+  );
 }
 
 /** 门户「我的」页的开通提示：整块（标题 + 正文）后台可改，前后端都不再写死文案。 */

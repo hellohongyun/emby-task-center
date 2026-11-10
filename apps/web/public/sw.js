@@ -2,7 +2,7 @@
    并在运行时后台更新静态缓存。API/认证请求一律走网络，不缓存。
    部署更新后，下次访问拉取新 index.html，从而引用新的带哈希资源。 */
 // 修改静态资源（图标/字体/海报等）时必须递增 VERSION，否则已安装客户端会继续用旧缓存
-const VERSION = "v5";
+const VERSION = "v6";
 const SHELL_CACHE = `emby-task-center-shell-${VERSION}`;
 const ASSET_CACHE = `emby-task-center-assets-${VERSION}`;
 const SHELL_URLS = [
@@ -66,24 +66,31 @@ self.addEventListener("fetch", (event) => {
           caches.open(SHELL_CACHE).then((cache) => cache.put("/index.html", copy));
           return response;
         })
-        .catch(() => caches.match("/index.html").then((cached) => cached || caches.match("/"))),
+        .catch(() =>
+          caches
+            .match("/index.html", { cacheName: SHELL_CACHE })
+            .then((cached) => cached || caches.match("/", { cacheName: SHELL_CACHE })),
+        ),
     );
     return;
   }
 
   // 静态资源：按 URL 匹配缓存（兼容浏览器不同请求模式），命中直接返回，否则走网络并后台缓存。
   event.respondWith(
-    caches.match(url.href).then((cached) => {
-      if (cached) return cached;
-      return fetch(request)
-        .then((response) => {
-          if (response && response.ok) {
-            const copy = response.clone();
-            caches.open(ASSET_CACHE).then((cache) => cache.put(url.href, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-    }),
+    caches
+      .match(url.href, { cacheName: SHELL_CACHE })
+      .then((cached) => cached || caches.match(url.href, { cacheName: ASSET_CACHE }))
+      .then((cached) => {
+        if (cached) return cached;
+        return fetch(request)
+          .then((response) => {
+            if (response && response.ok) {
+              const copy = response.clone();
+              caches.open(ASSET_CACHE).then((cache) => cache.put(url.href, copy));
+            }
+            return response;
+          })
+          .catch(() => cached);
+      }),
   );
 });

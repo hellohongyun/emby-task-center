@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
+import { appSettings } from "@emby-task-center/database/schema";
 import { saveConcurrencyPolicy } from "../integrations/concurrency-policy-config";
-import { writeSettings } from "../settings/store";
+import { DEFAULT_WELCOME_EMAIL_BODY } from "../settings/registry";
+import { readSetting, writeSettings } from "../settings/store";
 import { buildEmbyOnboardNotice, buildEmbyWelcomeEmail } from "./member-notices";
 
 /**
@@ -54,7 +56,7 @@ describe("会员开通文案（邮件 + 门户提示）", () => {
     expect(text).toContain("初始密码：abc123");
     expect(text).toContain("如何登录与观看");
     expect(text).toContain("同时最多允许 2 路播放");
-    expect(text).toContain("天鸿影院");
+    expect(text).toContain("开心果影院");
     // 占位符必须全部渲染掉：会员不能收到带 {{...}} 的邮件
     expect(text).not.toContain("{{");
   });
@@ -86,6 +88,34 @@ describe("会员开通文案（邮件 + 门户提示）", () => {
     expect(text).toBe(
       "地址 https://emby.example.test｜账号 new@example.com｜密码 p@ss｜路数 1｜兜底 同时最多允许 1 路播放。｜平台 https://movie.example.com｜收件人 new@example.com",
     );
+  });
+
+  it("读取旧版保存的默认品牌时使用新名称", () => {
+    const oldValues = {
+      "email.fromName": "Media Task Center",
+      "member.welcomeEmailSubject": "[天鸿影院] 你的 Emby 账号已开通",
+      "member.welcomeEmailBody": DEFAULT_WELCOME_EMAIL_BODY.replace("开心果影院", "天鸿影院"),
+    };
+    database.db
+      .insert(appSettings)
+      .values(
+        Object.entries(oldValues).map(([key, value]) => ({
+          key,
+          value: JSON.stringify(value),
+          updatedAt: new Date().toISOString(),
+        })),
+      )
+      .run();
+    const { subject, text, html } = buildEmbyWelcomeEmail(database.db, {
+      email: "member@example.invalid",
+      username: "member@example.invalid",
+      password: "示例",
+      maxStreams: null,
+    });
+    expect(readSetting(database.db, "email.fromName")).toBe("开心果影院");
+    expect(subject).toBe("[开心果影院] 你的 Emby 账号已开通");
+    expect(text).toContain("—— 开心果影院");
+    expect(html).not.toContain("天鸿影院");
   });
 
   it("文案留空回落默认（清空输入框不该发出空白邮件）", () => {

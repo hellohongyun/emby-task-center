@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import SvgIcon from "@jamescoyle/vue-icon";
 import {
   mdiAccountGroup,
@@ -25,7 +26,7 @@ const emit = defineEmits<{ view: [view: AppView]; logout: [] }>();
 <template>
   <aside class="sidebar">
     <div class="brand">
-      <img class="brand-logo" src="/logo.svg" alt="" aria-hidden="true" /><span>媒体任务中心</span>
+      <img class="brand-logo" src="/logo.svg" alt="" aria-hidden="true" /><span>{{ SITE_BRAND_NAME }}</span>
     </div>
     <nav aria-label="主导航">
       <button :class="['primary', { active: view === 'home' }]" type="button" @click="emit('view', 'home')">

@@ -68,6 +68,18 @@ describe("durable renewal notification outbox", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("renders a queued receipt created by the old version with the current brand", async () => {
+    enqueueRenewalReceipt(handle.db, "card:legacy", receipt);
+    handle.db.update(renewalEmailOutbox).set({ text: "历史续期内容\n\n—— 天鸿影院", html: "<p>天鸿影院</p>" }).run();
+    expect(await deliverRenewalReceipt(handle.db, email, "card:legacy")).toBe("sent");
+    const [, , text, html] = send.mock.calls[0]!;
+    expect(text).toBe("历史续期内容");
+    expect(html).toContain("开心果影院");
+    expect(html).toContain("历史续期内容");
+    expect(html).not.toContain("天鸿影院");
+    expect(row().text).toContain("天鸿影院");
+  });
+
   it("merges retry rounds and holds a lease across independent database connections", async () => {
     enqueueRenewalReceipt(handle.db, "card:2", receipt);
     let finish!: () => void;

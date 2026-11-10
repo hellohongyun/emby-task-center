@@ -1,3 +1,4 @@
+import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import { render, screen } from "@testing-library/vue";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +11,7 @@ describe("LoginGate", () => {
     const login = vi.fn().mockResolvedValue(true);
     render(LoginGate, { props: { login } });
 
+    expect(screen.getByRole("heading", { name: SITE_BRAND_NAME })).toBeInTheDocument();
     const username = screen.getByLabelText("管理员账号");
     expect(username).toHaveAttribute("autocomplete", "username");
     const password = screen.getByLabelText("管理员口令");

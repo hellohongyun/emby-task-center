@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { EMAIL_SCENES, type EmailScene } from "@emby-task-center/contracts/email-scenes";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import type { EmailPreview } from "../composables/useIntegrations";
 import ConcurrencyPolicyPanel from "./ConcurrencyPolicyPanel.vue";
+import EmailTemplatePreview from "./EmailTemplatePreview.vue";
 
 // 「全局通知收件人」随「任务更新通知」整条链删除（2026-09）：那条邮件链已无发送方，
 // 后台不再需要（也不该）提供一个填了不会生效的收件人列表。
@@ -11,7 +14,9 @@ const props = defineProps<{
   requireAuth?: () => void;
   error?: string;
   testEmby: () => Promise<{ serverName: string; version: string }>;
-  testEmail: (email: string) => Promise<unknown>;
+  testEmail: (email: string, scene: EmailScene) => Promise<unknown>;
+  previewEmail: (scene: EmailScene) => Promise<EmailPreview>;
+  cancelEmailPreview: () => void;
 }>();
 const emit = defineEmits<{ refresh: [] }>();
 /**
@@ -25,6 +30,7 @@ const missingEmailFieldsText = computed(() => {
 
 const message = ref("");
 const testAddress = ref("");
+const emailScene = ref<EmailScene>("test");
 const testingEmby = ref(false);
 const testingEmail = ref(false);
 let stopped = false;
@@ -53,17 +59,27 @@ async function runTestEmby() {
   }
 }
 async function runTestEmail() {
-  if (!testAddress.value.trim() || testingEmail.value || stopped) return;
+  if (!props.status.emailConfigured || !testAddress.value.trim() || testingEmail.value || stopped) return;
   const address = testAddress.value.trim();
+  const scene = emailScene.value;
   testingEmail.value = true;
   const current = ++revision;
   try {
-    await props.testEmail(address);
+    await props.testEmail(address, scene);
     if (stopped || current !== revision) return;
-    message.value = `测试邮件已发送到 ${address}`;
+    const description = scene === "test" ? "" : `「${EMAIL_SCENES[scene]}」`;
+    message.value = `${description}测试邮件已发送到 ${address}`;
   } catch (error) {
-    if (!stopped && current === revision && (error as Error).name !== "AbortError")
-      message.value = `邮件测试失败：${(error as Error).message}`;
+    if (stopped || current !== revision || (error as Error).name === "AbortError") return;
+    const reason = (error as Error).message;
+    message.value =
+      reason === "email_not_configured"
+        ? "邮件服务尚未配置，请先保存 SMTP 设置。"
+        : reason === "invalid_email"
+          ? "请输入有效的测试收件邮箱。"
+          : reason.includes("请求超时")
+            ? reason
+            : "测试邮件发送失败，请检查 SMTP 配置后重试。";
   } finally {
     if (!stopped) testingEmail.value = false;
   }
@@ -96,11 +112,20 @@ async function runTestEmail() {
         <strong :class="{ ok: status.emailConfigured }">{{ status.emailConfigured ? "已配置" : "未配置" }}</strong>
         <span v-if="status.emailConfigured">SMTP 参数见下方「邮件通知」配置项</span>
         <span v-else class="missing-hint">还缺：{{ missingEmailFieldsText }}</span>
+        <label class="mail-scene">
+          <span>邮件类型</span>
+          <select v-model="emailScene">
+            <option v-for="(label, scene) in EMAIL_SCENES" :key="scene" :value="scene">{{ label }}</option>
+          </select>
+        </label>
         <form class="mail-test" @submit.prevent="runTestEmail">
-          <input v-model.trim="testAddress" type="email" required placeholder="测试收件邮箱" /><button
-            type="submit"
-            :disabled="!status.emailConfigured || testingEmail"
-          >
+          <input
+            v-model.trim="testAddress"
+            type="email"
+            required
+            aria-label="测试收件邮箱"
+            placeholder="测试收件邮箱"
+          /><button type="submit" :disabled="!status.emailConfigured || testingEmail">
             {{ testingEmail ? "发送中…" : "发送测试" }}
           </button>
         </form>
@@ -112,6 +137,11 @@ async function runTestEmail() {
       </article>
     </div>
 
+    <EmailTemplatePreview
+      :scene="emailScene"
+      :preview-email="previewEmail"
+      :cancel-email-preview="cancelEmailPreview"
+    />
     <ConcurrencyPolicyPanel :require-auth="requireAuth" />
   </section>
 </template>
@@ -192,9 +222,15 @@ p {
 }
 .mail-test {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
-.mail-test input {
+.mail-scene {
+  display: grid;
+  gap: 4px;
+}
+.mail-test input,
+.mail-scene select {
   min-width: 0;
   min-height: 40px;
   padding: 0 9px;
@@ -202,6 +238,9 @@ p {
   border-radius: 6px;
   color: #eef2f4;
   background: #101e27;
+}
+.mail-test input {
+  flex: 1 1 140px;
 }
 .mail-test button {
   padding: 0 9px;

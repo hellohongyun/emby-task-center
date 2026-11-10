@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import SvgIcon from "@jamescoyle/vue-icon";
 import { mdiMagnify, mdiMonitorDashboard } from "@mdi/js";
 import AppVersion from "./AppVersion.vue";
@@ -25,7 +26,7 @@ const mobileTitles: Partial<Record<AppView, string>> = {
   <header class="app-header">
     <div class="mobile-brand">
       <img class="brand-logo" src="/logo.svg" alt="" aria-hidden="true" />
-      <span>{{ (view && mobileTitles[view]) || "任务中心" }}</span>
+      <span>{{ (view && mobileTitles[view]) || SITE_BRAND_NAME }}</span>
     </div>
     <label v-if="view === 'tasks'" class="global-search">
       <span class="sr-only">搜索已有任务</span><SvgIcon type="mdi" :path="mdiMagnify" :size="22" />

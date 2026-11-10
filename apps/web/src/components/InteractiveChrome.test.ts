@@ -1,3 +1,4 @@
+import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import { fireEvent, render, screen } from "@testing-library/vue";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -9,12 +10,15 @@ import { VIEW_SEGMENTS } from "../router";
 describe("application chrome", () => {
   it("only exposes functional header actions", async () => {
     const view = render(AppHeader, { props: { query: "", view: "tasks" } });
+    expect(screen.getByText(SITE_BRAND_NAME)).toBeInTheDocument();
+    expect(screen.getByTitle(`${SITE_BRAND_NAME} ${__APP_VERSION__}`)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "通知" })).not.toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: "系统" }));
     expect(view.emitted().system).toHaveLength(1);
   });
   it("routes task, library and system destinations", async () => {
     const view = render(SidebarNav, { props: { view: "tasks" } });
+    expect(screen.getByText(SITE_BRAND_NAME)).toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: "媒体库" }));
     await fireEvent.click(screen.getByRole("button", { name: "系统状态" }));
     expect(view.emitted().view).toEqual([["library"], ["system"]]);
@@ -36,7 +40,7 @@ describe("application chrome", () => {
   it("shows the card keys title in the mobile header", () => {
     render(AppHeader, { props: { query: "", view: "cardKeys" } });
     expect(screen.getByText("卡密")).toBeInTheDocument();
-    expect(screen.queryByText("任务中心")).not.toBeInTheDocument();
+    expect(screen.queryByText(SITE_BRAND_NAME)).not.toBeInTheDocument();
     expect(screen.queryByRole("searchbox", { hidden: true })).not.toBeInTheDocument();
   });
   it("no longer offers the retired check-in destination", async () => {

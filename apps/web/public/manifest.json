@@ -1,7 +1,7 @@
 {
-  "name": "媒体任务中心",
-  "short_name": "任务中心",
-  "description": "共享媒体任务中心：缺集盘点与入库任务、STRM 媒体库、AI 通知与自动化联动。",
+  "name": "开心果影院",
+  "short_name": "开心果影院",
+  "description": "开心果影院：影视库、缺集盘点与入库任务、通知与自动化联动。",
   "lang": "zh-CN",
   "start_url": "/",
   "scope": "/",

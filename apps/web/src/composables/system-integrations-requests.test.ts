@@ -125,6 +125,34 @@ describe("system and integration request lifecycle", () => {
     await Promise.all([first, second]);
   });
 
+  it("aborts the old preview across different templates and sends the requested test scene", async () => {
+    const old = deferred<Response>();
+    const preview = { subject: "续期", text: "正文", html: "<p>正文</p>" };
+    const fetchImpl = vi
+      .fn()
+      .mockReturnValueOnce(old.promise)
+      .mockResolvedValueOnce(Response.json(preview))
+      .mockResolvedValueOnce(Response.json({ ok: true }));
+    const requireAuth = vi.fn();
+    const api = useIntegrations(requireAuth, fetchImpl);
+    const first = expect(api.previewEmail("login")).rejects.toMatchObject({ name: "AbortError" });
+    await expect(api.previewEmail("renewal")).resolves.toEqual(preview);
+    old.resolve(new Response(null, { status: 401 }));
+    await first;
+    expect(requireAuth).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      "/api/integrations/email/preview?scene=renewal",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    await expect(api.testEmail("member@example.com", "renewal")).resolves.toEqual({ ok: true });
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      3,
+      "/api/integrations/email/test",
+      expect.objectContaining({ body: JSON.stringify({ email: "member@example.com", scene: "renewal" }) }),
+    );
+  });
+
   it("scope disposal cancels system and all integration operations and prevents further requests", async () => {
     const scope = effectScope();
     const old = deferred<Response>();

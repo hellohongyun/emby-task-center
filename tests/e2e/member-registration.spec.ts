@@ -149,6 +149,33 @@ test.afterEach(async () => {
   }
 });
 
+test("管理员在手机宽度预览网站风格的邮件并通过本地 SMTP 发送同一场景", async () => {
+  const page = await admin.newPage();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(fixture.baseURL + "/login/config");
+  await expect(page).toHaveTitle("开心果影院");
+  await page.getByLabel("邮件类型").selectOption("login");
+  await page.getByRole("button", { name: "预览邮件", exact: true }).click();
+  const preview = page.frameLocator('iframe[title="邮件 HTML 预览"]');
+  await expect(preview.getByRole("heading", { name: "登录验证码" })).toBeVisible();
+  await expect(preview.locator("body")).toHaveCSS("background-color", "rgb(3, 11, 17)");
+  await expect(preview.getByText("123456", { exact: true })).toHaveCSS("color", "rgb(127, 208, 138)");
+  await page.getByText("查看纯文本", { exact: true }).click();
+  await expect(page.getByText(/邮箱验证码：123456/)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+
+  const address = "mail-preview@example.invalid";
+  await page.getByLabel("测试收件邮箱").fill(address);
+  await page.getByRole("button", { name: "发送测试", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: address })).toBeVisible();
+  expect(fixture.messages.find(({ recipient }) => recipient === address)).toMatchObject({
+    text: expect.stringContaining("邮箱验证码：123456"),
+    html: expect.stringContaining("开心果影院"),
+  });
+  expect(fixture.messages).toHaveLength(1);
+  await page.close();
+});
+
 test("手机注册通过真实邮件验证码和资料确认，随后创建 Emby 用户并上传 QQ 头像", async ({ page }) => {
   const cardCode = await newCard();
   await page.setViewportSize({ width: 390, height: 844 });

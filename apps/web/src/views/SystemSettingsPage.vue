@@ -33,6 +33,8 @@ onBeforeUnmount(() => services.integrations.cancel());
       :error="services.integrations.error.value"
       :test-emby="services.integrations.testEmby"
       :test-email="services.integrations.testEmail"
+      :preview-email="services.integrations.previewEmail"
+      :cancel-email-preview="services.integrations.cancelEmailPreview"
       @refresh="services.integrations.load"
     />
     <ContentMailSettings :require-auth="services.requireAuth" />

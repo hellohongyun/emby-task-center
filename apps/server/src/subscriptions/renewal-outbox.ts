@@ -3,6 +3,8 @@ import { and, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { AppDatabase } from "@emby-task-center/database/client";
 import { renewalEmailOutbox } from "@emby-task-center/database/schema";
 import type { EmailNotifier } from "../notifications/email-service";
+import { renderEmail } from "../notifications/email-template";
+import { readSetting } from "../settings/store";
 import { buildRenewalReceipt, type RenewalReceipt } from "./renewal-receipt";
 
 export type RenewalEmailStatus = "sent" | "pending" | "unchanged";
@@ -14,7 +16,7 @@ export function enqueueRenewalReceipt(database: AppDatabase, key: string, receip
     .values({
       key,
       email: receipt.email,
-      ...buildRenewalReceipt(receipt),
+      ...buildRenewalReceipt(receipt, readSetting(database, "concurrencyPolicy.portalUrl")),
       nextAttemptAt: timestamp,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -82,7 +84,12 @@ async function attemptRenewalReceipt(
   heartbeat.unref?.();
   let delivered = false;
   try {
-    await email.sendNotification(claimed.email, claimed.subject, claimed.text, claimed.html);
+    const text = claimed.text.replace(/(?:\r?\n)+—— 天鸿影院\s*$/, "");
+    const html =
+      text === claimed.text
+        ? claimed.html
+        : renderEmail({ subject: claimed.subject, text, heading: "你的会员有效期已更新", category: "会员续期" }).html;
+    await email.sendNotification(claimed.email, claimed.subject, text, html);
     delivered = true;
     const confirmed = database
       .update(renewalEmailOutbox)

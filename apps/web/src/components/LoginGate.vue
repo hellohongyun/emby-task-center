@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import SvgIcon from "@jamescoyle/vue-icon";
 import { mdiAccountOutline, mdiLockOutline } from "@mdi/js";
 import { ref } from "vue";
@@ -33,7 +34,7 @@ async function submit() {
     <section class="login-card" aria-labelledby="login-title">
       <img class="mark" src="/logo.svg" alt="" aria-hidden="true" />
       <span class="eyebrow">PRIVATE MEDIA LIBRARY</span>
-      <h1 id="login-title">媒体任务中心</h1>
+      <h1 id="login-title">{{ SITE_BRAND_NAME }}</h1>
       <p>这是家庭共享管理站。用管理员账号登录后，可以发布和查看所有媒体任务。</p>
 
       <form @submit.prevent="submit" :aria-busy="busy">

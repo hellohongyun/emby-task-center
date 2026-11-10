@@ -22,7 +22,7 @@ describe("email notifier", () => {
       secure: true,
       user: "sender@example.com",
       password: "secret",
-      fromName: "天鸿影院",
+      fromName: "自定义发件人",
       fromAddress: "sender@example.com",
     });
 
@@ -30,9 +30,9 @@ describe("email notifier", () => {
 
     expect(sendMail).toHaveBeenCalledWith(
       expect.objectContaining({
-        from: '"天鸿影院" <sender@example.com>',
+        from: { name: "自定义发件人", address: "sender@example.com" },
         to: "recipient@example.com",
-        subject: "[媒体任务中心] 邮件服务测试",
+        subject: "[开心果影院] 邮件服务测试",
         text: expect.stringContaining("邮件服务配置正常"),
         html: expect.stringContaining("邮件服务配置正常"),
       }),
@@ -74,6 +74,8 @@ describe("email notifier", () => {
     expect(notifier.configured).toBe(true);
     expect(notifier.missingFields?.()).toEqual([]);
     await notifier.sendTest("recipient@example.com");
-    expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ from: '"天鸿影院" <ops@example.com>' }));
+    expect(sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({ from: { name: "开心果影院", address: "ops@example.com" } }),
+    );
   });
 });

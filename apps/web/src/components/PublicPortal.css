@@ -182,8 +182,14 @@
   .portal-search {
     display: none;
   }
+  .brand {
+    flex: none;
+    gap: 6px;
+  }
   .brand-name {
-    display: none;
+    padding: 0;
+    font-size: 14px;
+    white-space: nowrap;
   }
   .brand img {
     width: 30px;
@@ -199,7 +205,15 @@
     padding: 0 12px;
   }
   .session-chip b {
+    align-self: stretch;
     max-width: 110px;
+    text-align: right;
+  }
+  .session-chip small {
+    white-space: nowrap;
+  }
+  .logout {
+    flex: none;
   }
   .portal-main {
     padding: 0 14px 110px;

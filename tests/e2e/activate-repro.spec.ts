@@ -80,6 +80,7 @@ interface StubOptions {
 /** 门户相关的挡板：注册状态决定走哪条支路；`authenticated` 决定门户摘要是否放行。 */
 async function stubPortalApis(page: Page, options: StubOptions) {
   let authenticated = false;
+  const memberEmail = options.registered ? "member@example.com" : registrationEmail;
   let cardChecked = false;
   let activatedWith: Record<string, unknown> | undefined;
   const registered = options.registered;
@@ -155,8 +156,15 @@ async function stubPortalApis(page: Page, options: StubOptions) {
       await route.fulfill({ status: 401, json: { error: "unauthorized" } });
       return;
     }
-    await route.fulfill({ json: { email: "member@example.com", member } });
+    await route.fulfill({ json: { email: memberEmail, member } });
   });
+  await page.route("**/api/public/trending", (route) =>
+    route.fulfill({ json: { sections: [], degradedSources: [], refreshing: false } }),
+  );
+  await page.route("**/api/public/library/recent?*", (route) => route.fulfill({ json: { items: [] } }));
+  await page.route("**/api/public/mail-preferences", (route) =>
+    route.fulfill({ json: { mailTypes: [], defaults: {}, userPrefs: {}, effective: {} } }),
+  );
   await page.route("**/api/public/follows", async (route) => {
     await route.fulfill({ json: { follows: [] } });
   });
@@ -224,7 +232,7 @@ test("新用户凭群邀请码收验证码，确认会员资料后才开通", as
   await page.getByRole("button", { name: "开通并登录" }).click();
 
   // 开通后进入已登录门户（首页可见 + 顶栏显示账号），且不黑屏、无未捕获错误
-  await expect(page.getByRole("heading", { name: "影迷影视中心" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "开心果影院" })).toBeVisible();
   expect(api.activatedWith()).toEqual({
     email: registrationEmail,
     cardCode: "CARD123",
@@ -232,7 +240,7 @@ test("新用户凭群邀请码收验证码，确认会员资料后才开通", as
     joinSource: "群公告",
   });
   // 顶栏账号：用 .session-chip 限定，首页「欢迎回来，xxx」也含同一段文字，裸 getByText 会撞 strict mode
-  await expect(page.locator(".session-chip")).toContainText("member@example.com");
+  await expect(page.locator(".session-chip")).toContainText(registrationEmail);
   expect(errors, "uncaught page errors: " + errors.join("\n")).toEqual([]);
 });
 
@@ -254,7 +262,7 @@ test("已注册会员：邮箱 → 下一步 → 直接发验证码登录，全�
   await page.getByRole("button", { name: "登录" }).click();
 
   expect(api.authenticated()).toBe(true);
-  await expect(page.getByRole("heading", { name: "影迷影视中心" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "开心果影院" })).toBeVisible();
   expect(errors, "uncaught page errors: " + errors.join("\n")).toEqual([]);
 });
 
@@ -318,7 +326,7 @@ test("会员侧到期口径：首页与「我的」都显示到期时间名称�
   await expect(page.getByText(/验证码已发送至/)).toBeVisible();
   await page.getByPlaceholder("6 位验证码").fill("123456");
   await page.getByRole("button", { name: "登录" }).click();
-  await expect(page.getByRole("heading", { name: "影迷影视中心" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "开心果影院" })).toBeVisible();
 
   // ① 首页顶栏：到期用名称，不直接甩日期
   const homeMeta = page.locator(".my-meta");

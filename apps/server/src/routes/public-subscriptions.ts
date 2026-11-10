@@ -21,7 +21,6 @@ import { confirmUnfreeze, memberUnfreezeView, requestUnfreeze } from "../subscri
 import { provisionEmbyAccount } from "../subscriptions/emby-account";
 import { createEmbyUserService } from "../integrations/emby-user-service";
 import { createRateLimiter } from "../subscriptions/rate-limit";
-import { buildHtml } from "../subscriptions/send-notifications";
 import { buildEmbyOnboardNotice, buildEmbyWelcomeEmail } from "../subscriptions/member-notices";
 import { embyServerAddress } from "../integrations/emby-address";
 import { readSetting } from "../settings/store";
@@ -205,7 +204,7 @@ export function registerPublicSubscriptionRoutes(app: Express, options: PublicSu
         })
       : null;
     if (emby?.password && options.email?.configured) {
-      const { subject, text } = buildEmbyWelcomeEmail(options.database, {
+      const { subject, text, html } = buildEmbyWelcomeEmail(options.database, {
         email,
         username: emby.embyUsername,
         password: emby.password,
@@ -214,7 +213,7 @@ export function registerPublicSubscriptionRoutes(app: Express, options: PublicSu
       });
       log?.write("info", "registration_welcome_sending", "正在发送开通通知邮件");
       try {
-        await options.email.sendNotification(email, subject, text, buildHtml(subject, text));
+        await options.email.sendNotification(email, subject, text, html);
         log?.write("info", "registration_welcome_sent", "开通通知已提交给 SMTP");
       } catch {
         log?.write("warn", "registration_welcome_failed", "开通通知邮件发送失败，会员已开通");

@@ -1,7 +1,10 @@
 import type { Express } from "express";
 import { z } from "zod";
+import { EMAIL_SCENES, type EmailScene } from "@emby-task-center/contracts/email-scenes";
+import type { AppDatabase } from "@emby-task-center/database/client";
 
 import type { EmbyClient } from "../integrations/emby-client";
+import { buildEmailPreview } from "../notifications/email-preview";
 import type { EmailNotifier } from "../notifications/email-service";
 import { settingDefinition } from "../settings/registry";
 
@@ -13,13 +16,14 @@ import { settingDefinition } from "../settings/registry";
  */
 export type IntegrationStatusFlag = boolean | (() => boolean);
 
-// 全局通知收件人（GET/POST/DELETE /api/integrations/email/recipients）随
-// 「任务更新通知」整条链删除（2026-09）：这条邮件链已无发送方。
-// 于是 database 也不再被本文件用到，选项里一并去掉（P3 约定：无人使用的选项不留占位）。
 export interface IntegrationRouteOptions {
+  database: AppDatabase;
   configured?: { emby: IntegrationStatusFlag; email: IntegrationStatusFlag } | undefined;
   services?: { emby: EmbyClient; email: EmailNotifier } | undefined;
 }
+
+const emailScene = z.custom<EmailScene>((value) => typeof value === "string" && Object.hasOwn(EMAIL_SCENES, value));
+const testEmailRequest = z.strictObject({ email: z.string().trim().email().max(254), scene: emailScene.optional() });
 
 /** 现取状态位：函数就调用、布尔就用它、都没给则回落到服务的实时 configured。 */
 function resolveStatusFlag(flag: IntegrationStatusFlag | undefined, live: (() => unknown) | undefined): boolean {
@@ -49,14 +53,26 @@ export function registerIntegrationRoutes(app: Express, options: IntegrationRout
     }
   });
 
+  app.get("/api/integrations/email/preview", (request, response) => {
+    const parsed = emailScene.safeParse(request.query.scene);
+    if (!parsed.success) return void response.status(400).json({ error: "invalid_scene" });
+    response.set("Cache-Control", "private, no-store").json(buildEmailPreview(options.database, parsed.data));
+  });
+
   app.post("/api/integrations/email/test", async (request, response) => {
-    const parsed = z.strictObject({ email: z.string().trim().email().max(254) }).safeParse(request.body);
-    if (!parsed.success) return void response.status(400).json({ error: "invalid_email" });
+    const parsed = testEmailRequest.safeParse(request.body);
+    if (!parsed.success) {
+      const invalidScene = parsed.error.issues.some((issue) => issue.path[0] === "scene");
+      return void response.status(400).json({ error: invalidScene ? "invalid_scene" : "invalid_email" });
+    }
+    if (!services?.email.configured) return void response.status(409).json({ error: "email_not_configured" });
     try {
-      await services?.email.sendTest(parsed.data.email);
+      const { email, scene } = parsed.data;
+      if (!scene || scene === "test") await services.email.sendTest(email);
+      else await services.email.sendTest(email, buildEmailPreview(options.database, scene));
       response.json({ ok: true });
-    } catch (error) {
-      response.status(502).json({ error: (error as Error).message });
+    } catch {
+      response.status(502).json({ error: "email_delivery_failed" });
     }
   });
 }

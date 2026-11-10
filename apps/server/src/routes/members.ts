@@ -18,6 +18,7 @@ import { z } from "zod";
 
 import type { AppDatabase } from "@emby-task-center/database/client";
 import type { EmailNotifier } from "../notifications/email-service";
+import { readSetting } from "../settings/store";
 import type { EmbyClient } from "../integrations/emby-client";
 import { audit, canSendMail } from "../subscriptions/domain-utils";
 import { sendMembershipEmail } from "../subscriptions/send-notifications";
@@ -211,7 +212,9 @@ export function registerMemberRoutes(app: Express, options: MemberRouteOptions):
     const user = getSubmissionUser(database, id);
     if (!user) return void response.status(404).json({ error: "user_not_found" });
     const sent = canSendMail(database, user.email, "membership_reminder")
-      ? await sendMembershipEmail(email, user).catch(() => false)
+      ? await sendMembershipEmail(email, user, new Date(), readSetting(database, "concurrencyPolicy.portalUrl")).catch(
+          () => false,
+        )
       : false;
     response.json({ sent: !!sent });
   });

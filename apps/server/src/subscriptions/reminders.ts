@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import type { AppDatabase } from "@emby-task-center/database/client";
 import { submissionUsers } from "@emby-task-center/database/schema";
 import type { EmailNotifier } from "../notifications/email-service";
+import { readSetting } from "../settings/store";
 import type { EmbyClient } from "../integrations/emby-client";
 import { getSubmissionUser, listSubmissionUsers, memberStatus } from "./membership";
 import { sendMembershipEmail } from "./send-notifications";
@@ -57,7 +58,8 @@ async function sweep(
     if (status !== "expiring" && status !== "expired") continue;
     if (user.membershipReminderState === status) continue; // 该状态已提醒过
     if (canSendMail(database, user.email, "membership_reminder")) {
-      if (!(await sendMembershipEmail(email, user, now))) continue;
+      if (!(await sendMembershipEmail(email, user, now, readSetting(database, "concurrencyPolicy.portalUrl"))))
+        continue;
     }
     // SMTP 等待期间可能续费、停用或修改邮箱；旧通知不能覆盖新会员状态。
     const current = getSubmissionUser(database, user.id);

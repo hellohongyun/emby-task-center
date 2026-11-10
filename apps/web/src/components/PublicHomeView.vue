@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import SvgIcon from "@jamescoyle/vue-icon";
 import { mdiDownload, mdiFire, mdiMagnify, mdiPlay, mdiStar, mdiTrendingUp } from "@mdi/js";
 import { computed, onMounted, ref } from "vue";
@@ -223,7 +224,7 @@ function submitSearch() {
   <section class="home">
     <header class="hero">
       <div>
-        <h1>影迷影视中心</h1>
+        <h1>{{ SITE_BRAND_NAME }}</h1>
         <p>发现热门影片，看看本库已入库的片子，点开即可去 Emby 观看。</p>
       </div>
     </header>

@@ -1,5 +1,7 @@
+import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import type { EmailNotifier } from "../notifications/email-service";
-import { memberStatus, type MemberStatus } from "./membership";
+import { renderEmail } from "../notifications/email-template";
+import { memberStatus } from "./membership";
 
 // follow_accepted（追更申请通过）已随追更功能整体下线（2026-09）。
 export type SubmissionNotifType = "receipt" | "converted" | "duplicate" | "rejected" | "inlibrary";
@@ -31,7 +33,14 @@ export async function sendSubmissionEmail(
   try {
     const subject = subjectMap[type](data);
     const text = buildSubmissionText(type, data);
-    await email.sendNotification(data.email, subject, text, buildHtml(subject, text, data.posterUrl));
+    const { html } = renderEmail({
+      subject,
+      text,
+      category: "求片通知",
+      heading: data.title,
+      posterUrl: data.posterUrl,
+    });
+    await email.sendNotification(data.email, subject, text, html);
     return true;
   } catch {
     return false;
@@ -56,27 +65,12 @@ function buildSubmissionText(type: SubmissionNotifType, data: SubmissionEmailDat
     if (data.watchUrl) lines.push(`打开观看 → ${data.watchUrl}`);
     lines.push("如果找不到影片，请在 Emby 中刷新媒体库或联系管理员。");
   }
-  lines.push("—— 天鸿影院");
+  lines.push(`—— ${SITE_BRAND_NAME}`);
   return lines.join("\n");
 }
 
-/** 简单 HTML 包裹文本（复用邮件服务风格）；可选带海报图。 */
-export function buildHtml(subject: string, text: string, posterUrl?: string | null): string {
-  const escaped = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#68bd68;font-weight:700;text-decoration:none;">$1</a>')
-    .replace(/\n/g, "<br/>");
-  const poster = posterUrl
-    ? `<div style="margin:16px 0 6px;text-align:center;"><img src="${escapeHtml(posterUrl)}" alt="" style="max-width:140px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.5);"/></div>`
-    : "";
-  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title></head><body style="margin:0;padding:0;background-color:#0b0e14;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:32px 16px;"><table role="presentation" width="600" cellpadding="26" cellspacing="0" border="0" style="width:600px;max-width:100%;background-color:#12161f;border:1px solid #232a38;border-radius:14px;color:#eef2f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;"><tr><td style="font-size:18px;font-weight:800;">天鸿影院</td></tr><tr><td style="font-size:13px;color:#9aa5b4;line-height:1.7;">${poster}${escaped}</td></tr><tr><td style="font-size:11px;color:#5f6875;">本邮件由 天鸿影院 自动发送</td></tr></table></td></tr></table></body></html>`;
-}
-
-export function escapeHtml(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+export function buildHtml(subject: string, text: string): string {
+  return renderEmail({ subject, text }).html;
 }
 
 /**
@@ -86,37 +80,54 @@ export function escapeHtml(value: string): string {
  * 邮件里也写"2027 年春节结束到期"，而不是甩一个日期——否则用户会在站内看到名称、
  * 在邮件里看到日期，以为自己的会员被改过（见 docs/card-keys.md）。
  */
+interface MembershipExpiryNotice {
+  subscriptionExpiresAt: string | null;
+  membershipExpiryLabel?: string | null;
+  deferredMembershipMs?: number;
+  followsDriveExpiry?: boolean;
+}
+
+export function buildMembershipEmail(
+  user: MembershipExpiryNotice,
+  status: "expiring" | "expired",
+  portalUrl?: string,
+  sample = false,
+) {
+  const expired = status === "expired";
+  const heading = expired ? "你的会员已到期" : "你的会员即将到期";
+  const subject = expired ? `[会员到期] ${heading}` : `[会员临期] ${heading}`;
+  const named = user.deferredMembershipMs || user.followsDriveExpiry ? null : user.membershipExpiryLabel?.trim();
+  const expiryDate = user.subscriptionExpiresAt ? new Date(user.subscriptionExpiresAt) : null;
+  const expiryText = named || expiryDate?.toLocaleString() || "";
+  const expiryNote = named && expiryDate ? `（${expiryDate.toLocaleDateString()}）` : "";
+  const when = `${expiryText}${expiryNote}`;
+  const text = expired
+    ? `你的会员已于 ${when} 到期。如需继续使用会员服务，请联系管理员续费。`
+    : `你的会员将于 ${when} 到期。为继续使用会员服务，请及时联系管理员续费。`;
+  return renderEmail(
+    {
+      subject,
+      text,
+      heading,
+      category: "会员服务",
+      action: portalUrl ? { label: "打开会员门户", url: portalUrl } : undefined,
+    },
+    sample,
+  );
+}
+
 export async function sendMembershipEmail(
   email: EmailNotifier | undefined,
-  user: {
-    email: string;
-    subscriptionExpiresAt: string | null;
-    membershipExpiryLabel?: string | null;
-    deferredMembershipMs?: number;
-    followsDriveExpiry?: boolean;
-  },
+  user: MembershipExpiryNotice & { email: string },
   now = new Date(),
+  portalUrl?: string,
 ): Promise<boolean> {
   if (!email || !email.configured) return false;
-  const status: MemberStatus = memberStatus(user, now);
+  const status = memberStatus(user, now);
   if (status !== "expiring" && status !== "expired") return false;
   try {
-    const subject = status === "expired" ? "[会员到期] 你的会员已到期" : "[会员临期] 你的会员即将到期";
-    const named = user.deferredMembershipMs || user.followsDriveExpiry ? null : user.membershipExpiryLabel?.trim();
-    const expiryText = named
-      ? named
-      : user.subscriptionExpiresAt
-        ? new Date(user.subscriptionExpiresAt).toLocaleString()
-        : "";
-    // 有自定义名称时把真实日期附在小字里：用户问"到底哪天"时不必再来问管理员
-    const expiryNote =
-      named && user.subscriptionExpiresAt ? `（${new Date(user.subscriptionExpiresAt).toLocaleDateString()}）` : "";
-    const when = `${expiryText}${expiryNote}`;
-    const text =
-      status === "expired"
-        ? `你的会员已于 ${when} 到期。如需继续使用会员服务，请联系管理员续费。\n\n—— 天鸿影院`
-        : `你的会员将于 ${when} 到期。为继续使用会员服务，请及时联系管理员续费。\n\n—— 天鸿影院`;
-    await email.sendNotification(user.email, subject, text, buildHtml(subject, text));
+    const { subject, text, html } = buildMembershipEmail(user, status, portalUrl);
+    await email.sendNotification(user.email, subject, text, html);
     return true;
   } catch {
     return false;

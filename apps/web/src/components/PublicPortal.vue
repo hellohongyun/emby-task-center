@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import SvgIcon from "@jamescoyle/vue-icon";
 import {
   mdiHome,
@@ -53,7 +54,7 @@ onBeforeUnmount(() => clearInterval(refreshTimer));
       <header class="portal-header">
         <div class="brand">
           <img src="/logo.svg" alt="" aria-hidden="true" />
-          <button type="button" class="brand-name" @click="navigateTo('home')">影视中心</button>
+          <button type="button" class="brand-name" @click="navigateTo('home')">{{ SITE_BRAND_NAME }}</button>
           <AppVersion />
         </div>
 

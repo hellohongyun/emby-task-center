@@ -13,6 +13,7 @@
  *    接口一律回掩码，日志需脱敏（2026-09-10 用户决策）。
  */
 import { z } from "zod";
+import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import { VIRTUAL_PROXY_SETTINGS } from "../virtual-libraries/proxy-setting-definitions";
 
 import { ALL_PLATFORMS, DEFAULT_ENABLED_PLATFORMS, PLATFORM_META } from "../pansou/pansou-filter";
@@ -153,7 +154,8 @@ export const DEFAULT_UNFREEZE_NOTICE = [
  * `{{email}}` `{{serverAddress}}` `{{username}}` `{{password}}` `{{maxStreams}}`
  * `{{streamLimitNote}}` `{{platformUrl}}`
  */
-export const DEFAULT_WELCOME_EMAIL_SUBJECT = "[天鸿影院] 你的 Emby 账号已开通";
+const LEGACY_BRAND_NAME = "天鸿影院";
+export const DEFAULT_WELCOME_EMAIL_SUBJECT = `[${SITE_BRAND_NAME}] 你的 Emby 账号已开通`;
 
 /** 开通邮件正文默认文案：登录信息 + 登录教程 + 并发口径（正文里不写死地址与路数）。 */
 export const DEFAULT_WELCOME_EMAIL_BODY = [
@@ -173,8 +175,13 @@ export const DEFAULT_WELCOME_EMAIL_BODY = [
   "【温馨提示】{{streamLimitNote}}",
   "如无法登录或地址错误，请联系管理员为你核对。",
   "",
-  "—— 天鸿影院",
+  `—— ${SITE_BRAND_NAME}`,
 ].join("\n");
+
+function updateLegacyWelcomeDefault(value: string, currentDefault: string): string {
+  const legacyDefault = currentDefault.replace(SITE_BRAND_NAME, LEGACY_BRAND_NAME);
+  return value.trim().replace(/\r\n/g, "\n") === legacyDefault ? currentDefault : value;
+}
 
 /**
  * 注册/开通成功后，门户「我的」页上那块 Emby 配置提示的默认标题与正文（后台可改）。
@@ -299,13 +306,21 @@ export const SETTINGS = {
     group: "member",
     label: "开通邮件主题",
     help: "注册/开通成功后那封 Emby 账号邮件的主题；留空回落默认主题。",
-    schema: z.string().max(200).default(DEFAULT_WELCOME_EMAIL_SUBJECT),
+    schema: z
+      .string()
+      .max(200)
+      .transform((value) => updateLegacyWelcomeDefault(value, DEFAULT_WELCOME_EMAIL_SUBJECT))
+      .default(DEFAULT_WELCOME_EMAIL_SUBJECT),
   },
   "member.welcomeEmailBody": {
     group: "member",
     label: "开通邮件正文",
     help: "支持占位符 {{email}} {{serverAddress}} {{username}} {{password}} {{maxStreams}} {{streamLimitNote}} {{platformUrl}}；留空回落默认文案。",
-    schema: z.string().max(8_000).default(DEFAULT_WELCOME_EMAIL_BODY),
+    schema: z
+      .string()
+      .max(8_000)
+      .transform((value) => updateLegacyWelcomeDefault(value, DEFAULT_WELCOME_EMAIL_BODY))
+      .default(DEFAULT_WELCOME_EMAIL_BODY),
     multiline: true,
   },
   "member.embyOnboardTitle": {
@@ -385,7 +400,10 @@ export const SETTINGS = {
   "email.fromName": {
     group: "email",
     label: "发件人名称",
-    schema: z.string().default("Media Task Center"),
+    schema: z
+      .string()
+      .transform((value) => (["Media Task Center", LEGACY_BRAND_NAME].includes(value.trim()) ? SITE_BRAND_NAME : value))
+      .default(SITE_BRAND_NAME),
     env: "SMTP_FROM_NAME",
   },
   "email.fromAddress": {

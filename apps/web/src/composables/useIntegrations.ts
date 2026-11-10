@@ -1,8 +1,15 @@
+import type { EmailScene } from "@emby-task-center/contracts/email-scenes";
 import { getCurrentScope, onScopeDispose, ref } from "vue";
 import { fetchJsonWithTimeout } from "./request-timeout";
 
-// 收件人相关的接口（全局收件人 + 任务收件人 + 任务设置读写）随「任务更新通知」整条链删除
-// （2026-09）：那条邮件链已经没有发送方，界面上也早没有入口。这里只剩连接状态与两个测试按钮。
+export interface EmailPreview {
+  subject: string;
+  text: string;
+  html: string;
+}
+
+const emailPreviewPath = "/api/integrations/email/preview";
+
 export function useIntegrations(requireAuth: () => void, fetchImpl: typeof fetch = fetch) {
   // emailMissing：未配置时后端列出还缺哪些设置项（按注册表标签），前端直接展示，不再让用户猜。
   const status = ref({ embyConfigured: false, emailConfigured: false, emailMissing: [] as string[] });
@@ -37,6 +44,7 @@ export function useIntegrations(requireAuth: () => void, fetchImpl: typeof fetch
     controller: AbortController,
     init?: RequestInit,
     timeoutMs = 15_000,
+    requestKey = url,
   ): Promise<T> {
     const { response, body } = await fetchJsonWithTimeout<T & { error?: string }>(
       fetchImpl,
@@ -45,14 +53,14 @@ export function useIntegrations(requireAuth: () => void, fetchImpl: typeof fetch
       timeoutMs,
       true,
     ).catch((caught: unknown) => {
-      if (active(url, controller) && !controller.signal.aborted && (caught as Error).name === "AbortError") {
+      if (active(requestKey, controller) && !controller.signal.aborted && (caught as Error).name === "AbortError") {
         throw new Error(
           url.endsWith("/email/test") ? "请求超时；测试邮件可能已发送，请先检查收件箱。" : "请求超时，请稍后重试。",
         );
       }
       throw caught;
     });
-    if (!active(url, controller)) throw new DOMException("Request aborted", "AbortError");
+    if (!active(requestKey, controller)) throw new DOMException("Request aborted", "AbortError");
     if (response.status === 401) {
       requireAuth();
       throw new Error("unauthorized");
@@ -109,16 +117,40 @@ export function useIntegrations(requireAuth: () => void, fetchImpl: typeof fetch
       { method: "POST" },
       30_000,
     );
-  const testEmail = (email: string) =>
+  const testEmail = (email: string, scene?: EmailScene) =>
     test<{ ok: boolean }>(
       "/api/integrations/email/test",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, scene }),
       },
       90_000,
     );
+
+  function cancelEmailPreview() {
+    requests.get(emailPreviewPath)?.abort();
+    requests.delete(emailPreviewPath);
+  }
+
+  async function previewEmail(scene: EmailScene): Promise<EmailPreview> {
+    const controller = begin(emailPreviewPath);
+    try {
+      const url = emailPreviewPath + "?" + new URLSearchParams({ scene });
+      const preview = await request<EmailPreview>(url, controller, undefined, 15_000, emailPreviewPath);
+      if (
+        !preview ||
+        typeof preview.subject !== "string" ||
+        typeof preview.text !== "string" ||
+        typeof preview.html !== "string"
+      ) {
+        throw new Error("invalid_email_preview");
+      }
+      return preview;
+    } finally {
+      if (active(emailPreviewPath, controller)) requests.delete(emailPreviewPath);
+    }
+  }
 
   return {
     status,
@@ -128,6 +160,8 @@ export function useIntegrations(requireAuth: () => void, fetchImpl: typeof fetch
     load,
     testEmby,
     testEmail,
+    previewEmail,
+    cancelEmailPreview,
     cancel,
   };
 }

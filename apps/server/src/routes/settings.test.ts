@@ -3,14 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { EMAIL_SCENES } from "@emby-task-center/contracts/email-scenes";
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
 import { createApp } from "../app";
 import { ensureDefaultAdminAccount, verifyAdminCredentials } from "../settings/admin-account";
 import { readSetting } from "../settings/store";
 import { createLibraryService } from "../library/service";
 import { createTmdbClient } from "../tmdb/client";
+import { createEmbyClient } from "../integrations/emby-client";
+import type { EmailNotifier } from "../notifications/email-service";
 
 const sharedPassword = "family-password";
 
@@ -37,11 +40,15 @@ describe("settings API", () => {
   let server: Server;
   let baseUrl: string;
   let cookie: string;
+  let smtpConfigured: boolean;
+  const sendTest = vi.fn<EmailNotifier["sendTest"]>();
 
   beforeEach(async () => {
     directory = mkdtempSync(join(tmpdir(), "emby-settings-api-"));
     database = createDatabase(join(directory, "settings.sqlite"));
     ensureDefaultAdminAccount(database.db, { password: sharedPassword });
+    smtpConfigured = false;
+    sendTest.mockReset().mockResolvedValue(undefined);
     const app = createApp({
       database: database.db,
       auth: {
@@ -53,6 +60,17 @@ describe("settings API", () => {
       },
       tmdb: createTmdbClient({ token: "tmdb-server-token" }),
       library: createLibraryService([], undefined),
+      integrationServices: {
+        emby: createEmbyClient({}),
+        email: {
+          get configured() {
+            return smtpConfigured;
+          },
+          sendTest,
+          retryPending: async () => undefined,
+          sendNotification: async () => undefined,
+        },
+      },
     });
     server = app.listen(0);
     await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -94,6 +112,52 @@ describe("settings API", () => {
       body: JSON.stringify({ values: { "email.host": "smtp.example.com" } }),
     });
     expect(patch.status).toBe(401);
+  });
+
+  it("previews mail without SMTP and sends only explicit admin test messages", async () => {
+    const preview = `${baseUrl}/api/integrations/email/preview`;
+    const test = `${baseUrl}/api/integrations/email/test`;
+    const address = "operator@example.invalid";
+    const send = (scene?: string, authenticated = true) =>
+      fetch(test, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(authenticated ? { cookie } : {}) },
+        body: JSON.stringify({ email: address, scene }),
+      });
+    expect((await fetch(preview + "?scene=login")).status).toBe(401);
+    expect((await send("login", false)).status).toBe(401);
+    expect((await send("login")).status).toBe(409);
+    for (const scene of Object.keys(EMAIL_SCENES)) {
+      const response = await fetch(preview + "?scene=" + scene, { headers: { cookie } });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      const sample = await response.json();
+      expect(sample).toMatchObject({
+        html: expect.stringContaining("开心果影院"),
+        subject: expect.any(String),
+        text: expect.any(String),
+      });
+      expect(sample.html).not.toMatch(/href=|<script/);
+    }
+    expect(sendTest).not.toHaveBeenCalled();
+    smtpConfigured = true;
+    const rejected = await send("invalid");
+    expect(await rejected.json()).toEqual({ error: "invalid_scene" });
+    expect((await send("login")).status).toBe(200);
+    expect(sendTest).toHaveBeenCalledWith(
+      address,
+      expect.objectContaining({
+        subject: "[测试] [开心果影院] 邮箱验证码",
+        text: expect.stringContaining("123456"),
+        html: expect.stringContaining("登录验证码"),
+      }),
+    );
+    expect((await send()).status).toBe(200);
+    expect(sendTest).toHaveBeenLastCalledWith(address);
+    sendTest.mockRejectedValueOnce(new Error("smtp-internal-credential"));
+    const failed = await send("login");
+    expect(failed.status).toBe(502);
+    expect(await failed.json()).toEqual({ error: "email_delivery_failed" });
   });
 
   it("returns grouped settings with registry metadata", async () => {

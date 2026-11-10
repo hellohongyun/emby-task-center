@@ -234,6 +234,7 @@ export function createApp(options: AppOptions) {
   });
   registerOperationsRoutes(app, { database: options.database, library: options.library });
   registerIntegrationRoutes(app, {
+    database: options.database,
     // 直接透传：状态位可能是 getter，由路由在每次请求时现取（保存配置后无需重启即刷新）。
     configured: options.integrationStatus,
     services: options.integrationServices,

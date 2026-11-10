@@ -1,3 +1,4 @@
+import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import { fireEvent, render, screen, waitFor } from "@testing-library/vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -128,7 +129,8 @@ describe("PublicPortal", () => {
     expect(await screen.findByText("登录 / 开通会员")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("you@example.com")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /管理端口/ })).toBeInTheDocument();
-    expect(screen.queryByText("影迷影视中心")).not.toBeInTheDocument();
+    expect(screen.getByText(SITE_BRAND_NAME)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: SITE_BRAND_NAME })).not.toBeInTheDocument();
     expect(screen.queryByText("最近入库")).not.toBeInTheDocument();
     expect(screen.queryByText("黑客帝国")).not.toBeInTheDocument();
   });
@@ -139,7 +141,8 @@ describe("PublicPortal", () => {
     render(PublicPortal);
 
     // 登录后首页默认展示：英雄区 + 热点横流 + 最近入库
-    expect(await screen.findByText("影迷影视中心")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: SITE_BRAND_NAME })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: SITE_BRAND_NAME })).toBeInTheDocument();
     expect((await screen.findAllByText("影片趋势")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("黑客帝国").length).toBeGreaterThan(0);
     expect(await screen.findByText("最近入库")).toBeInTheDocument();
@@ -156,7 +159,7 @@ describe("PublicPortal", () => {
     vi.stubGlobal("fetch", portalFetchMock(true));
 
     render(PublicPortal);
-    expect(await screen.findByText("影迷影视中心")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: SITE_BRAND_NAME })).toBeInTheDocument();
 
     const searchInput = screen.getAllByPlaceholderText("搜影视库 / 影片…")[0]!;
     await fireEvent.update(searchInput, "黑客");
@@ -170,7 +173,7 @@ describe("PublicPortal", () => {
     vi.stubGlobal("fetch", portalFetchMock(true));
 
     render(PublicPortal);
-    await screen.findByText("影迷影视中心");
+    await screen.findByRole("heading", { name: SITE_BRAND_NAME });
 
     const card = (await screen.findAllByText("黑客帝国"))
       .map((element) => element.closest("article"))
@@ -185,20 +188,20 @@ describe("PublicPortal", () => {
     vi.stubGlobal("fetch", portalFetchMock(true));
 
     render(PublicPortal);
-    await screen.findByText("影迷影视中心");
+    await screen.findByRole("heading", { name: SITE_BRAND_NAME });
 
     // 退出后回到锁定页：登录卡片 + 管理端口，内容全部隐藏
     await fireEvent.click(screen.getAllByTitle("退出登录")[0]!);
     await waitFor(() => expect(screen.getByText("登录 / 开通会员")).toBeInTheDocument());
     expect(screen.getByRole("link", { name: /管理端口/ })).toBeInTheDocument();
-    expect(screen.queryByText("影迷影视中心")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: SITE_BRAND_NAME })).not.toBeInTheDocument();
   });
 
   it("opens the trending detail dialog without any submission affordance", async () => {
     vi.stubGlobal("fetch", portalFetchMock(true));
 
     render(PublicPortal);
-    await screen.findByText("影迷影视中心");
+    await screen.findByRole("heading", { name: SITE_BRAND_NAME });
 
     const card = (await screen.findAllByText("黑客帝国"))
       .map((element) => element.closest("article"))

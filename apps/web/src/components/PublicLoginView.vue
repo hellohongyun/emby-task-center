@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import SvgIcon from "@jamescoyle/vue-icon";
 import { mdiArrowLeft, mdiEmailOutline, mdiLogin, mdiShieldKeyOutline, mdiTicketConfirmationOutline } from "@mdi/js";
 import { usePublicLoginFlow } from "../composables/usePublicLoginFlow";
@@ -47,7 +48,7 @@ const {
     <section class="login-card" aria-labelledby="login-title">
       <div class="brand">
         <img src="/logo.svg" alt="" aria-hidden="true" />
-        <span>影视中心</span>
+        <span>{{ SITE_BRAND_NAME }}</span>
       </div>
 
       <div class="card-head">

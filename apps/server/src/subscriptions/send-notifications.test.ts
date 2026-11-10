@@ -8,9 +8,9 @@ import type { EmailNotifier } from "../notifications/email-service";
 describe("buildHtml", () => {
   it("统一品牌模板包裹正文，并转义 HTML", () => {
     const html = buildHtml("主题", "正文 <b>加粗</b>");
-    expect(html).toContain("天鸿影院");
+    expect(html).toContain("开心果影院");
     expect(html).toContain("正文 &lt;b&gt;加粗&lt;/b&gt;");
-    expect(html).toContain("本邮件由 天鸿影院 自动发送");
+    expect(html).toContain("本邮件由 开心果影院 自动发送");
   });
 });
 
