@@ -2,7 +2,7 @@
 
 开发、修复、客户端验收及发布的完整操作流程见 [开发与发布流程](development-release.md)。本文维护版本与镜像标签规则。
 
-当前正式版本为 `1.5.1`。正式发布统一采用 `主版本.次版本.补丁版本`（`X.Y.Z`），不再使用日期或功能名称作为新正式版本号，也不加 `v` 前缀。
+当前正式版本为 `1.5.2`。正式发布统一采用 `主版本.次版本.补丁版本`（`X.Y.Z`），不再使用日期或功能名称作为新正式版本号，也不加 `v` 前缀。
 
 ## 递增规则
 
@@ -22,14 +22,14 @@
 
 ## 镜像标签
 
-每次正式发布从同一次构建生成两个标签。例如 `1.5.1`：
+每次正式发布从同一次构建生成两个标签。例如 `1.5.2`：
 
 ```text
-ghcr.io/hellohongyun/emby-task-center:1.5.1
+ghcr.io/hellohongyun/emby-task-center:1.5.2
 ghcr.io/hellohongyun/emby-task-center:latest
 ```
 
-固定标签用于追溯与回滚，`latest` 用于日常部署。先完成构建和验证，再发布固定版本并更新 `latest`；两个标签的镜像摘要必须一致。前端显示固定版本号，例如 `1.5.1`，而不是 `latest`。
+固定标签用于追溯与回滚，`latest` 用于日常部署。先完成构建和验证，再发布固定版本并更新 `latest`；两个标签的镜像摘要必须一致。前端显示固定版本号，例如 `1.5.2`，而不是 `latest`。
 
 发布前须核对根版本、前端构建版本、镜像 OCI 版本与固定标签一致，并验证容器健康、页面和登录。当前公开镜像平台为 `linux/amd64`。
 
@@ -43,7 +43,7 @@ pnpm release:ghcr
 随后运行 Docker 冒烟，Windows PowerShell 示例（镜像标签替换为根版本）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/docker-smoke.ps1 -Image ghcr.io/hellohongyun/emby-task-center:1.5.1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/docker-smoke.ps1 -Image ghcr.io/hellohongyun/emby-task-center:1.5.2
 ```
 
 验证通过后，在已登录 GHCR 的构建机器发布刚才验证的镜像：

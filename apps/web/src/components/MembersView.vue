@@ -23,6 +23,7 @@ import SessionPlaybackCard from "./SessionPlaybackCard.vue";
 import MemberExpiryCleanupDialog from "./MemberExpiryCleanupDialog.vue";
 import type { MemberCleanupMode } from "./member-cleanup-settings";
 import MemberRenewalDialog from "./MemberRenewalDialog.vue";
+import MemberReductionDialog from "./MemberReductionDialog.vue";
 import MembershipDriveExpirySettings from "./MembershipDriveExpirySettings.vue";
 import CopyTextButton from "./CopyTextButton.vue";
 import MemberAvatar from "./MemberAvatar.vue";
@@ -40,6 +41,7 @@ const pageError = computed(() => {
 const busy = ref(false);
 const message = ref("");
 const renewingMember = ref<SubmissionUser | null>(null);
+const reducingMember = ref<SubmissionUser | null>(null);
 const profileMemberId = ref<number | null>(null);
 const profileMember = computed(() => admin.users.value.find((user) => user.id === profileMemberId.value));
 const memberSearch = ref("");
@@ -50,6 +52,7 @@ const refreshingPage = ref(false);
 const expandedRows = reactive<Record<string | number, boolean>>({});
 async function renewalSaved(text: string) {
   renewingMember.value = null;
+  reducingMember.value = null;
   message.value = text;
   await Promise.all([admin.load(), eu.load(true)]);
 }
@@ -523,6 +526,14 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
                       续期
                     </button>
                     <button
+                      v-if="row.member.subscriptionExpiresAt && !row.member.followsDriveExpiry"
+                      type="button"
+                      class="warn secondary-action"
+                      @click="reducingMember = row.member"
+                    >
+                      减少天数
+                    </button>
+                    <button
                       v-if="concurrencyMeta(row.member).active"
                       type="button"
                       class="warn secondary-action"
@@ -690,6 +701,14 @@ function memberEmailForSession(session: EmbySessionRow): string | null {
       :save="admin.updateProfile"
       :sync-avatar="admin.syncProfileAvatar"
       @close="profileMemberId = null"
+    />
+    <MemberReductionDialog
+      v-if="reducingMember"
+      :member="reducingMember"
+      :drive-expiry="driveExpiry"
+      :require-auth="requireAuth"
+      @close="reducingMember = null"
+      @saved="renewalSaved"
     />
     <!--
       在线会话：详情对齐 Emby 客户端的播放状态（片名/季节集/进度/设备/直连或转码/编码音轨）。

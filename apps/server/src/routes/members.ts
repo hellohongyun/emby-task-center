@@ -12,6 +12,7 @@ import { readId } from "./route-utils";
 import { registerAdminMemberProfileRoutes } from "./member-profile";
 import type { WorkflowLogger } from "../logging/workflow-log";
 import { registerMemberRenewal } from "./member-renewal";
+import { registerMemberReduction } from "./member-reduction";
 import { registerMembershipDriveExpiry } from "./membership-drive-expiry";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
@@ -70,6 +71,7 @@ export interface MemberRouteOptions {
 export function registerMemberRoutes(app: Express, options: MemberRouteOptions): void {
   const { database, email, emby } = options;
   registerMemberRenewal(app, options);
+  registerMemberReduction(app, options);
   registerMembershipDriveExpiry(app, options);
   registerAdminMemberProfileRoutes(app, options);
   app.get("/api/submission-users", (_request: Request, response: Response) => {

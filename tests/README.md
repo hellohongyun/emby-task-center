@@ -93,6 +93,21 @@ pnpm --filter @emby-task-center/web test src/components/MemberExpiryCleanupDialo
 
 隔离 SQLite、管理端 HTTP 与回环 Emby 测试覆盖默认关闭、旧会员、精确到期边界、无绑定会员、管理员与冻结权益保护、连接切换、预览冲突、删除失败和响应丢失后的重试核对，以及续期、卡密和网盘上限修改与清理并发时的保护。定时测试验证启动检查、下一轮读取新设置及停止行为。构建后的网页使用真实管理端 API 和回环 Emby，在 320／390／1440 像素下验证预览、启用、定向清理和关闭。删除仅作用于测试数据。
 
+## 减少会员天数
+
+```powershell
+pnpm exec vitest run apps/server/src/subscriptions/admin-reduction.test.ts apps/server/src/subscriptions/admin-reduction-deep.test.ts apps/server/src/routes/member-reduction.test.ts apps/server/src/routes/member-reduction-races.test.ts
+pnpm --filter @emby-task-center/web test src/components/MemberReductionDialog.test.ts src/components/MemberReductionDialog.boundaries.test.ts src/components/MembersView.reduction.test.ts src/components/MembersView.test.ts
+pnpm build
+pnpm exec playwright test -c playwright.deep.config.ts tests/e2e/member-reduction.spec.ts tests/e2e/member-reduction-boundaries.spec.ts
+```
+
+覆盖先扣待激活余额、余额不足时缩短原实际到期时间、超额扣减及已过期会员、旧预览冲突、长期会员与正在清理账号保护、重复请求与重启后的幂等、通知入队失败回滚、Emby 停用及失败补偿。浏览器联动使用临时 SQLite、回环 SMTP 和本地 Emby 夹具，核对扣减入口、预览、保存与刷新后的权益，以及扣减邮件正文；不操作真实会员和外部服务。
+
+深度回归用两个 SQLite 连接验证扣减与续期、网盘改期之间的旧快照拒绝，连续 90 次混合操作与多次重开验证毫秒权益守恒。受控慢 Emby 停用请求验证续期和补偿任务先完成时，旧请求稍后落地仍会重新排队同步最新权限，不解除管理员停用或冻结。邮件验证 SMTP 缺失时保留原扣减结果，后续续期不改写待发正文。
+
+组件边界覆盖非法与最大天数、半天余额、并发刷新时预览快照、异常响应不自动重试、忙时禁止关闭、卸载后的迟到成功及键盘焦点。浏览器另验证双管理员旧弹窗冲突、320 像素布局、扣减后旧门户会话立即失去内容访问但保留资料与续费入口、卡密恢复，以及 SMTP 失败不撤销已保存扣减。
+
 ## 网盘到期上限
 
 ```powershell
