@@ -26,6 +26,8 @@ pnpm exec vitest run apps/server/src/virtual-libraries apps/server/src/routes/vi
 
 私人库另由 `private-store.test.ts`、`public-virtual-libraries.test.ts`、`private-access.test.ts` 和 `private-proxy-http.test.ts` 验证所属用户、公共库兼容、越权读写、绑定账号选片、真实凭据身份、私人封面 tag、账号状态与绑定变化，以及私人库前置后的分页。HTTP 代理用本地上游和临时 SQLite，不调用真实 Emby。
 
+身份回归明确模拟 Emby 的 `/Users/Me` 不存在，通过真实登录响应建立令牌归属；覆盖旧令牌未确认时不暴露私人库、冒充用户 ID 拒绝、账号改绑与令牌失效，以及服务重启后的归属保留。成功登录夹具不再虚构 Emby 不支持的身份端点。
+
 `PersonalVirtualLibraries.test.ts` 验证门户入口与复用管理页面的私有 API、选片、排序和海报操作。完整浏览器回归运行前先构建：
 
 ```powershell

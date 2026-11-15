@@ -10,6 +10,8 @@ import { createVirtualProxyHandler } from "./proxy-handler";
 import { createOwnedViewPreferences } from "./owned-view-preferences";
 import { forwardUpgrade } from "./proxy-transport";
 import { privateIdentity } from "./private-access";
+import { createPrivateTokenIdentity } from "./private-token-identity";
+import { createPrivateIdentityStore } from "./private-identity-store";
 import { memberAccessError } from "../subscriptions/member-access";
 import {
   readVirtualProxyConfig,
@@ -38,6 +40,7 @@ export function createVirtualLibraryProxy(options: {
     return active ? expandLibraryOrder(active.order, active.aliases) : undefined;
   };
   const marker = randomUUID();
+  const identities = createPrivateTokenIdentity(createPrivateIdentityStore(options.database));
   let active: { server: Server; sockets: Set<Socket>; config: VirtualProxyConfig } | undefined;
   let error: string | null = null;
   let pending = Promise.resolve();
@@ -95,6 +98,7 @@ export function createVirtualLibraryProxy(options: {
               const member = members[0];
               return memberAccessError(options.database, member.email, true) ? undefined : member.id;
             },
+            identities,
           ),
         );
         instance.server.on("connection", (socket) => {

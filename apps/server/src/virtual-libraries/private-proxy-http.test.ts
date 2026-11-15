@@ -30,6 +30,7 @@ describe("private libraries through the actual HTTP proxy", () => {
   let posterTag: string;
   let memberId: number;
   let observed: string[];
+  let revoked = false;
   const get = (path: string, token = "alice-token", method = "GET") =>
     fetch(base + path, {
       method,
@@ -43,6 +44,7 @@ describe("private libraries through the actual HTTP proxy", () => {
   beforeEach(async () => {
     database = createDatabase(":memory:");
     observed = [];
+    revoked = false;
     const now = new Date().toISOString();
     memberId = database.db
       .insert(submissionUsers)
@@ -73,23 +75,47 @@ describe("private libraries through the actual HTTP proxy", () => {
         const url = new URL(request.url!, "http://upstream.test");
         observed.push(url.pathname);
         const token = request.headers["x-emby-token"];
-        const id = token === "alice-token" ? aliceId : token === "bob-token" ? bobId : undefined;
+        const id =
+          token === "alice-token" || token === "legacy-token"
+            ? aliceId
+            : token === "bob-token"
+              ? bobId
+              : token === "admin-token"
+                ? "admin"
+                : undefined;
+        if (request.method === "POST" && url.pathname === "/Users/AuthenticateByName") {
+          const chunks: Buffer[] = [];
+          request.on("data", (chunk) => chunks.push(chunk));
+          request.on("end", () => {
+            const { Username } = JSON.parse(Buffer.concat(chunks).toString());
+            const loginId = Username === "bob" ? bobId : Username === "admin" ? "admin" : aliceId;
+            response.writeHead(Username === "failed" ? 401 : 200, { "content-type": "application/json" }).end(
+              JSON.stringify({
+                AccessToken: `${Username}-token`,
+                User: { Id: loginId },
+                SessionInfo: { UserId: loginId },
+              }),
+            );
+          });
+          return;
+        }
+        if (url.pathname === "/Users/Me") {
+          response.writeHead(404).end();
+          return;
+        }
         if (url.pathname.startsWith("/Videos/")) {
           response.end("original-stream");
           return;
         }
-        if (!id) {
+        if (!id || (revoked && token === "alice-token")) {
           response.writeHead(401).end();
           return;
         }
-        const body =
-          url.pathname === "/Users/Me"
-            ? { Id: id }
-            : /^\/Users\/[^/]+$/.test(url.pathname)
-              ? { Configuration: {} }
-              : url.pathname.endsWith("/Views")
-                ? { Items: [{ Id: "native", Type: "CollectionFolder" }], TotalRecordCount: 1 }
-                : { Items: [], TotalRecordCount: 0 };
+        const body = /^\/Users\/[^/]+$/.test(url.pathname)
+          ? { Id: url.pathname.split("/")[2], Configuration: {} }
+          : url.pathname.endsWith("/Views")
+            ? { Items: [{ Id: "native", Type: "CollectionFolder" }], TotalRecordCount: 1 }
+            : { Items: [], TotalRecordCount: 0 };
         response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
       }),
     );
@@ -102,6 +128,15 @@ describe("private libraries through the actual HTTP proxy", () => {
     proxy = createVirtualLibraryProxy({ database: database.db, appPort: 3000 });
     await proxy.configure({ enabled: true, upstream, port: proxyPort });
     base = `http://127.0.0.1:${proxyPort}`;
+    for (const Username of ["alice", "bob", "admin"]) {
+      const response = await fetch(base + "/Users/AuthenticateByName", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ Username, Pw: "fixture" }),
+      });
+      expect(response.status).toBe(200);
+      expect(((await response.json()) as { AccessToken: string }).AccessToken).toBe(`${Username}-token`);
+    }
   });
   afterEach(async () => {
     await proxy?.close();
@@ -117,9 +152,20 @@ describe("private libraries through the actual HTTP proxy", () => {
     expect((await get(`/Items/${privateId}`)).status).toBe(200);
     expect((await get(`/Items?ParentId=${privateId}`)).status).toBe(200);
     expect((await get(`/Users/${aliceId}/Views`, "")).status).toBe(401);
+    expect(observed).not.toContain("/Users/Me");
+  });
+  it("requires a proven login for existing tokens and never learns from failed authentication", async () => {
+    expect((await get(`/Items/${privateId}`, "legacy-token")).status).toBe(404);
+    const denied = await fetch(base + "/Users/AuthenticateByName", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ Username: "failed" }),
+    });
+    expect(denied.status).toBe(401);
+    expect((await get(`/Items/${privateId}`, "failed-token")).status).toBe(404);
   });
   it("rejects guessed IDs, mixed queries, latest sections and tagged posters for other or anonymous accounts", async () => {
-    for (const token of ["bob-token", ""]) {
+    for (const token of ["bob-token", "admin-token", "admin-must-never-be-used", ""]) {
       for (const path of [
         `/Items/${privateId}`,
         `/Items?ParentId=${privateId}`,
@@ -137,6 +183,7 @@ describe("private libraries through the actual HTTP proxy", () => {
     expect(observed.some((path) => path.includes(privateId))).toBe(false);
   });
   it("rejects request UserId impersonation even when upstream accepts it", async () => {
+    expect((await get(`/Items/${privateId}?UserId=${aliceId}`, "admin-token")).status).toBe(404);
     expect((await get(`/Users/${aliceId}/Items/${privateId}`, "bob-token")).status).toBe(404);
     expect((await get(`/Items/${privateId}?UserId=${aliceId}`, "bob-token")).status).toBe(404);
     const response = await get(`/Users/${aliceId}/Views`, "bob-token");
@@ -179,6 +226,11 @@ describe("private libraries through the actual HTTP proxy", () => {
       expect(await list("alice-token")).not.toContain(privateId);
     },
   );
+  it("fails closed for revoked credentials even with a proven token owner", async () => {
+    expect((await get(`/Items/${privateId}`)).status).toBe(200);
+    revoked = true;
+    expect((await get(`/Items/${privateId}`)).status).toBe(404);
+  });
   it("keeps ordinary stream requests free of identity lookups", async () => {
     observed.length = 0;
     const response = await get("/Videos/movie/stream?static=true");

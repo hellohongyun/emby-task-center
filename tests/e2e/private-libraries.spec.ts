@@ -34,16 +34,34 @@ test("private libraries persist, stay owner-only, and precede public libraries",
     startUpstream: () =>
       startEmbyFixture({
         handle(request, response, _url, path) {
-          if (path !== "/Users/Me") return false;
-          const token = request.headers["x-emby-token"];
-          if (token !== "owner-token" && token !== "other-token") response.writeHead(401).end();
-          else
-            response.writeHead(200, { "content-type": "application/json" }).end(
-              JSON.stringify({
-                Id: token === "owner-token" ? "fixture-user" : "other-user",
-              }),
-            );
-          return true;
+          if (path === "/Users/Me") {
+            response.writeHead(404).end();
+            return true;
+          }
+          if (request.method === "POST" && path === "/Users/AuthenticateByName") {
+            let raw = "";
+            request.on("data", (chunk: Buffer) => {
+              raw += chunk.toString();
+            });
+            request.once("end", () => {
+              const credentials = JSON.parse(raw);
+              const index = emails.indexOf(credentials.Username);
+              if (index < 0 || credentials.Pw !== "fixture-password") response.writeHead(401).end();
+              else
+                response.writeHead(200, { "content-type": "application/json" }).end(
+                  JSON.stringify({
+                    AccessToken: index === 0 ? "owner-token" : "other-token",
+                    User: { Id: index === 0 ? "fixture-user" : "other-user" },
+                  }),
+                );
+            });
+            return true;
+          }
+          if (path === "/Users/other-user") {
+            response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ Id: "other-user" }));
+            return true;
+          }
+          return false;
         },
       }),
   });
@@ -155,6 +173,12 @@ test("private libraries persist, stay owner-only, and precede public libraries",
       ).status(),
     ).toBe(200);
     const proxy = `http://127.0.0.1:${port}`;
+    for (const [index, context] of [owner, other].entries()) {
+      const login = await context.request.post(proxy + "/Users/AuthenticateByName", {
+        data: { Username: emails[index], Pw: "fixture-password" },
+      });
+      expect(login.status()).toBe(200);
+    }
     const views = await owner.request.get(proxy + "/Users/fixture-user/Views", {
       headers: { "X-Emby-Token": "owner-token" },
     });
@@ -186,6 +210,15 @@ test("private libraries persist, stay owner-only, and precede public libraries",
       page.getByRole("region", { name: "已加入的内容" }).getByText("隔离测试电影", { exact: true }),
     ).toBeVisible();
     await expect(page.getByAltText("我的小众精选媒体库海报")).toBeVisible();
+    const restored = await owner.request.get(proxy + "/Users/fixture-user/Views", {
+      headers: { "X-Emby-Token": "owner-token" },
+    });
+    expect((await restored.json()).Items.map((item: { Id: string }) => item.Id)).toEqual([
+      secondId,
+      id,
+      "fixture-movies",
+      sharedId,
+    ]);
     for (const width of [320, 390, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

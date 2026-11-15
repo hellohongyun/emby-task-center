@@ -11,6 +11,7 @@ import { serveOwnedPoster } from "./proxy-poster";
 import { appendOwnedHomeSections, ownedLatestLibraryId } from "./owned-home-sections";
 import { isRootLibraryDiscovery } from "./root-library-discovery";
 import { privateMember, privateRequestStore, forbiddenPrivateReference } from "./private-access";
+import { createPrivateTokenIdentity, isPrivateAuthentication } from "./private-token-identity";
 
 export function createVirtualProxyHandler(
   allStore: VirtualLibraryStore,
@@ -19,6 +20,7 @@ export function createVirtualProxyHandler(
   preferences?: OwnedViewPreferences,
   readAdminOrder?: (upstream: string) => readonly string[] | undefined,
   lookupMember?: (embyId: string) => number | undefined,
+  identities = createPrivateTokenIdentity(),
 ) {
   const repairMappings = createProxyMappingRepair(allStore);
   const homeSections = createHomeSectionCache();
@@ -47,7 +49,12 @@ export function createVirtualProxyHandler(
               url.pathname,
             )));
       const memberId = privateBrowsing
-        ? await privateMember(url, (target, timeout) => upstreamJson(context, target, timeout), lookupMember)
+        ? await privateMember(
+            url,
+            (target, timeout) => upstreamJson(context, target, timeout),
+            lookupMember,
+            identities.resolve(context.upstream, url, request.headers),
+          )
         : undefined;
       const store = hasPrivate ? privateRequestStore(requestStore, memberId) : allStore;
       if (hasPrivate && forbiddenPrivateReference(url, requestStore, store)) {
@@ -155,6 +162,7 @@ export function createVirtualProxyHandler(
               }
             }
           : undefined,
+        isPrivateAuthentication(request.method, url) ? (body) => identities.observe(context.upstream, body) : undefined,
       );
     } catch {
       if (response.destroyed) return;

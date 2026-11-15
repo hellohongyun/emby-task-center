@@ -49,22 +49,47 @@ function requestHeaders(context: ProxyTarget, target: URL): IncomingHttpHeaders 
 }
 
 /** Streaming passthrough: no body parser, redirect following, or playback-duration timeout. */
-export function forwardRequest(context: ProxyTarget, path = context.request.url ?? "/", onSuccess?: () => void): void {
+export function forwardRequest(
+  context: ProxyTarget,
+  path = context.request.url ?? "/",
+  onSuccess?: () => void,
+  observeAuthentication?: (body: unknown) => void,
+): void {
   const target = targetUrl(context.upstream, path);
   const send = target.protocol === "https:" ? httpsRequest : httpRequest;
   const upstream = send(
     target,
     {
       method: context.request.method,
-      headers: requestHeaders(context, target),
+      headers: {
+        ...requestHeaders(context, target),
+        ...(observeAuthentication ? { "accept-encoding": "identity" } : {}),
+      },
       signal: context.signal,
     },
     (incoming) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      if (observeAuthentication)
+        incoming.on("data", (chunk: Buffer) => {
+          size += chunk.length;
+          if (size <= 1_048_576) chunks.push(chunk);
+          else chunks.length = 0;
+        });
       const headers = proxyHeaders(incoming.headers);
       context.response.writeHead(incoming.statusCode ?? 502, headers);
       incoming.on("error", () => context.response.destroy());
       incoming.once("end", () => {
-        if ((incoming.statusCode ?? 500) < 300 && (incoming.statusCode ?? 0) >= 200) onSuccess?.();
+        if ((incoming.statusCode ?? 500) < 300 && (incoming.statusCode ?? 0) >= 200) {
+          if (observeAuthentication && size <= 1_048_576) {
+            try {
+              observeAuthentication(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+            } catch {
+              /* An opaque login response cannot establish private-library ownership. */
+            }
+          }
+          onSuccess?.();
+        }
       });
       incoming.pipe(context.response);
     },

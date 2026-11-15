@@ -31,8 +31,10 @@ describe("private proxy authorization", () => {
   it("resolves only upstream token identity and strips the claimed UserId from the probe", async () => {
     const upstream = vi.fn<QueryUpstream>().mockResolvedValue(result({ Id: "alice" }));
     const lookup = vi.fn(() => 1);
-    expect(await privateMember(url("/Users/alice/Views?UserId=alice&api_key=secret"), upstream, lookup)).toBe(1);
-    expect(upstream.mock.calls[0][0].pathname).toBe("/Users/Me");
+    expect(await privateMember(url("/Users/alice/Views?UserId=alice&api_key=secret"), upstream, lookup, "alice")).toBe(
+      1,
+    );
+    expect(upstream.mock.calls[0][0].pathname).toBe("/Users/alice");
     expect([...upstream.mock.calls[0][0].searchParams]).toEqual([["api_key", "secret"]]);
     expect(lookup).toHaveBeenCalledWith("alice");
   });
@@ -40,16 +42,20 @@ describe("private proxy authorization", () => {
     "rejects mismatched user claims: %s",
     async (path) => {
       const lookup = vi.fn(() => 1);
-      expect(await privateMember(url(path), async () => result({ Id: "alice" }), lookup)).toBeUndefined();
+      expect(await privateMember(url(path), async () => result({ Id: "alice" }), lookup, "alice")).toBeUndefined();
       expect(lookup).not.toHaveBeenCalled();
     },
   );
   it("fails closed for missing or failed authenticated identity", async () => {
+    const unknown = vi.fn<QueryUpstream>().mockResolvedValue(result({ Id: "alice" }));
+    expect(await privateMember(url("/Items?UserId=alice"), unknown, () => 1)).toBeUndefined();
+    expect(unknown).not.toHaveBeenCalled();
     expect(
       await privateMember(
         url("/Items"),
         async () => result({}),
         () => 1,
+        "alice",
       ),
     ).toBeUndefined();
     expect(
@@ -59,6 +65,7 @@ describe("private proxy authorization", () => {
           throw new Error("offline");
         },
         () => 1,
+        "alice",
       ),
     ).toBeUndefined();
   });

@@ -97,6 +97,7 @@ function updatePoster(library: VirtualLibrary) {
       <div>
         <h1>{{ personal ? "我的私人媒体库" : "虚拟媒体库" }}</h1>
         <p v-if="personal">仅自己的账号可见。连接虚拟库反代后，私人库排在公共库之前；编辑排序数字可调整私人库顺序。</p>
+        <p v-if="personal">播放器需在本服务反代入口登录；已有登录态请退出后重新登录一次。</p>
         <p v-else>将 Emby 已有影片或剧集映射到新媒体库，在客户端与原有媒体库一起展示。</p>
       </div>
       <button class="vl-primary" type="button" :disabled="saving" @click="openForm()">＋ 新建虚拟媒体库</button>

@@ -5,19 +5,26 @@ export function privateIdentity(value: string) {
   return /^[a-f\d-]{32,36}$/i.test(value) ? value.replaceAll("-", "").toLowerCase() : value;
 }
 
-/** Resolve the token owner upstream; request UserId is never an identity claim. */
+/** Revalidate a previously proven token owner; request UserId never proves ownership. */
 export async function privateMember(
   url: URL,
   upstream: QueryUpstream,
   lookup?: (embyId: string) => number | undefined,
+  verifiedUserId?: string,
 ): Promise<number | undefined> {
-  if (!lookup) return undefined;
+  if (!lookup || !verifiedUserId) return undefined;
   try {
-    const target = authenticationUrl(url, "/Users/Me");
+    const target = authenticationUrl(url, `/Users/${encodeURIComponent(verifiedUserId)}`);
     setParameter(target, "UserId");
     const reply = await upstream(target, 3_000);
     const body = reply.body as { Id?: unknown } | null;
-    if (reply.status < 200 || reply.status >= 300 || typeof body?.Id !== "string" || !body.Id) return undefined;
+    if (
+      reply.status < 200 ||
+      reply.status >= 300 ||
+      typeof body?.Id !== "string" ||
+      privateIdentity(body.Id) !== privateIdentity(verifiedUserId)
+    )
+      return undefined;
     const requested = [
       /^\/Users\/([^/]+)\//i.exec(url.pathname)?.[1],
       ...[...url.searchParams].filter(([key]) => key.toLowerCase() === "userid").map(([, value]) => value),
