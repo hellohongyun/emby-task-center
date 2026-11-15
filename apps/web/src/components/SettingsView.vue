@@ -9,7 +9,12 @@ import EmailTemplatePreview from "./EmailTemplatePreview.vue";
 // 后台不再需要（也不该）提供一个填了不会生效的收件人列表。
 
 const props = defineProps<{
-  status: { embyConfigured: boolean; emailConfigured: boolean; emailMissing?: string[] };
+  status: {
+    embyConfigured: boolean;
+    emailConfigured: boolean;
+    emailDeliveryDisabled?: boolean;
+    emailMissing?: string[];
+  };
   loading: boolean;
   requireAuth?: () => void;
   error?: string;
@@ -59,7 +64,14 @@ async function runTestEmby() {
   }
 }
 async function runTestEmail() {
-  if (!props.status.emailConfigured || !testAddress.value.trim() || testingEmail.value || stopped) return;
+  if (
+    props.status.emailDeliveryDisabled ||
+    !props.status.emailConfigured ||
+    !testAddress.value.trim() ||
+    testingEmail.value ||
+    stopped
+  )
+    return;
   const address = testAddress.value.trim();
   const scene = emailScene.value;
   testingEmail.value = true;
@@ -73,13 +85,15 @@ async function runTestEmail() {
     if (stopped || current !== revision || (error as Error).name === "AbortError") return;
     const reason = (error as Error).message;
     message.value =
-      reason === "email_not_configured"
-        ? "邮件服务尚未配置，请先保存 SMTP 设置。"
-        : reason === "invalid_email"
-          ? "请输入有效的测试收件邮箱。"
-          : reason.includes("请求超时")
-            ? reason
-            : "测试邮件发送失败，请检查 SMTP 配置后重试。";
+      reason === "email_delivery_disabled"
+        ? "当前环境已禁用邮件发送。"
+        : reason === "email_not_configured"
+          ? "邮件服务尚未配置，请先保存 SMTP 设置。"
+          : reason === "invalid_email"
+            ? "请输入有效的测试收件邮箱。"
+            : reason.includes("请求超时")
+              ? reason
+              : "测试邮件发送失败，请检查 SMTP 配置后重试。";
   } finally {
     if (!stopped) testingEmail.value = false;
   }
@@ -109,8 +123,11 @@ async function runTestEmail() {
       </article>
       <article>
         <small>邮件服务</small>
-        <strong :class="{ ok: status.emailConfigured }">{{ status.emailConfigured ? "已配置" : "未配置" }}</strong>
-        <span v-if="status.emailConfigured">SMTP 参数见下方「邮件通知」配置项</span>
+        <strong :class="{ ok: status.emailConfigured && !status.emailDeliveryDisabled }">{{
+          status.emailDeliveryDisabled ? "已禁用" : status.emailConfigured ? "已配置" : "未配置"
+        }}</strong>
+        <span v-if="status.emailDeliveryDisabled">当前环境已禁用邮件发送。</span>
+        <span v-else-if="status.emailConfigured">SMTP 参数见下方「邮件通知」配置项</span>
         <span v-else class="missing-hint">还缺：{{ missingEmailFieldsText }}</span>
         <label class="mail-scene">
           <span>邮件类型</span>
@@ -125,7 +142,7 @@ async function runTestEmail() {
             required
             aria-label="测试收件邮箱"
             placeholder="测试收件邮箱"
-          /><button type="submit" :disabled="!status.emailConfigured || testingEmail">
+          /><button type="submit" :disabled="status.emailDeliveryDisabled || !status.emailConfigured || testingEmail">
             {{ testingEmail ? "发送中…" : "发送测试" }}
           </button>
         </form>

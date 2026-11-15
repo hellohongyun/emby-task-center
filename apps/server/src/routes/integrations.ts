@@ -38,7 +38,10 @@ export function registerIntegrationRoutes(app: Express, options: IntegrationRout
   app.get("/api/integrations/status", (_request, response) =>
     response.json({
       embyConfigured: resolveStatusFlag(options.configured?.emby, () => services?.emby?.configured),
-      emailConfigured: resolveStatusFlag(options.configured?.email, () => services?.email?.configured),
+      emailConfigured:
+        !services?.email?.deliveryDisabled &&
+        resolveStatusFlag(options.configured?.email, () => services?.email?.configured),
+      emailDeliveryDisabled: services?.email?.deliveryDisabled === true,
       // 光说"未配置"没法排查：把还缺的设置项按注册表标签列出来（已配置时为空数组）。
       emailMissing: (services?.email?.missingFields?.() ?? []).map((key) => settingDefinition(key).label),
     }),
@@ -65,6 +68,8 @@ export function registerIntegrationRoutes(app: Express, options: IntegrationRout
       const invalidScene = parsed.error.issues.some((issue) => issue.path[0] === "scene");
       return void response.status(400).json({ error: invalidScene ? "invalid_scene" : "invalid_email" });
     }
+    if (services?.email.deliveryDisabled)
+      return void response.status(503).json({ error: "email_delivery_disabled", message: "当前环境已禁用邮件发送。" });
     if (!services?.email.configured) return void response.status(409).json({ error: "email_not_configured" });
     try {
       const { email, scene } = parsed.data;

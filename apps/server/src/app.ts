@@ -49,6 +49,7 @@ import { registerPansouRoutes } from "./routes/pansou";
 import { registerTgtoResourcesRoutes } from "./routes/tgto-resources";
 import type { TgtoDriveClient } from "./integrations/tgtodrive-client";
 import { registerPansouAdminRoutes } from "./routes/pansou-admin";
+import { registerPublicVirtualLibraryRoutes } from "./routes/public-virtual-libraries";
 import { registerVirtualLibraryRoutes } from "./routes/virtual-libraries";
 import { registerVirtualLibraryProxyRoutes } from "./routes/virtual-library-proxy";
 import type { VirtualLibraryProxy } from "./virtual-libraries/proxy";
@@ -107,7 +108,7 @@ export function createApp(options: AppOptions) {
   app.use((_request, response, next) => {
     response.set({
       "Content-Security-Policy":
-        "default-src 'self'; base-uri 'self'; connect-src 'self'; frame-ancestors 'none'; frame-src https://www.youtube.com https://www.youtube-nocookie.com; form-action 'self'; img-src 'self' data: https://image.tmdb.org https://*.doubanio.com https://*.meituan.net https://*.maoyan.com https://*.pipi.cn https://dnm.nflximg.net https://*.nflximg.net https://q1.qlogo.cn; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+        "default-src 'self'; base-uri 'self'; connect-src 'self'; frame-ancestors 'none'; frame-src https://www.youtube.com https://www.youtube-nocookie.com; form-action 'self'; img-src 'self' data: blob: https://image.tmdb.org https://*.doubanio.com https://*.meituan.net https://*.maoyan.com https://*.pipi.cn https://dnm.nflximg.net https://*.nflximg.net https://q1.qlogo.cn; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
       "Cross-Origin-Opener-Policy": "same-origin",
       "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
       "Referrer-Policy": "no-referrer",
@@ -183,6 +184,7 @@ export function createApp(options: AppOptions) {
     // 会员自助解冻要留痕（谁在冻结期内自己放了行），和并发升级任务用的是同一个日志。
     logger: options.logger,
   });
+  registerPublicVirtualLibraryRoutes(app, { database: options.database, publicSession });
   app.use("/api", sessions.requireSession);
   registerAdminMediaRequestRoutes(app, { database: options.database });
   registerAdminShare115Routes(app, share115Routes);

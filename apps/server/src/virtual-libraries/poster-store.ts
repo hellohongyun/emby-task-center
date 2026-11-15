@@ -10,6 +10,7 @@ export function createPosterStore(
 ) {
   return {
     getPoster(id: string) {
+      requireLibrary(id);
       return database.select().from(virtualLibraryPosters).where(eq(virtualLibraryPosters.libraryId, id)).get();
     },
     setPoster(id: string, content: Buffer, contentType?: string) {

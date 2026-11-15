@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { submissionUsers } from "@emby-task-center/database/schema";
 import { createServer, type Server } from "node:http";
 import type { Socket } from "node:net";
 import type { AppDatabase } from "@emby-task-center/database/client";
@@ -8,6 +9,8 @@ import { createVirtualLibraryStore } from "./store";
 import { createVirtualProxyHandler } from "./proxy-handler";
 import { createOwnedViewPreferences } from "./owned-view-preferences";
 import { forwardUpgrade } from "./proxy-transport";
+import { privateIdentity } from "./private-access";
+import { memberAccessError } from "../subscriptions/member-access";
 import {
   readVirtualProxyConfig,
   saveVirtualProxyConfig,
@@ -26,7 +29,7 @@ export function createVirtualLibraryProxy(options: {
   appPort: number;
   report?: (message: string) => void;
 }) {
-  const store = createVirtualLibraryStore(options.database);
+  const store = createVirtualLibraryStore(options.database, { all: true });
   const libraryOrders = createEmbyLibraryOrderStore(options.database);
   const preferences = createOwnedViewPreferences(options.database, store);
   const readAdminOrder = (upstream: string) => {
@@ -80,6 +83,18 @@ export function createVirtualLibraryProxy(options: {
             marker,
             preferences,
             readAdminOrder,
+            (embyId) => {
+              const members = options.database
+                .select()
+                .from(submissionUsers)
+                .all()
+                .filter(
+                  (member) => member.embyUserId && privateIdentity(member.embyUserId) === privateIdentity(embyId),
+                );
+              if (members.length !== 1) return undefined;
+              const member = members[0];
+              return memberAccessError(options.database, member.email, true) ? undefined : member.id;
+            },
           ),
         );
         instance.server.on("connection", (socket) => {

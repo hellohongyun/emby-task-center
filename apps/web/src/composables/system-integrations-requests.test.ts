@@ -11,11 +11,22 @@ function deferred<T>() {
   return { promise, resolve };
 }
 const systemBody = { rootCount: 2, lastScanAt: null, serverTime: "now" };
-const integrationBody = { embyConfigured: true, emailConfigured: true, emailMissing: [] };
+const integrationBody = { embyConfigured: true, emailConfigured: true, emailDeliveryDisabled: false, emailMissing: [] };
 const stalledBody = (ok = true) => ({ ok, status: ok ? 200 : 502, json: () => new Promise(() => {}) }) as Response;
 afterEach(() => vi.useRealTimers());
 
 describe("system and integration request lifecycle", () => {
+  it("preserves the explicit environment delivery restriction", async () => {
+    const api = useIntegrations(
+      vi.fn(),
+      vi
+        .fn()
+        .mockResolvedValue(Response.json({ ...integrationBody, emailConfigured: false, emailDeliveryDisabled: true })),
+    );
+    await api.load();
+    expect(api.status.value.emailDeliveryDisabled).toBe(true);
+    expect(api.status.value.emailConfigured).toBe(false);
+  });
   it("ignores stale system 401 and finally while the replacement is loading", async () => {
     const old = deferred<Response>();
     const next = deferred<Response>();

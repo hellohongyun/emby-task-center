@@ -1,8 +1,10 @@
 import { getCurrentScope, onScopeDispose, ref, type Ref } from "vue";
 import { fetchJsonWithTimeout } from "./request-timeout";
+import { portalFetch } from "./portal-access";
+import { friendlyError } from "./portal-member";
 
 /** Each lane cancels superseded reads; disposal and expired auth cancel every lane. */
-export function virtualLibraryRequests(requireAuth: () => void) {
+export function virtualLibraryRequests(requireAuth: () => void, base = "/api/virtual-libraries") {
   const error = ref("");
   const controllers = new Map<string, AbortController>();
   const busyOwners = new WeakMap<Ref<boolean>, AbortController>();
@@ -14,7 +16,13 @@ export function virtualLibraryRequests(requireAuth: () => void) {
   }
   if (getCurrentScope()) onScopeDispose(cancel);
 
-  async function run<T>(lane: string, busy: Ref<boolean>, path: string, init: RequestInit = {}): Promise<T | null> {
+  async function run<T>(
+    lane: string,
+    busy: Ref<boolean>,
+    path: string,
+    init: RequestInit = {},
+    options: { timeoutMs?: number } = {},
+  ): Promise<T | null> {
     if (stopped) return null;
     controllers.get(lane)?.abort();
     const controller = new AbortController();
@@ -25,7 +33,7 @@ export function virtualLibraryRequests(requireAuth: () => void) {
     try {
       const { body } = await fetchJsonWithTimeout<T>(
         async (url, options) => {
-          const response = await fetch(url, options);
+          const response = await (base.startsWith("/api/public/") ? portalFetch : fetch)(url, options);
           if (options?.signal?.aborted || stopped) throw new DOMException("Request aborted", "AbortError");
           if (response.status === 401) {
             cancel();
@@ -34,17 +42,18 @@ export function virtualLibraryRequests(requireAuth: () => void) {
           }
           if (!response.ok) {
             const failure = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
-            throw new Error(failure.message || failure.error || "请求失败，请重试");
+            throw new Error(failure.message || (failure.error ? friendlyError(failure.error) : "请求失败，请重试"));
           }
           return response.status === 204 ? new Response("{}") : response;
         },
-        `/api/virtual-libraries${path}`,
+        `${base}${path}`,
         {
           credentials: "include",
           ...init,
           signal: controller.signal,
           headers: { "Content-Type": "application/json", ...init.headers },
         },
+        options.timeoutMs,
       );
       return controller.signal.aborted || stopped ? null : (body as T);
     } catch (caught) {

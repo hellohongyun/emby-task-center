@@ -19,6 +19,7 @@ installSafeListen();
 mkdirSync(resolve(".local"), { recursive: true });
 
 const LEGACY_NAMES = [
+  "EMAIL_DELIVERY_DISABLED",
   "SHARED_PASSWORD",
   "SESSION_SECRET",
   "MEDIA_ROOTS_JSON",

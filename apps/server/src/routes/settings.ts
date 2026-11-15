@@ -14,6 +14,7 @@ import { changeAdminPassword, readAdminAccount } from "../settings/admin-account
 import { isSettingKey, settingDefinition, SETTING_GROUP_LABELS, SETTING_GROUP_ORDER } from "../settings/registry";
 import { RESTART_ONLY_KEYS } from "../settings/runtime";
 import { readSettings, toPublicSettings, writeSettings } from "../settings/store";
+import { isEmailDeliveryDisabled } from "../notifications/email-delivery-policy";
 
 const PatchSchema = z
   .object({
@@ -44,6 +45,10 @@ function settingsPayload(database: AppDatabase) {
       settings: entries.filter((entry) => entry.group === group),
     })).filter((section) => section.settings.length > 0),
     admin: readAdminAccount(database),
+    developmentMode: {
+      enabled: read.values["development.enabled"],
+      emailForcedDisabled: isEmailDeliveryDisabled(),
+    },
     warnings: read.warnings,
   };
 }

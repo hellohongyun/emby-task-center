@@ -2,15 +2,20 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import type { VirtualLibrary } from "@emby-task-center/contracts/virtual-library";
 import { virtualLibraryRequests } from "../../composables/virtual-library-requests";
+import { compressPoster } from "../../composables/compress-poster";
 
 const props = defineProps<{
   library: VirtualLibrary;
   requireAuth: () => void;
   authRequired?: boolean;
+  base?: string;
 }>();
 const emit = defineEmits<{ saved: [library: VirtualLibrary] }>();
-const { run, error, cancel } = virtualLibraryRequests(props.requireAuth);
+const { run, error, cancel } = virtualLibraryRequests(props.requireAuth, props.base);
 const busy = ref(false);
+const compressing = ref(false);
+const compressionSummary = ref("");
+let compression: AbortController | undefined;
 const file = ref<File | null>(null);
 const input = ref<HTMLInputElement>();
 const preview = ref("");
@@ -18,19 +23,23 @@ const notice = ref("");
 const imageFailed = ref(false);
 const storedImage = computed(() =>
   props.library.posterImageTag
-    ? `/api/virtual-libraries/${encodeURIComponent(props.library.id)}/poster?tag=${encodeURIComponent(props.library.posterImageTag)}`
+    ? `${props.base ?? "/api/virtual-libraries"}/${encodeURIComponent(props.library.id)}/poster?tag=${encodeURIComponent(props.library.posterImageTag)}`
     : "",
 );
 const image = computed(() => preview.value || storedImage.value);
 
 function clearSelection() {
+  compression?.abort();
+  compression = undefined;
+  compressing.value = false;
+  compressionSummary.value = "";
   if (preview.value) URL.revokeObjectURL(preview.value);
   preview.value = "";
   file.value = null;
   if (input.value) input.value.value = "";
   imageFailed.value = false;
 }
-function selectFile(event: Event) {
+async function selectFile(event: Event) {
   const selected = (event.target as HTMLInputElement).files?.[0];
   clearSelection();
   error.value = "";
@@ -44,17 +53,40 @@ function selectFile(event: Event) {
     error.value = "图片大小需大于 0 且不超过 5 MB";
     return;
   }
-  file.value = selected;
-  preview.value = URL.createObjectURL(selected);
+  const controller = new AbortController();
+  compression = controller;
+  compressing.value = true;
+  try {
+    const compressed = await compressPoster(selected, controller.signal);
+    if (compression !== controller || controller.signal.aborted) return;
+    file.value = compressed;
+    preview.value = URL.createObjectURL(compressed);
+    const size = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    compressionSummary.value =
+      compressed === selected
+        ? `图片已优化检查，保留原图（${size(selected.size)}）`
+        : `已自动压缩：${size(selected.size)} → ${size(compressed.size)}`;
+  } catch (caught) {
+    if (!controller.signal.aborted && compression === controller)
+      error.value = caught instanceof Error ? caught.message : "图片压缩失败，请重新选择图片。";
+  } finally {
+    if (compression === controller) compressing.value = false;
+  }
 }
 async function save(remove = false) {
-  if (busy.value || (!remove && !file.value)) return;
+  if (busy.value || compressing.value || (!remove && !file.value)) return;
   const id = props.library.id;
   const selected = file.value;
-  const result = await run<{ library: VirtualLibrary }>("poster", busy, `/${encodeURIComponent(id)}/poster`, {
-    method: remove ? "DELETE" : "PUT",
-    ...(remove ? {} : { body: selected, headers: { "Content-Type": selected!.type } }),
-  });
+  const result = await run<{ library: VirtualLibrary }>(
+    "poster",
+    busy,
+    `/${encodeURIComponent(id)}/poster`,
+    {
+      method: remove ? "DELETE" : "PUT",
+      ...(remove ? {} : { body: selected, headers: { "Content-Type": selected!.type } }),
+    },
+    remove ? {} : { timeoutMs: 120_000 },
+  );
   if (!result || props.library.id !== id) return;
   clearSelection();
   emit("saved", result.library);
@@ -77,7 +109,10 @@ watch(
 watch(
   () => props.authRequired,
   (required) => {
-    if (required) cancel();
+    if (required) {
+      clearSelection();
+      cancel();
+    }
   },
 );
 onBeforeUnmount(clearSelection);
@@ -96,14 +131,24 @@ onBeforeUnmount(clearSelection);
         <span>{{ library.posterImageTag ? "更换图片" : "选择图片" }}</span>
         <input ref="input" type="file" accept="image/jpeg,image/png,image/webp" :disabled="busy" @change="selectFile" />
       </label>
-      <p class="vl-muted vl-poster-hint">JPEG、PNG 或 WebP，最大 5 MB；建议使用横向图片。</p>
+      <p class="vl-muted vl-poster-hint">
+        JPEG、PNG 或 WebP，最大 5 MB；上传前自动压缩，最长边不超过 1600 像素，压缩更大时保留原图。
+      </p>
+      <p v-if="compressing" class="vl-muted" role="status">正在压缩图片…</p>
+      <p v-else-if="compressionSummary" class="vl-muted" role="status">{{ compressionSummary }}</p>
       <p v-if="file" class="vl-poster-filename">已选择：{{ file.name }}</p>
       <div class="vl-actions">
-        <button class="vl-primary" type="button" :disabled="busy || !file" @click="save()">
-          {{ busy ? "处理中…" : "保存海报" }}
+        <button class="vl-primary" type="button" :disabled="busy || compressing || !file" @click="save()">
+          {{ compressing ? "正在压缩…" : busy ? "处理中…" : "保存海报" }}
         </button>
-        <button v-if="file" type="button" :disabled="busy" @click="clearSelection">取消选择</button>
-        <button v-if="library.posterImageTag" class="vl-danger" type="button" :disabled="busy" @click="save(true)">
+        <button v-if="file || compressing" type="button" :disabled="busy" @click="clearSelection">取消选择</button>
+        <button
+          v-if="library.posterImageTag"
+          class="vl-danger"
+          type="button"
+          :disabled="busy || compressing"
+          @click="save(true)"
+        >
           移除自定义海报
         </button>
       </div>

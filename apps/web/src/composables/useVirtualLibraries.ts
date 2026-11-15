@@ -19,8 +19,8 @@ export interface ProxyState {
 }
 export type LibraryDraft = Pick<VirtualLibrary, "name" | "collectionType" | "sortOrder">;
 
-export function useVirtualLibraries(requireAuth: () => void) {
-  const { run, error, cancel } = virtualLibraryRequests(requireAuth);
+export function useVirtualLibraries(requireAuth: () => void, base = "/api/virtual-libraries") {
+  const { run, error, cancel } = virtualLibraryRequests(requireAuth, base);
   const libraries = ref<VirtualLibrary[]>([]);
   const selectedId = ref("");
   const items = ref<VirtualLibraryItem[]>([]);

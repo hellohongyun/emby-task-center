@@ -9,8 +9,14 @@ import type { VirtualLibraryStore } from "../virtual-libraries/store";
 import { InvalidPosterError, MAX_POSTER_BYTES } from "../virtual-libraries/poster-image";
 
 /** Registered after the administrator gate; binary data lives with the existing database. */
-export function registerVirtualLibraryPosterRoutes(app: Express, store: VirtualLibraryStore): void {
-  const path = "/api/virtual-libraries/:id/poster";
+export function registerVirtualLibraryPosterRoutes(
+  app: Express,
+  storeOrResolver: VirtualLibraryStore | ((request: Request) => VirtualLibraryStore),
+  base = "/api/virtual-libraries",
+): void {
+  const storeFor = (request: Request) =>
+    typeof storeOrResolver === "function" ? storeOrResolver(request) : storeOrResolver;
+  const path = `${base}/:id/poster`;
   const types = ["image/jpeg", "image/png", "image/webp"];
   const parse = express.raw({ type: types, limit: MAX_POSTER_BYTES, inflate: false });
   const parseError: ErrorRequestHandler = (error, _request, response, next) => {
@@ -23,6 +29,7 @@ export function registerVirtualLibraryPosterRoutes(app: Express, store: VirtualL
   app.put(
     path,
     (request: Request, response: Response, next: NextFunction) => {
+      const store = storeFor(request);
       if (!store.get(String(request.params.id)))
         return void response.status(404).json({ error: "virtual_library_not_found" });
       if (!types.includes(request.get("content-type")?.split(";")[0]?.trim() ?? "")) {
@@ -32,6 +39,7 @@ export function registerVirtualLibraryPosterRoutes(app: Express, store: VirtualL
     },
     parse,
     (request: Request, response: Response) => {
+      const store = storeFor(request);
       try {
         const id = String(request.params.id);
         store.setPoster(id, request.body, request.get("content-type")?.split(";")[0]?.trim());
@@ -45,6 +53,9 @@ export function registerVirtualLibraryPosterRoutes(app: Express, store: VirtualL
     parseError,
   );
   app.get(path, (request, response) => {
+    const store = storeFor(request);
+    if (!store.get(String(request.params.id)))
+      return void response.status(404).json({ error: "virtual_library_not_found" });
     const poster = store.getPoster(String(request.params.id));
     if (!poster) return void response.status(404).json({ error: "poster_not_found" });
     const etag = `"${poster.imageTag}"`;
@@ -65,6 +76,7 @@ export function registerVirtualLibraryPosterRoutes(app: Express, store: VirtualL
     response.send(poster.content);
   });
   app.delete(path, (request, response) => {
+    const store = storeFor(request);
     const id = String(request.params.id);
     if (!store.get(id)) return void response.status(404).json({ error: "virtual_library_not_found" });
     store.removePoster(id);

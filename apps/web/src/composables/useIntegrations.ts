@@ -12,7 +12,12 @@ const emailPreviewPath = "/api/integrations/email/preview";
 
 export function useIntegrations(requireAuth: () => void, fetchImpl: typeof fetch = fetch) {
   // emailMissing：未配置时后端列出还缺哪些设置项（按注册表标签），前端直接展示，不再让用户猜。
-  const status = ref({ embyConfigured: false, emailConfigured: false, emailMissing: [] as string[] });
+  const status = ref({
+    embyConfigured: false,
+    emailConfigured: false,
+    emailDeliveryDisabled: false,
+    emailMissing: [] as string[],
+  });
   const loading = ref(false);
   const loaded = ref(false);
   const error = ref("");
@@ -83,6 +88,7 @@ export function useIntegrations(requireAuth: () => void, fetchImpl: typeof fetch
       status.value = {
         embyConfigured: state.embyConfigured,
         emailConfigured: state.emailConfigured,
+        emailDeliveryDisabled: state.emailDeliveryDisabled ?? false,
         // 兼容没有该字段的旧后端/测试桩。
         emailMissing: state.emailMissing ?? [],
       };

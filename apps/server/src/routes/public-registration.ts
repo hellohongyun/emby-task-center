@@ -169,6 +169,8 @@ export function registerPublicRegistrationRoutes(
   app.post("/api/public/subscriptions/code", async (request: Request, response: Response) => {
     const parsed = codeSchema.safeParse(request.body);
     if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });
+    if (options.email?.deliveryDisabled)
+      return void response.status(503).json({ error: "email_delivery_disabled", message: "当前环境已禁用邮件发送。" });
     const email = parsed.data.email.toLowerCase();
     if (!codePerMinute.check(`ip:${request.ip ?? "unknown"}`))
       return void response.status(429).json({ error: "rate_limited" });

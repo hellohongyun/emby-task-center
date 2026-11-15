@@ -41,6 +41,7 @@ describe("settings API", () => {
   let baseUrl: string;
   let cookie: string;
   let smtpConfigured: boolean;
+  let deliveryDisabled: boolean;
   const sendTest = vi.fn<EmailNotifier["sendTest"]>();
 
   beforeEach(async () => {
@@ -48,6 +49,7 @@ describe("settings API", () => {
     database = createDatabase(join(directory, "settings.sqlite"));
     ensureDefaultAdminAccount(database.db, { password: sharedPassword });
     smtpConfigured = false;
+    deliveryDisabled = false;
     sendTest.mockReset().mockResolvedValue(undefined);
     const app = createApp({
       database: database.db,
@@ -63,6 +65,9 @@ describe("settings API", () => {
       integrationServices: {
         emby: createEmbyClient({}),
         email: {
+          get deliveryDisabled() {
+            return deliveryDisabled;
+          },
           get configured() {
             return smtpConfigured;
           },
@@ -158,6 +163,29 @@ describe("settings API", () => {
     const failed = await send("login");
     expect(failed.status).toBe(502);
     expect(await failed.json()).toEqual({ error: "email_delivery_failed" });
+  });
+
+  it("reports disabled delivery, refuses test and verification mail, and retains previews", async () => {
+    smtpConfigured = true;
+    deliveryDisabled = true;
+    const status = await fetch(`${baseUrl}/api/integrations/status`, { headers: { cookie } });
+    expect(await status.json()).toMatchObject({ emailConfigured: false, emailDeliveryDisabled: true });
+    for (const [path, body] of [
+      ["/api/integrations/email/test", { email: "operator@example.invalid" }],
+      ["/api/public/subscriptions/code", { email: "member@example.invalid" }],
+    ] as const) {
+      const response = await fetch(baseUrl + path, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ error: "email_delivery_disabled" });
+    }
+    expect(sendTest).not.toHaveBeenCalled();
+    expect((await fetch(`${baseUrl}/api/integrations/email/preview?scene=login`, { headers: { cookie } })).status).toBe(
+      200,
+    );
   });
 
   it("returns grouped settings with registry metadata", async () => {

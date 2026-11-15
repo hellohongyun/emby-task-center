@@ -6,6 +6,7 @@ import {
 } from "../integrations/tgtodrive-share115";
 import type { Logger } from "../logging/logger";
 import type { RuntimeSettings } from "../settings/runtime";
+import { isDevelopmentMode } from "../settings/development-mode";
 import { claimShare115Job, completeShare115Job, recoverExpiredShare115Jobs } from "./store";
 
 const pollIntervalMs = 3_000;
@@ -22,12 +23,14 @@ export function startShare115Worker(options: {
   let controller: AbortController | undefined;
 
   function configured() {
+    if (isDevelopmentMode(database)) return undefined;
     const config = readConfig();
     if (!config.enabled || !isTgtoDriveShare115Configured(config.baseUrl, config.token)) return undefined;
     return config;
   }
 
   async function run() {
+    if (isDevelopmentMode(database)) return;
     const now = new Date();
     const recovered = recoverExpiredShare115Jobs(database, now.toISOString());
     if (recovered) {

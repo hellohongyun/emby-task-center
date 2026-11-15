@@ -2,7 +2,8 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  testMatch: /(?:real-flows|virtual-libraries|mobile-library|mobile-card-keys|missing-episodes)\.spec\.ts/,
+  testMatch:
+    /(?:real-flows|virtual-libraries|private-libraries|development-mode|mobile-library|mobile-card-keys|missing-episodes)\.spec\.ts/,
   workers: 1,
   fullyParallel: false,
   retries: 0,

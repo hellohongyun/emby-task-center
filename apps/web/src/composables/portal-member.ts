@@ -188,6 +188,8 @@ export function friendlyError(code?: string): string {
       return "该邮箱已开通，请返回使用邮箱验证码登录。";
     case "email_send_failed":
       return "验证码发送失败，请稍后再试。";
+    case "email_delivery_disabled":
+      return "当前环境已禁用邮件发送，无法获取邮箱验证码。";
     case "invalid_request":
       return "提交内容无效，请检查后重试。";
     case "not_frozen":

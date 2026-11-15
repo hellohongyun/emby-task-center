@@ -11,6 +11,8 @@ import { getConcurrencyPolicy } from "../integrations/concurrency-policy-config"
 import { getSubmissionUser, memberStatus } from "./membership";
 import { getDriveExpiry } from "./drive-expiry";
 import { syncMemberQqAvatar } from "./member-qq-avatar";
+import { isDevelopmentMode } from "../settings/development-mode";
+import { automaticEmby } from "./automatic-emby";
 
 function makePassword(): string {
   return randomBytes(12).toString("base64url");
@@ -48,7 +50,8 @@ export async function syncEmbyStreamLimit(
 
 /** 启动/上线时把每个有关联 Emby 账号的会员的并发上限补同步一遍（自愈：让旧数据也生效）。 */
 export async function syncAllStreamLimits(database: AppDatabase, emby: EmbyClient | undefined): Promise<number> {
-  if (!emby?.configured) return 0;
+  if (isDevelopmentMode(database) || !emby?.configured) return 0;
+  emby = automaticEmby(database, emby);
   const members = database
     .select()
     .from(submissionUsers)
@@ -56,6 +59,7 @@ export async function syncAllStreamLimits(database: AppDatabase, emby: EmbyClien
     .filter((m) => m.embyUserId);
   let synced = 0;
   for (const member of members) {
+    if (isDevelopmentMode(database)) break;
     if (!member.embyUserId) continue;
     if (await syncEmbyStreamLimit(database, emby, member.embyUserId, member.embyMaxStreams)) synced++;
   }
@@ -101,7 +105,8 @@ export async function disableExpiredEmbyUsers(
   emby: EmbyClient | undefined,
   now = new Date(),
 ): Promise<number> {
-  if (!emby?.configured) return 0;
+  if (isDevelopmentMode(database) || !emby?.configured) return 0;
+  emby = automaticEmby(database, emby);
   const members = database
     .select()
     .from(submissionUsers)
@@ -111,6 +116,7 @@ export async function disableExpiredEmbyUsers(
   const service = createEmbyUserService(emby);
   let count = 0;
   for (const member of members) {
+    if (isDevelopmentMode(database)) break;
     if (!member.embyUserId) continue;
     const fresh = getSubmissionUser(database, member.id);
     if (fresh?.embyUserId !== member.embyUserId || !fresh.enabled || memberStatus(fresh, now) !== "expired") continue;

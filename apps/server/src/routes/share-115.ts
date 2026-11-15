@@ -6,6 +6,7 @@ import type { Logger } from "../logging/logger";
 import { parseShare115Batch } from "../share-115/input";
 import { enqueueShare115Batch, listShare115, resolveShare115Job, type Share115SubmissionRow } from "../share-115/store";
 import { readSetting } from "../settings/store";
+import { isDevelopmentMode } from "../settings/development-mode";
 import { getSubmissionUserByEmail } from "../subscriptions/membership";
 import type { PublicSession } from "../subscriptions/public-session";
 
@@ -94,6 +95,11 @@ function submitShare(
 ) {
   const { database, service, logger } = options;
   response.set("Cache-Control", "private, no-store");
+  if (isDevelopmentMode(database))
+    return void response.status(503).json({
+      error: "development_mode_enabled",
+      message: "开发调试模式已暂停自动转存。",
+    });
   if (!service?.accepting()) return void response.status(503).json({ error: "share_115_unavailable" });
   const parsed = submissionSchema.safeParse(request.body);
   if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });

@@ -4,6 +4,7 @@ import { useAppServices } from "../state/app-services";
 import ContentMailSettings from "../components/ContentMailSettings.vue";
 import SettingsCenterView from "../components/SettingsCenterView.vue";
 import SettingsView from "../components/SettingsView.vue";
+import DevelopmentModePanel from "../components/DevelopmentModePanel.vue";
 
 /**
  * 系统设置（原「系统配置」+「外部集成」合并）。
@@ -26,6 +27,7 @@ onBeforeUnmount(() => services.integrations.cancel());
         <p>连接自检与全部配置项：所有配置都存在数据库里，密钥只显示掩码，留空表示保持原值。</p>
       </div>
     </header>
+    <DevelopmentModePanel :require-auth="services.requireAuth" @saved="services.integrations.load" />
     <SettingsView
       :require-auth="services.requireAuth"
       :status="services.integrations.status.value"

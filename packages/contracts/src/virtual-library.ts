@@ -32,6 +32,7 @@ export const AddVirtualLibraryItemsSchema = z.strictObject({
 });
 
 export interface VirtualLibrary {
+  ownerMemberId?: number | null;
   id: string;
   name: string;
   collectionType: z.infer<typeof VirtualLibraryCollectionTypeSchema>;

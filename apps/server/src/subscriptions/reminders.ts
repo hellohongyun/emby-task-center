@@ -9,6 +9,7 @@ import { getSubmissionUser, listSubmissionUsers, memberStatus } from "./membersh
 import { sendMembershipEmail } from "./send-notifications";
 import { canSendMail } from "./domain-utils";
 import { disableExpiredEmbyUsers } from "./emby-account";
+import { isDevelopmentMode } from "../settings/development-mode";
 
 /**
  * 会员临期/到期提醒（已提交的状态跨重启保留，SMTP 与写库间退出仍可能重复）：
@@ -25,6 +26,7 @@ export function runMembershipReminders(
   now = new Date(),
   emby?: EmbyClient,
 ): Promise<number> {
+  if (isDevelopmentMode(database)) return Promise.resolve(0);
   const pending = sweeps.get(database);
   if (pending) return pending;
   const running = sweep(database, email, now, emby).finally(() => sweeps.delete(database));
@@ -40,6 +42,7 @@ async function sweep(
 ): Promise<number> {
   let count = 0;
   for (const candidate of listSubmissionUsers(database)) {
+    if (isDevelopmentMode(database)) break;
     // 上一个会员的 SMTP 请求可能耗时；处理这一位前重新读取，避免使用整轮开始时的旧状态。
     const user = getSubmissionUser(database, candidate.id);
     if (!user?.enabled) continue;
@@ -63,6 +66,7 @@ async function sweep(
     }
     // SMTP 等待期间可能续费、停用或修改邮箱；旧通知不能覆盖新会员状态。
     const current = getSubmissionUser(database, user.id);
+    if (isDevelopmentMode(database)) break;
     if (
       !current?.enabled ||
       current.email !== user.email ||

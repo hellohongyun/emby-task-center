@@ -2,6 +2,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/vue";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { VirtualLibrary } from "@emby-task-center/contracts/virtual-library";
 import VirtualLibraryPoster from "./VirtualLibraryPoster.vue";
+import { compressPoster } from "../../composables/compress-poster";
+
+vi.mock("../../composables/compress-poster", () => ({ compressPoster: vi.fn(async (file: File) => file) }));
 
 const library: VirtualLibrary = {
   id: "one",
@@ -15,6 +18,7 @@ const library: VirtualLibrary = {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const revoke = vi.fn();
 beforeEach(() => {
+  vi.mocked(compressPoster).mockImplementation(async (file) => file);
   vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:preview"), revokeObjectURL: revoke }));
 });
 afterEach(() => {
@@ -127,4 +131,62 @@ it("requests login again for an expired admin session", async () => {
   await fireEvent.click(screen.getByRole("button", { name: "保存海报" }));
   await waitFor(() => expect(view.requireAuth).toHaveBeenCalledOnce());
   expect(view.emitted().saved).toBeUndefined();
+});
+
+it("uploads the compressed file and reports its smaller size", async () => {
+  const compressed = new File(["webp"], "cover.webp", { type: "image/webp" });
+  vi.mocked(compressPoster).mockResolvedValueOnce(compressed);
+  const fetch = vi.fn(async () => json({ library }));
+  vi.stubGlobal("fetch", fetch);
+  const view = setup();
+  await view.select(new File([new Uint8Array(2048)], "cover.png", { type: "image/png" }));
+  expect(await screen.findByText(/已自动压缩：2 KB → 1 KB/)).toBeVisible();
+  await fireEvent.click(screen.getByRole("button", { name: "保存海报" }));
+  await waitFor(() =>
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/virtual-libraries/one/poster",
+      expect.objectContaining({ body: compressed, headers: { "Content-Type": "image/webp" } }),
+    ),
+  );
+});
+
+it("ignores old compression after selecting another file and aborts on unmount", async () => {
+  let finish!: (file: File) => void;
+  let signal: AbortSignal | undefined;
+  vi.mocked(compressPoster).mockImplementationOnce((_file, current) => {
+    signal = current;
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  const view = setup();
+  const old = new File(["first"], "first.png", { type: "image/png" });
+  await view.select(old);
+  expect(screen.getByRole("button", { name: "正在压缩…" })).toBeDisabled();
+  await view.select(new File(["second"], "second.png", { type: "image/png" }));
+  expect(signal!.aborted).toBe(true);
+  finish(old);
+  await waitFor(() => expect(screen.getByText("已选择：second.png")).toBeVisible());
+  expect(screen.queryByText("已选择：first.png")).not.toBeInTheDocument();
+  vi.mocked(compressPoster).mockImplementationOnce((_file, current) => {
+    signal = current;
+    return new Promise(() => undefined);
+  });
+  await view.select(old);
+  view.unmount();
+  expect(signal!.aborted).toBe(true);
+});
+
+it("allows reselection after failed compression and never uploads the invalid file", async () => {
+  vi.mocked(compressPoster).mockRejectedValueOnce(new Error("图片无法解码"));
+  const fetch = vi.fn();
+  vi.stubGlobal("fetch", fetch);
+  const view = setup();
+  const file = new File(["image"], "cover.png", { type: "image/png" });
+  await view.select(file);
+  expect(await screen.findByRole("alert")).toHaveTextContent("图片无法解码");
+  expect(screen.getByRole("button", { name: "保存海报" })).toBeDisabled();
+  expect(fetch).not.toHaveBeenCalled();
+  await view.select(file);
+  await waitFor(() => expect(screen.getByRole("button", { name: "保存海报" })).toBeEnabled());
 });

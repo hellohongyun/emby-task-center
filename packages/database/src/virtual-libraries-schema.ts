@@ -1,15 +1,20 @@
 import { blob, index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-export const virtualLibraries = sqliteTable("virtual_libraries", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  collectionType: text("collection_type", { enum: ["movies", "tvshows", "mixed"] })
-    .notNull()
-    .default("mixed"),
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
+export const virtualLibraries = sqliteTable(
+  "virtual_libraries",
+  {
+    id: text("id").primaryKey(),
+    ownerMemberId: integer("owner_member_id"),
+    name: text("name").notNull(),
+    collectionType: text("collection_type", { enum: ["movies", "tvshows", "mixed"] })
+      .notNull()
+      .default("mixed"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [index("virtual_libraries_owner_idx").on(table.ownerMemberId)],
+);
 
 export const virtualLibraryItems = sqliteTable(
   "virtual_library_items",

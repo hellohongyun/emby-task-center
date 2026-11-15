@@ -28,6 +28,7 @@ import { createVirtualLibraryProxy } from "./virtual-libraries/proxy";
 import { startQqAvatarRefresh } from "./subscriptions/qq-avatar-refresh";
 import { drainQqAvatarSync } from "./subscriptions/member-qq-avatar";
 import { startShare115Worker } from "./share-115/worker";
+import { isDevelopmentMode } from "./settings/development-mode";
 
 // P3：bootstrap 变量集中解析（其余配置一律来自数据库设置）。
 const bootstrap = readBootstrapEnv();
@@ -112,7 +113,22 @@ const trendingService = createTrendingService({
 
 // 保存即生效：SMTP 参数每次发信时从运行时快照现取（与 Emby 客户端同一套机制）。
 // 以前是启动时读一次快照，后台配好 SMTP 后状态卡片仍显示"未配置"、测试邮件也发不出去，直到重启。
-const email = createEmailNotifier({ resolve: () => getRuntimeSettings().email });
+const email = createEmailNotifier({
+  resolve: () => getRuntimeSettings().email,
+  isDeliveryDisabled: () => isDevelopmentMode(database.db),
+});
+if (isDevelopmentMode(database.db)) {
+  logger.warn({
+    event: "development_mode_enabled",
+    message: "开发调试模式已开启，暂停邮件、账号自动停用／删除／冻结和 115 自动转存；浏览与扫描继续运行。",
+  });
+}
+if (email.deliveryDisabled) {
+  logger.warn({
+    event: "email_delivery_disabled",
+    message: "当前环境已禁用邮件发送，验证码、测试邮件、通知及补发均不会投递。",
+  });
+}
 const movieTaskRetentionHours = settings["tasks.movieRetentionHours"];
 
 // PanSou 聚合搜索（后端代理）：前端只拿 resourceId，链接与网盘名留在服务端。
@@ -204,7 +220,7 @@ const avatarRefresh = startQqAvatarRefresh({
   database: database.db,
   emby,
   logger,
-  enabled: () => getRuntimeSettings().embyEnabled,
+  enabled: () => getRuntimeSettings().embyEnabled && !isDevelopmentMode(database.db),
 });
 
 const server = app.listen(port, () => {

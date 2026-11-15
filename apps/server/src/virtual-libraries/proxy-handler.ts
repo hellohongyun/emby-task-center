@@ -10,15 +10,17 @@ import type { OwnedViewPreferences } from "./owned-view-preferences";
 import { serveOwnedPoster } from "./proxy-poster";
 import { appendOwnedHomeSections, ownedLatestLibraryId } from "./owned-home-sections";
 import { isRootLibraryDiscovery } from "./root-library-discovery";
+import { privateMember, privateRequestStore, forbiddenPrivateReference } from "./private-access";
 
 export function createVirtualProxyHandler(
-  store: VirtualLibraryStore,
+  allStore: VirtualLibraryStore,
   upstream: () => string,
   marker: string,
   preferences?: OwnedViewPreferences,
   readAdminOrder?: (upstream: string) => readonly string[] | undefined,
+  lookupMember?: (embyId: string) => number | undefined,
 ) {
-  const repairMappings = createProxyMappingRepair(store);
+  const repairMappings = createProxyMappingRepair(allStore);
   const homeSections = createHomeSectionCache();
   return async (request: IncomingMessage, response: ServerResponse) => {
     try {
@@ -33,6 +35,25 @@ export function createVirtualProxyHandler(
       const context: ProxyTarget = { upstream: upstream(), request, response, signal: abort.signal };
       const url = new URL(request.url ?? "/", "http://proxy.local");
       url.pathname = url.pathname.replace(/^\/emby(?=\/|$)/i, "") || "/";
+      const libraries = allStore.list();
+      const requestStore = { ...allStore, list: () => libraries };
+      const hasPrivate = libraries.some((library) => library.ownerMemberId != null);
+      const publicStore = hasPrivate ? privateRequestStore(requestStore, undefined) : allStore;
+      const privateBrowsing =
+        hasPrivate &&
+        (forbiddenPrivateReference(url, requestStore, publicStore) ||
+          ((request.method === "GET" || request.method === "HEAD") &&
+            /^\/(?:Users\/[^/]+\/(?:Views|HomeSections|Sections\/[^/]+\/Items|Items)|Library\/MediaFolders|Items)\/?$/i.test(
+              url.pathname,
+            )));
+      const memberId = privateBrowsing
+        ? await privateMember(url, (target, timeout) => upstreamJson(context, target, timeout), lookupMember)
+        : undefined;
+      const store = hasPrivate ? privateRequestStore(requestStore, memberId) : allStore;
+      if (hasPrivate && forbiddenPrivateReference(url, requestStore, store)) {
+        sendJson(response, { status: 404, headers: {}, body: { error: "virtual_library_not_found" } });
+        return;
+      }
       const user = /^\/Users\/([^/]+)\//i.exec(url.pathname)?.[1] ?? parameter(url, "UserId");
       const orderedDiscovery =
         request.method === "GET" &&

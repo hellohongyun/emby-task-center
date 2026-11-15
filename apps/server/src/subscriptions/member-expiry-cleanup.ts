@@ -24,6 +24,7 @@ import {
   type CleanupKind,
 } from "./member-expiry-cleanup-plan";
 import { readMemberPlaybackEvidence } from "./member-inactivity-activity";
+import { isDevelopmentMode } from "../settings/development-mode";
 import {
   inactivityGraceElapsed,
   loadCleanupPlayback,
@@ -117,6 +118,9 @@ export async function sweepMemberCleanup(
   progress: { lastLinkedMemberId: number },
 ) {
   const counts = { deleted: 0, pending: 0, skipped: 0 };
+  if (isDevelopmentMode(database)) return counts;
+  const originalRunning = running;
+  running = () => !isDevelopmentMode(database) && originalRunning();
   const policy = { ...cleanupPolicy(database, kind), kind };
   const unresolved = Boolean(database.select({ id: jobs.memberId }).from(jobs).where(eq(jobs.kind, kind)).get());
   if (!policy.days && !unresolved) return counts;

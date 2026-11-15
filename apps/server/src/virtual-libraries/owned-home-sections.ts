@@ -64,7 +64,21 @@ export async function appendOwnedHomeSections({
     .list()
     .filter((library) => !hidden.has(viewIdentity(library.id)) && !existing.has(ownedLatestSectionId(library.id)))
     .map((library) => libraryDto(store, library.id, parent?.ServerId));
-  const ordered = anchorOwnedViews([], additions, ids(configuration.OrderedViews), ownedOrder);
+  const privateIds = new Set(
+    store
+      .list()
+      .filter((library) => library.ownerMemberId != null)
+      .map((library) => library.id),
+  );
+  const ordered = [
+    ...additions.filter((item) => privateIds.has(String(item.Id))),
+    ...anchorOwnedViews(
+      [],
+      additions.filter((item) => !privateIds.has(String(item.Id))),
+      ids(configuration.OrderedViews),
+      ownedOrder,
+    ),
+  ];
   if (!ordered.length) return reply;
   const rows = ordered.map((item) => ({
     Name: `最新${item.Name}`,
@@ -86,5 +100,7 @@ export async function appendOwnedHomeSections({
       ...(configuration.HidePlayedInLatest === true ? { IsPlayed: false } : {}),
     },
   }));
-  return { ...reply, raw: undefined, body: [...sections, ...rows] };
+  const personalRows = rows.filter((row) => privateIds.has(String(row.ParentId)));
+  const publicRows = rows.filter((row) => !privateIds.has(String(row.ParentId)));
+  return { ...reply, raw: undefined, body: [...personalRows, ...sections, ...publicRows] };
 }

@@ -10,6 +10,11 @@ export function reconcileVirtualLibraries(database: AppDatabase): void {
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`);
+  const libraryColumns = database.all<{ name: string }>(sql`PRAGMA table_info(virtual_libraries)`);
+  if (!libraryColumns.some((column) => column.name === "owner_member_id")) {
+    database.run(sql`ALTER TABLE virtual_libraries ADD COLUMN owner_member_id INTEGER`);
+  }
+  database.run(sql`CREATE INDEX IF NOT EXISTS virtual_libraries_owner_idx ON virtual_libraries(owner_member_id)`);
   database.run(sql`CREATE TABLE IF NOT EXISTS virtual_library_items (
     library_id TEXT NOT NULL REFERENCES virtual_libraries(id) ON DELETE CASCADE,
     item_id TEXT NOT NULL,

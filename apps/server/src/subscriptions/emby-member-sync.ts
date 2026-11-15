@@ -65,9 +65,10 @@ async function linkOrphanRound(
   emby: EmbyClient | undefined,
   now = new Date(),
   logger?: WorkflowLogger,
+  running = () => true,
 ): Promise<AutoLinkResult> {
   const result: AutoLinkResult = { linked: [], adopted: [], skipped: [] };
-  if (!emby?.configured || !emby.listUsers) return result;
+  if (!running() || !emby?.configured || !emby.listUsers) return result;
 
   let users: EmbyUser[];
   try {
@@ -89,6 +90,7 @@ async function linkOrphanRound(
   const expiresAt = new Date(now.getTime() + days * 86_400_000).toISOString();
 
   for (const user of users) {
+    if (!running()) break;
     const name = (user.Name ?? "").trim();
     const email = name.toLowerCase();
     const skipped = skipReasonFor(user);
@@ -114,6 +116,7 @@ async function linkOrphanRound(
         .run();
       byEmbyId.set(user.Id, { ...existing, embyUserId: user.Id, embyUsername: email });
       await syncEmbyStreamLimit(database, emby, user.Id, existing.embyMaxStreams);
+      if (!running()) break;
       if (!embyAccessAllowed(database, existing.id, false, now))
         await syncMemberEmbyAccess(database, emby, existing.id, false, now);
       if (existing.qqNumber) void syncMemberQqAvatar(database, emby, existing.id, { logger }).catch(() => undefined);
@@ -147,6 +150,7 @@ async function linkOrphanRound(
     byEmail.set(email, created);
     byName.set(email, created);
     await syncEmbyStreamLimit(database, emby, user.Id, created.embyMaxStreams);
+    if (!running()) break;
     if (!embyAccessAllowed(database, created.id, false, now))
       await syncMemberEmbyAccess(database, emby, created.id, false, now);
     const effectiveExpiry = created.subscriptionExpiresAt ?? expiresAt;

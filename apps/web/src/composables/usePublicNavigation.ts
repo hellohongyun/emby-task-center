@@ -11,7 +11,7 @@ import type { usePortalSession } from "./usePortalSession";
  * 历史：原本文档说 5 个页面（含「投稿」「追更」），并有一条「热榜点选 → 预填投稿草稿」的
  * 交接路径；投稿功能删除后，热榜点选改为直接进影视库搜索同名作品。
  */
-export type PublicView = "home" | "library" | "requests" | "share115" | "profile";
+export type PublicView = "home" | "library" | "requests" | "share115" | "virtualLibraries" | "profile";
 
 export interface UsePublicNavigationOptions {
   /** 门户会话（用于"我的"里的邮箱与会员状态摘要）。 */

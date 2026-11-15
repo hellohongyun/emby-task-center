@@ -7,6 +7,7 @@
  *  - 业务代码只允许通过 `settings/store.ts` 读写，禁止再直接读 `env.XXX`
  *    （bootstrap 白名单：PORT / DATABASE_PATH / MIGRATIONS_PATH / WEB_DIST_PATH / TZ
  *     以及 compose 层的 APP_BIND_ADDRESS / APP_PORT / DATA_PATH / STRM_PATH）。
+ *    运行时邮件禁发保护 EMAIL_DELIVERY_DISABLED 独立于业务配置，后台不能覆盖。
  *  - `env` 字段声明「首次启动时从哪个环境变量导入」，用于存量部署无感升级：
  *    DB 里一旦有值就以 DB 为准，env 只在键缺失时作为种子。
  *  - 密钥（secret: true）只影响展示与日志：存库为明文（与 .env 同一个信任边界），
@@ -202,6 +203,14 @@ export const DEFAULT_EMBY_ONBOARD_NOTICE = [
 ].join("\n");
 
 export const SETTINGS = {
+  "development.enabled": {
+    group: "security",
+    label: "开发调试模式",
+    help: "暂停邮件、自动账号停用／删除／冻结和 115 自动转存，保留浏览与扫描。",
+    hidden: true,
+    schema: booleanSetting(false),
+    env: "DEVELOPMENT_MODE",
+  },
   ...VIRTUAL_PROXY_SETTINGS,
   /* ---------------------------------------------------------------- 管理员 */
   "admin.username": {

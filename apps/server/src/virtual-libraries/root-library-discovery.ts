@@ -58,12 +58,14 @@ interface RootDiscoveryContext {
 /** Preserve every upstream item; append owned libraries only to confirmed root folder lists. */
 export async function rootLibraryDiscovery(context: RootDiscoveryContext): Promise<UpstreamJson> {
   const { url, reply, adminOrder } = context;
+  const personal = context.store.list().some((library) => library.ownerMemberId != null);
   if (!isRootLibraryDiscovery(url) || reply.status < 200 || reply.status >= 300) return reply;
   const body = reply.body as { Items?: unknown; TotalRecordCount?: unknown } | null;
   if (
     !body ||
     !Array.isArray(body.Items) ||
-    (!body.Items.length && !(adminOrder && typeof body.TotalRecordCount === "number" && body.TotalRecordCount > 0)) ||
+    (!body.Items.length &&
+      !((adminOrder || personal) && typeof body.TotalRecordCount === "number" && body.TotalRecordCount > 0)) ||
     body.Items.some((item) => !item || typeof item !== "object" || item.Type !== "CollectionFolder")
   )
     return reply;

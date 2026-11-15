@@ -8,6 +8,7 @@ import {
 import { isSelectableWork, itemTypeLabel, selectionError, sourceSelectionHint } from "./virtual-library-types";
 const props = defineProps<{
   items: VirtualLibraryItem[];
+  personal?: boolean;
   collectionType: VirtualLibraryCollectionType;
   roots: Array<{ id: string; name: string }>;
   selected: string[];
@@ -31,7 +32,7 @@ const emit = defineEmits<{
 }>();
 function poster(item: VirtualLibraryItem) {
   return /^\d+$/.test(item.itemId) && item.imageTag
-    ? `/api/library/emby-poster?id=${encodeURIComponent(item.itemId)}`
+    ? `${props.personal ? "/api/public" : "/api/library"}/emby-poster?id=${encodeURIComponent(item.itemId)}`
     : undefined;
 }
 </script>

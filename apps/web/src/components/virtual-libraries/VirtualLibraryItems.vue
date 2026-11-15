@@ -10,6 +10,7 @@ import { incompatibleItems, incompatibleMessage, itemTypeLabel } from "./virtual
 const props = withDefaults(
   defineProps<{
     items: VirtualLibraryItem[];
+    personal?: boolean;
     issues?: VirtualLibraryMappingIssue[];
     collectionType: VirtualLibraryCollectionType;
     loading: boolean;
@@ -25,7 +26,9 @@ function posterKey(item: VirtualLibraryItem) {
 }
 function poster(item: VirtualLibraryItem) {
   return /^\d+$/.test(item.itemId) && item.imageTag && !failedPosters.has(posterKey(item))
-    ? posterUrlFor(`emby:${item.itemId}`)
+    ? props.personal
+      ? `/api/public/emby-poster?id=${encodeURIComponent(item.itemId)}`
+      : posterUrlFor(`emby:${item.itemId}`)
     : undefined;
 }
 </script>

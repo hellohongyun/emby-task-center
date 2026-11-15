@@ -67,6 +67,7 @@ const messages: Record<string, string> = {
   rate_limited: "提交过于频繁，请稍后再试。",
   queue_full: "转存队列已满，请稍后再试。",
   share_115_unavailable: "当前暂不可提交转存，请稍后再试。",
+  development_mode_enabled: "开发调试模式已暂停自动转存。",
   share_115_not_unconfirmed: "任务状态已更新，请刷新记录。",
 };
 

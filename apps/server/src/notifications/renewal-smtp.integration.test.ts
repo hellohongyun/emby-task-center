@@ -3,7 +3,7 @@ import { createServer as createSmtpServer, type Socket } from "node:net";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import express from "express";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
 import { renewalEmailOutbox, submissionUsers } from "@emby-task-center/database/schema";
 import { createEmailNotifier, type EmailNotifier } from "./email-service";
@@ -14,8 +14,9 @@ import { setDriveExpiry } from "../subscriptions/drive-expiry";
 async function smtpFixture() {
   const sockets = new Set<Socket>();
   const messages: Array<{ recipient: string; raw: string }> = [];
-  const state = { reject: false, attempts: 0 };
+  const state = { reject: false, attempts: 0, connections: 0 };
   const server = createSmtpServer((socket) => {
+    state.connections++;
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
     socket.on("error", () => undefined);
@@ -113,6 +114,7 @@ describe("renewal delivery through actual Nodemailer and local SMTP", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await smtp.close();
     database.close();
+    vi.unstubAllEnvs();
   });
   const input = () => ({
     mode: "days",
@@ -142,6 +144,38 @@ describe("renewal delivery through actual Nodemailer and local SMTP", () => {
     expect(text).toContain("2030");
     expect(database.db.select().from(renewalEmailOutbox).get()?.sentAt).toBeTruthy();
   });
+
+  it.each([
+    { mode: "production", flag: "true" },
+    { mode: "development", flag: "false" },
+  ])(
+    "makes no SMTP connections while disabled ($mode/$flag) and leaves pending receipts untouched",
+    async ({ mode, flag }) => {
+      vi.stubEnv("NODE_ENV", mode);
+      vi.stubEnv("EMAIL_DELIVERY_DISABLED", flag);
+      const result = await renew(input());
+      expect(result.emailStatus).toBe("pending");
+      const pending = database.db.select().from(renewalEmailOutbox).get()!;
+      expect(pending.sentAt).toBeNull();
+      expect(pending.attempts).toBe(0);
+      await notifier.retryPending(database.db);
+      await expect(notifier.sendTest(member.email)).rejects.toThrow("email_delivery_disabled");
+      await expect(notifier.sendNotification(member.email, "blocked", "blocked")).rejects.toThrow(
+        "email_delivery_disabled",
+      );
+      expect(database.db.select().from(renewalEmailOutbox).get()).toEqual(pending);
+      expect(smtp.state.connections).toBe(0);
+      expect(smtp.messages).toEqual([]);
+
+      // Production can deliver the exact preserved receipt once the deployment guard is lifted.
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("EMAIL_DELIVERY_DISABLED", "false");
+      await notifier.retryPending(database.db);
+      expect(smtp.state.connections).toBe(1);
+      expect(smtp.messages).toHaveLength(1);
+      expect(database.db.select().from(renewalEmailOutbox).get()?.sentAt).toBeTruthy();
+    },
+  );
 
   it("survives a real SMTP rejection, retries through the existing notifier, and does not resend or extend twice", async () => {
     smtp.state.reject = true;

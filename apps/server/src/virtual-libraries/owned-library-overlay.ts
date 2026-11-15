@@ -99,11 +99,13 @@ export async function overlayLibraries(context: OverlayContext): Promise<Upstrea
   const start = integerParameter(url, "StartIndex", 0);
   const limit = integerParameter(url, "Limit", Number.MAX_SAFE_INTEGER);
   const adminOrder = onlyIds ? undefined : context.adminOrder;
-  const source = adminOrder ? await completeLibraryList(context, original, total, start, limit) : original;
+  const libraries = store.list();
+  const hasPrivate = !onlyIds && libraries.some((library) => library.ownerMemberId != null);
+  const source =
+    adminOrder || hasPrivate ? await completeLibraryList(context, original, total, start, limit) : original;
   if (!source) return reply;
   const existing = new Set(source.flatMap(keys));
   const only = onlyIds ? new Set(onlyIds.map(identity)) : undefined;
-  const libraries = store.list();
   const configuration = onlyIds || !libraries.length ? {} : await preferences(context);
   const hidden = new Set(
     Array.isArray(configuration.MyMediaExcludes) ? configuration.MyMediaExcludes.map(identity) : [],
@@ -121,6 +123,27 @@ export async function overlayLibraries(context: OverlayContext): Promise<Upstrea
     .filter((library) => !search || library.name.toLocaleLowerCase().includes(search))
     .map((library) => libraryDto(store, library.id, serverId))
     .filter((item) => !types || types.includes(String(item.Type).toLowerCase()));
+  if (hasPrivate) {
+    const privateIds = new Set(
+      libraries.filter((library) => library.ownerMemberId != null).map((library) => library.id),
+    );
+    const personal = additions.filter((item) => privateIds.has(String(item.Id)));
+    const shared = additions.filter((item) => !privateIds.has(String(item.Id)));
+    const order = Array.isArray(configuration.OrderedViews)
+      ? configuration.OrderedViews.filter((id): id is string => typeof id === "string").map(identity)
+      : [];
+    const remainder = adminOrder
+      ? applyAdminLibraryOrder([...source, ...shared], adminOrder, keys)
+      : anchorOwnedViews(source, shared, order, context.ownedOrder);
+    const ordered = [...personal, ...remainder];
+    const items =
+      original.length > limit && original.length >= source.length ? ordered : ordered.slice(start, start + limit);
+    return {
+      ...reply,
+      raw: undefined,
+      body: array ? items : { ...body, Items: items, TotalRecordCount: ordered.length },
+    };
+  }
   if (adminOrder) {
     const ordered = applyAdminLibraryOrder([...source, ...additions], adminOrder, keys);
     // Some upstreams ignore pagination and return the complete list even with Limit.

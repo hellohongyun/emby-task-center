@@ -11,8 +11,11 @@ import VirtualNameQueue from "../components/virtual-libraries/VirtualNameQueue.v
 import { useVirtualNameQueue } from "../composables/useVirtualNameQueue";
 import type { VirtualLibrary } from "@emby-task-center/contracts/virtual-library";
 
-const services = useAppServices();
-const api = useVirtualLibraries(services.requireAuth);
+const props = defineProps<{ personal?: boolean; requireAuth?: () => void }>();
+const services = props.personal ? null : useAppServices();
+const requireAuth = props.requireAuth ?? services?.requireAuth ?? (() => undefined);
+const base = props.personal ? "/api/public/virtual-libraries" : "/api/virtual-libraries";
+const api = useVirtualLibraries(requireAuth, base);
 const queue = useVirtualNameQueue(api);
 const { names: queueNames, index: queueIndex, busy: queueBusy, adding: queueAdding } = queue;
 const {
@@ -48,13 +51,13 @@ watch(selectedId, () => {
   deleteConfirm.value = false;
   formOpen.value = false;
 });
-if (services.ui?.authRequired)
+if (services?.ui?.authRequired)
   watch(services.ui.authRequired, (required) => {
     if (required) api.cancel();
   });
 onMounted(() => {
   void api.load();
-  void api.loadProxy();
+  if (!props.personal) void api.loadProxy();
   void api.loadSourceLibraries();
   void api.loadSources();
 });
@@ -92,8 +95,9 @@ function updatePoster(library: VirtualLibrary) {
   <div class="vl-page">
     <header class="vl-page-head">
       <div>
-        <h1>虚拟媒体库</h1>
-        <p>将 Emby 已有影片或剧集映射到新媒体库，在客户端与原有媒体库一起展示。</p>
+        <h1>{{ personal ? "我的私人媒体库" : "虚拟媒体库" }}</h1>
+        <p v-if="personal">仅自己的账号可见。连接虚拟库反代后，私人库排在公共库之前；编辑排序数字可调整私人库顺序。</p>
+        <p v-else>将 Emby 已有影片或剧集映射到新媒体库，在客户端与原有媒体库一起展示。</p>
       </div>
       <button class="vl-primary" type="button" :disabled="saving" @click="openForm()">＋ 新建虚拟媒体库</button>
     </header>
@@ -102,6 +106,7 @@ function updatePoster(library: VirtualLibrary) {
     </p>
     <p v-if="notice && !error" class="vl-notice" role="status">{{ notice }}</p>
     <VirtualProxySettings
+      v-if="!personal"
       :state="proxy"
       :loading="proxyLoading"
       :busy="proxySaving"
@@ -170,11 +175,13 @@ function updatePoster(library: VirtualLibrary) {
         <VirtualLibraryPoster
           :key="selectedLibrary.id"
           :library="selectedLibrary"
-          :require-auth="services.requireAuth"
-          :auth-required="services.ui?.authRequired?.value"
+          :require-auth="requireAuth"
+          :base="base"
+          :auth-required="services?.ui?.authRequired?.value"
           @saved="updatePoster"
         />
         <VirtualLibraryItems
+          :personal="personal"
           :items="items"
           :issues="issues"
           :collection-type="selectedLibrary.collectionType"
@@ -192,6 +199,7 @@ function updatePoster(library: VirtualLibrary) {
           @stop="queue.stop"
         />
         <VirtualSourcePicker
+          :personal="personal"
           :collection-type="selectedLibrary.collectionType"
           v-model:search="searchTerm"
           v-model:parent="parentId"

@@ -6,6 +6,29 @@ import { schema } from "./schema";
 import { reconcileVirtualLibraries } from "./virtual-libraries-reconcile";
 
 describe("virtual library identity schema upgrade", () => {
+  it("adds owner scope to populated legacy public libraries without changing rows", () => {
+    const sqlite = new BetterSqlite3(":memory:");
+    try {
+      const database = drizzle(sqlite, { schema });
+      database.run(
+        sql`CREATE TABLE virtual_libraries (id TEXT PRIMARY KEY, name TEXT NOT NULL, collection_type TEXT NOT NULL, sort_order INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+      );
+      database.run(sql`INSERT INTO virtual_libraries VALUES ('legacy', '公共库', 'mixed', 3, 'created', 'updated')`);
+      reconcileVirtualLibraries(database);
+      reconcileVirtualLibraries(database);
+      expect(database.get(sql`SELECT * FROM virtual_libraries`)).toEqual({
+        id: "legacy",
+        name: "公共库",
+        collection_type: "mixed",
+        sort_order: 3,
+        created_at: "created",
+        updated_at: "updated",
+        owner_member_id: null,
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
   it("adds nullable TMDB identity to a populated legacy table without replacing rows", () => {
     const sqlite = new BetterSqlite3(":memory:");
     try {

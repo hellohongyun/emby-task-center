@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, asc, count, eq, max, sql } from "drizzle-orm";
+import { and, asc, count, eq, isNull, max, sql } from "drizzle-orm";
 import type { AppDatabase } from "@emby-task-center/database/client";
 import { virtualLibraries, virtualLibraryItems, virtualLibraryPosters } from "@emby-task-center/database/schema";
 import {
@@ -20,11 +20,20 @@ export class VirtualLibraryNotFoundError extends Error {
   }
 }
 
-export function createVirtualLibraryStore(database: AppDatabase) {
+export type VirtualLibraryScope = { ownerMemberId: number } | { all: true };
+
+export function createVirtualLibraryStore(database: AppDatabase, scope?: VirtualLibraryScope) {
+  const scopeFilter =
+    scope && "all" in scope
+      ? undefined
+      : scope
+        ? eq(virtualLibraries.ownerMemberId, scope.ownerMemberId)
+        : isNull(virtualLibraries.ownerMemberId);
   function list(): VirtualLibrary[] {
     return database
       .select({
         id: virtualLibraries.id,
+        ownerMemberId: virtualLibraries.ownerMemberId,
         name: virtualLibraries.name,
         collectionType: virtualLibraries.collectionType,
         sortOrder: virtualLibraries.sortOrder,
@@ -39,6 +48,7 @@ export function createVirtualLibraryStore(database: AppDatabase) {
       .from(virtualLibraries)
       .leftJoin(virtualLibraryItems, eq(virtualLibraries.id, virtualLibraryItems.libraryId))
       .leftJoin(virtualLibraryPosters, eq(virtualLibraries.id, virtualLibraryPosters.libraryId))
+      .where(scopeFilter)
       .groupBy(virtualLibraries.id)
       .orderBy(asc(virtualLibraries.sortOrder), asc(virtualLibraries.createdAt), asc(virtualLibraries.id))
       .all();
@@ -48,7 +58,11 @@ export function createVirtualLibraryStore(database: AppDatabase) {
     return list().find((library) => library.id === id);
   }
   function requireLibrary(id: string) {
-    const library = database.select().from(virtualLibraries).where(eq(virtualLibraries.id, id)).get();
+    const library = database
+      .select()
+      .from(virtualLibraries)
+      .where(and(eq(virtualLibraries.id, id), scopeFilter))
+      .get();
     if (!library) throw new VirtualLibraryNotFoundError();
     return library;
   }
@@ -60,6 +74,7 @@ export function createVirtualLibraryStore(database: AppDatabase) {
       .run();
   }
   function listItems(id: string): VirtualLibraryItem[] {
+    requireLibrary(id);
     return database
       .select({
         itemId: virtualLibraryItems.itemId,
@@ -84,7 +99,13 @@ export function createVirtualLibraryStore(database: AppDatabase) {
     create(input: CreateVirtualLibraryInput): VirtualLibrary {
       const parsed = CreateVirtualLibrarySchema.parse(input);
       const now = new Date().toISOString();
-      const row = { ...parsed, id: randomBytes(16).toString("hex"), createdAt: now, updatedAt: now };
+      const row = {
+        ...parsed,
+        ownerMemberId: scope && "ownerMemberId" in scope ? scope.ownerMemberId : null,
+        id: randomBytes(16).toString("hex"),
+        createdAt: now,
+        updatedAt: now,
+      };
       database.insert(virtualLibraries).values(row).run();
       return get(row.id)!;
     },
@@ -106,6 +127,7 @@ export function createVirtualLibraryStore(database: AppDatabase) {
     remove(id: string): boolean {
       return database.transaction(() => {
         const exists = Boolean(get(id));
+        if (!exists) return false;
         database.delete(virtualLibraryItems).where(eq(virtualLibraryItems.libraryId, id)).run();
         database.delete(virtualLibraries).where(eq(virtualLibraries.id, id)).run();
         return exists;
@@ -143,6 +165,7 @@ export function createVirtualLibraryStore(database: AppDatabase) {
       expected?: VirtualLibraryItem,
     ): boolean {
       return database.transaction(() => {
+        if (!get(id)) return false;
         const scope = (itemId: string) =>
           and(eq(virtualLibraryItems.libraryId, id), eq(virtualLibraryItems.itemId, itemId));
         const old = database.select().from(virtualLibraryItems).where(scope(oldItemId)).get();
@@ -201,8 +224,14 @@ export function createVirtualLibraryStore(database: AppDatabase) {
           .from(virtualLibraryItems)
           .where(eq(virtualLibraryItems.itemId, itemId))
           .all();
-        database.delete(virtualLibraryItems).where(eq(virtualLibraryItems.itemId, itemId)).run();
-        for (const { id } of libraries) touch(id);
+        for (const { id } of libraries) {
+          if (!get(id)) continue;
+          database
+            .delete(virtualLibraryItems)
+            .where(and(eq(virtualLibraryItems.libraryId, id), eq(virtualLibraryItems.itemId, itemId)))
+            .run();
+          touch(id);
+        }
       });
     },
   };

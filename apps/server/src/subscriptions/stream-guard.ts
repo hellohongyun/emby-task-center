@@ -1,6 +1,8 @@
 import type { AppDatabase } from "@emby-task-center/database/client";
 import type { EmbyClient } from "../integrations/emby-client";
 import { StreamLimitResolver } from "./stream-limits";
+import { isDevelopmentMode } from "../settings/development-mode";
+import { automaticEmby } from "./automatic-emby";
 
 export interface StreamGuardResult {
   /** 被停掉的会话数（含强制登出）。 */
@@ -138,7 +140,8 @@ export async function enforceStreamLimits(
   resolveLimit = new StreamLimitResolver(database, emby),
 ): Promise<StreamGuardResult> {
   const nothing: StreamGuardResult = { stopped: 0, overshootUsers: 0, stoppedSessions: [], playingUsers: 0 };
-  if (!emby?.configured || !emby.listSessions) return nothing;
+  if (isDevelopmentMode(database) || !emby?.configured || !emby.listSessions) return nothing;
+  emby = automaticEmby(database, emby);
 
   let rawSessions: Array<{
     Id?: string;
@@ -149,7 +152,7 @@ export async function enforceStreamLimits(
     PlayState?: { PositionTicks?: number; IsPaused?: boolean } | null;
   }>;
   try {
-    rawSessions = (await emby.listSessions()) as never;
+    rawSessions = (await emby.listSessions!()) as never;
   } catch {
     return nothing;
   }
@@ -182,12 +185,14 @@ export async function enforceStreamLimits(
     // 冻结中的会员：一路都不许（冻结期间 Emby 不会自己拦住已登录设备，这里必须持续断）。
     const frozen = resolveLimit.isFrozen(userId);
     const limit = await resolveLimit.limitFor(userId);
+    if (isDevelopmentMode(database)) return nothing;
     if (!frozen && limit == null) continue;
     const extras = frozen ? list : pickSessionsToStop(list, limit!);
     if (!extras.length) continue;
     overshootUsers += 1;
     const now = Date.now();
     for (const session of extras) {
+      if (isDevelopmentMode(database)) break;
       const attempt = stopAttempts.get(session.id);
       // 前几次请客户端自己停；连发 STOP_ATTEMPTS_BEFORE_LOGOUT 次还不停 → 强制登出该会话。
       // 冻结不再给机会：直接踢设备（令牌失效），踢不动就断会话。

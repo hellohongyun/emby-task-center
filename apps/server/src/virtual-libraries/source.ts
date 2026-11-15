@@ -47,7 +47,7 @@ function validItem(value: unknown): value is EmbyItem {
   return typeof item.Id === "string" && item.Id.length > 0 && typeof item.Name === "string";
 }
 
-export function createVirtualLibrarySource(database: AppDatabase, fetcher: typeof fetch = fetch) {
+export function createVirtualLibrarySource(database: AppDatabase, fetcher: typeof fetch = fetch, userId?: string) {
   async function request(path: string, params: Record<string, string> = {}): Promise<unknown> {
     const { values } = readSettings(database);
     const baseUrl = values["emby.baseUrl"];
@@ -92,7 +92,7 @@ export function createVirtualLibrarySource(database: AppDatabase, fetcher: typeo
   }
 
   async function queryItems(params: Record<string, string>) {
-    const payload = await request("Items", params);
+    const payload = await request(userId ? `Users/${encodeURIComponent(userId)}/Items` : "Items", params);
     if (!payload || typeof payload !== "object" || !Array.isArray((payload as { Items?: unknown }).Items)) {
       throw new VirtualLibrarySourceError("Emby 返回了无效的影片列表");
     }
@@ -119,7 +119,14 @@ export function createVirtualLibrarySource(database: AppDatabase, fetcher: typeo
 
   return {
     async libraries(): Promise<{ id: string; name: string }[]> {
-      const payload = await request("Library/VirtualFolders");
+      const payload = await request(userId ? `Users/${encodeURIComponent(userId)}/Views` : "Library/VirtualFolders");
+      if (userId) {
+        const views = (payload as { Items?: { Id: string; Name: string }[] })?.Items;
+        if (!Array.isArray(views)) throw new VirtualLibrarySourceError("Emby 返回了无效的媒体库列表");
+        return views
+          .filter((item) => typeof item.Id === "string" && typeof item.Name === "string")
+          .map((item) => ({ id: item.Id, name: item.Name }));
+      }
       if (!Array.isArray(payload)) throw new VirtualLibrarySourceError("Emby 返回了无效的媒体库列表");
       return payload.flatMap((entry: { ItemId?: string; Name?: string }) =>
         typeof entry?.ItemId === "string" && typeof entry.Name === "string"

@@ -2,6 +2,8 @@
 
 ## 单元与组件回归
 
+开发调试保护通过 `email-delivery-policy.test.ts`、`renewal-smtp.integration.test.ts`、`local-launcher.test.ts`、`development-mode.test.ts` 和自动操作专项测试验证：禁发时不创建 SMTP 连接、保留待发记录；本地启动不能通过环境中的 false 绕过禁发；模式切换立即生效且不改变原业务配置。SMTP 验证仅连接本地夹具，不向真实用户投递。`DevelopmentModePanel.test.ts` 覆盖独立保存和错误回退；浏览器回归命令为 `pnpm exec playwright test --config playwright.real.config.ts tests/e2e/development-mode.spec.ts`（先 `pnpm build`）。
+
 `query-descendant-types.test.ts` 验证 SenPlayer 类型组合的子项读取范围、合法视频子项、分集、未限定类型展开及原剧归组海报，使用隔离上游夹具，不代替播放器实测。
 
 在项目根目录运行 `pnpm test`。服务端使用 Vitest，前端使用 Vue 组件和请求夹具；这些测试不代表真实 Emby、TMDB、SMTP 或反向代理已经验证。
@@ -21,6 +23,19 @@
 ```powershell
 pnpm exec vitest run apps/server/src/virtual-libraries apps/server/src/routes/virtual-libraries.test.ts packages/database/src/schema-drift.test.ts
 ```
+
+私人库另由 `private-store.test.ts`、`public-virtual-libraries.test.ts`、`private-access.test.ts` 和 `private-proxy-http.test.ts` 验证所属用户、公共库兼容、越权读写、绑定账号选片、真实凭据身份、私人封面 tag、账号状态与绑定变化，以及私人库前置后的分页。HTTP 代理用本地上游和临时 SQLite，不调用真实 Emby。
+
+`PersonalVirtualLibraries.test.ts` 验证门户入口与复用管理页面的私有 API、选片、排序和海报操作。完整浏览器回归运行前先构建：
+
+```powershell
+pnpm build
+pnpm exec playwright test --config playwright.real.config.ts tests/e2e/private-libraries.spec.ts
+```
+
+此流程启动独立应用、本地 Emby 夹具和临时数据库，使用真实会员及管理员会话，检查创建选片、海报、账号隔离、私人排序及重启保留，并检查 320／390／1440 像素页面无横向溢出。它不代表实际播放器已验收；私人库海报需要客户端携带凭据，缺少凭据时拒绝读取。
+
+海报上传的浏览器回归另使用 2400×1600 的 PNG 验证网页压缩后传输字节减少、存储图片最长边为 1600 像素，并将上传响应延迟 16 秒，确认可越过原有 15 秒截止时间。请求层的假时钟测试验证 120 秒上传截止、普通请求仍为 15 秒，以及取消和重试行为；不需要在测试中实际等待两分钟。
 
 `upstream-preservation.test.ts` 和 `owned-library-overlay.test.ts` 验证上游 DTO、扩展字段、相对顺序和原始查询参数保留，只有自有新增条目参与隐藏与插入；混合 ID 请求保留上游返回结果。
 

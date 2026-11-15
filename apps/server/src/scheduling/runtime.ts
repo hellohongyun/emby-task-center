@@ -31,6 +31,8 @@ import { startMediaRequestRetention } from "./media-request-retention";
 import { startMemberExpiryCleanup, startMemberInactivityCleanup } from "./member-expiry-cleanup";
 import type { SettingsSnapshot } from "../settings/registry";
 import { getRuntimeSettings } from "../settings/runtime";
+import { isDevelopmentMode } from "../settings/development-mode";
+import { automaticEmby } from "../subscriptions/automatic-emby";
 import { ESCALATION_TICK_MS, enforceConcurrencyEscalation } from "../subscriptions/concurrency-escalation";
 import { getConcurrencyPolicy } from "../integrations/concurrency-policy-config";
 import { enforceStreamLimits } from "../subscriptions/stream-guard";
@@ -479,7 +481,14 @@ export function startRuntime(deps: RuntimeDeps): RuntimeHandle {
     // 之后每 10 分钟一轮——Emby 后台新加的号最多 10 分钟就会出现在会员表里（可用邮箱验证码登录）。
     // 放在 syncAllStreamLimits 之前：新绑定的会员会被这一轮的上限同步一起覆盖。
     const embyMemberLink = createSingleRoundRunner(async (): Promise<void> => {
-      const outcome = await linkOrphanEmbyUsers(database, emby, undefined, logger);
+      if (isDevelopmentMode(database)) return;
+      const outcome = await linkOrphanEmbyUsers(
+        database,
+        automaticEmby(database, emby),
+        undefined,
+        logger,
+        () => !isDevelopmentMode(database),
+      );
       if (!outcome.linked.length && !outcome.adopted.length) return;
       logger.info({
         event: "emby_member_autolink",

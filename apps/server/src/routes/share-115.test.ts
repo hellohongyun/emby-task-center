@@ -188,6 +188,25 @@ describe("member 115 submissions through HTTP and the background queue", () => {
     expect(upstreamRequest).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects new transfers with an explicit development mode reason and leaves browsing available", async () => {
+    writeSettings(database.db, { "development.enabled": true });
+    for (const [path, cookie] of [
+      [memberPath, first],
+      [adminPath, admin],
+    ]) {
+      const response = await send(path!, cookie!, { shareText });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({
+        error: "development_mode_enabled",
+        message: "开发调试模式已暂停自动转存。",
+      });
+    }
+    const listing = await send(memberPath, first);
+    expect(listing.status).toBe(200);
+    expect(await listing.json()).toMatchObject({ items: [], accepting: false });
+    expect(upstreamRequest).not.toHaveBeenCalled();
+  });
+
   it("queues an administrator submission with its own identity and the shared transfer worker", async () => {
     writeSettings(database.db, { "admin.username": "library-admin" });
     expect((await send(adminPath, first, { shareText })).status).toBe(401);

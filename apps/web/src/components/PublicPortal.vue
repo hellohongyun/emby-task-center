@@ -23,6 +23,7 @@ import { memberStatusText, usePublicNavigation } from "../composables/usePublicN
 import { usePortalSession } from "../composables/usePortalSession";
 
 const Share115Workspace = defineAsyncComponent(() => import("./Share115Workspace.vue"));
+const PublicVirtualLibraries = defineAsyncComponent(() => import("./PublicVirtualLibraries.vue"));
 const s = usePortalSession();
 
 const navItems = [
@@ -30,6 +31,7 @@ const navItems = [
   { value: "library", label: "影视库", icon: mdiLibraryOutline },
   { value: "requests", label: "求片", icon: mdiPlaylistPlus },
   { value: "share115", label: "115 转存", icon: mdiCloudDownloadOutline },
+  { value: "virtualLibraries", label: "私人库", icon: mdiLibraryOutline },
   { value: "profile", label: "我的", icon: mdiAccountCircle },
 ] as const;
 
@@ -102,6 +104,10 @@ onBeforeUnmount(() => clearInterval(refreshTimer));
         <PublicLibraryView v-else-if="s.contentAllowed.value && view === 'library'" :query="libraryQuery" />
         <PublicRequestsView v-else-if="s.contentAllowed.value && view === 'requests'" />
         <Share115Workspace v-else-if="s.contentAllowed.value && view === 'share115'" :key="s.loggedInEmail.value" />
+        <PublicVirtualLibraries
+          v-else-if="s.contentAllowed.value && view === 'virtualLibraries'"
+          :key="s.loggedInEmail.value"
+        />
         <PublicProfileView v-else @navigate="navigateTo" />
       </main>
 

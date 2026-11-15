@@ -10,6 +10,8 @@ import { getConcurrencyPolicy, type ConcurrencyPolicy } from "../integrations/co
 import { terminateMemberSessions } from "./stream-guard";
 import { StreamLimitResolver } from "./stream-limits";
 import { buildHtml } from "./send-notifications";
+import { isDevelopmentMode } from "../settings/development-mode";
+import { automaticEmby } from "./automatic-emby";
 
 /**
  * 升级任务的检查周期：runtime 按它排程，累计也按它给**单次计入**封顶。
@@ -70,8 +72,10 @@ export async function enforceConcurrencyEscalation(
     reasserted: [],
   };
   const policy = getConcurrencyPolicy(database);
+  if (isDevelopmentMode(database)) return outcome;
   if (!policy.enabled) return outcome;
   if (!emby?.configured || !emby.listSessions) return outcome;
+  emby = automaticEmby(database, emby);
 
   const service = createEmbyUserService(emby);
   // 只处理**会员**：登记过上限的用登记值，没登记的按默认路数；管理员在下面逐个跳过。
@@ -98,11 +102,13 @@ export async function enforceConcurrencyEscalation(
   const nowMs = now.getTime();
 
   for (const member of members) {
+    if (isDevelopmentMode(database)) break;
     const userId = member.embyUserId!;
     // 管理员不受影响：即便这个 Emby 账号被登记成了会员，也不进冻结流程。
     if (await resolver.isAdministrator(userId)) continue;
     // 上限：登记值 → 否则默认路数；null = 不限（管理员或默认路数为 0）→ 没有可执行的限制。
     const limit = await resolver.limitFor(userId);
+    if (isDevelopmentMode(database)) break;
     if (limit == null) continue;
 
     const count = sessions.filter(
@@ -132,6 +138,7 @@ export async function enforceConcurrencyEscalation(
       //  ① 持续断流 —— Emby 不会自己拦住已登录设备，不断流冻结就不成立；
       //  ② 守住停用位 —— 期间任何一次策略写入（上限同步、管理员改设置）都可能把它冲回启用。
       const kept = await ensureStillDisabled(service, userId);
+      if (isDevelopmentMode(database)) break;
       if (kept === "healed") outcome.reasserted.push(member.email);
       if (kept === "failed") {
         outcome.failures.push({ email: member.email, reason: "冻结期内停用位失效，重写后仍未确认" });
@@ -154,7 +161,9 @@ export async function enforceConcurrencyEscalation(
       // 顺序很讲究：**先确认停用真的生效**，再发"已冻结"邮件、才记冻结状态。
       // 停用没生效就只断流、记一条失败、下一轮重试 —— 绝不发一封假的"已冻结"。
       const disabled = await setDisabledAndConfirm(service, userId, true);
+      if (isDevelopmentMode(database)) break;
       const { sessions: ended, devices } = await terminateMemberSessions(emby, userId);
+      if (isDevelopmentMode(database)) break;
       if (!disabled) {
         // 失败也要把进度落库：不然下一跳按「上一次落库的锚点」算，会被单次封顶削掉一截，
         // 累计反而往回退，阈值可能再也够不着（冻结就一直重试不上）。
@@ -175,6 +184,7 @@ export async function enforceConcurrencyEscalation(
         ended + devices,
         new Date(nowMs + disableForMs),
       );
+      if (isDevelopmentMode(database)) break;
       await upsertState(database, member.id, {
         overshootSince: null,
         overshootMs: 0,
@@ -187,6 +197,7 @@ export async function enforceConcurrencyEscalation(
     } else if (remindMs > 0 && notifiedAt == null && accruedMs >= remindMs) {
       // 累计到提醒档：只发提醒（可设 0 关掉，直接等冻结档）。
       await sendRemindEmail(email, member, policy, { limit, streamCount: count, overshootMs: accruedMs });
+      if (isDevelopmentMode(database)) break;
       outcome.reminded.push(member.email);
       await upsertState(database, member.id, {
         overshootSince,

@@ -1,4 +1,4 @@
-import type { Express, Response } from "express";
+import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import type { AppDatabase } from "@emby-task-center/database/client";
 import {
@@ -6,7 +6,11 @@ import {
   CreateVirtualLibrarySchema,
   UpdateVirtualLibrarySchema,
 } from "@emby-task-center/contracts/virtual-library";
-import { createVirtualLibraryStore, VirtualLibraryNotFoundError } from "../virtual-libraries/store";
+import {
+  createVirtualLibraryStore,
+  VirtualLibraryNotFoundError,
+  type VirtualLibraryStore,
+} from "../virtual-libraries/store";
 import { createVirtualLibrarySource, VirtualLibrarySourceError } from "../virtual-libraries/source";
 import { VirtualLibraryTypeMismatchError } from "../virtual-libraries/type-validation";
 import { repairVirtualMappings } from "../virtual-libraries/mapping-repair";
@@ -26,12 +30,16 @@ export function registerVirtualLibraryRoutes(
   options: {
     database: AppDatabase;
     source?: ReturnType<typeof createVirtualLibrarySource>;
+    base?: string;
+    storeForRequest?: (request: Request) => VirtualLibraryStore;
+    sourceForRequest?: (request: Request) => ReturnType<typeof createVirtualLibrarySource>;
   },
 ): void {
-  const store = createVirtualLibraryStore(options.database);
-  registerVirtualLibraryPosterRoutes(app, store);
-  const source = options.source ?? createVirtualLibrarySource(options.database);
-  const base = "/api/virtual-libraries";
+  const defaultStore = createVirtualLibraryStore(options.database);
+  const storeFor = options.storeForRequest ?? (() => defaultStore);
+  const sourceFor = options.sourceForRequest ?? (() => options.source ?? createVirtualLibrarySource(options.database));
+  const base = options.base ?? "/api/virtual-libraries";
+  registerVirtualLibraryPosterRoutes(app, storeFor, base);
   function fail(response: Response, error: unknown) {
     if (error instanceof VirtualLibraryNotFoundError) {
       response.status(404).json({ error: "virtual_library_not_found", message: error.message });
@@ -42,7 +50,9 @@ export function registerVirtualLibraryRoutes(
     } else throw error;
   }
 
-  app.get(`${base}/source-libraries`, async (_request, response) => {
+  app.get(`${base}/source-libraries`, async (request, response) => {
+    const source = sourceFor(request);
+
     try {
       response.json({ items: await source.libraries() });
     } catch (error) {
@@ -50,6 +60,8 @@ export function registerVirtualLibraryRoutes(
     }
   });
   app.get(`${base}/source-items`, async (request, response) => {
+    const source = sourceFor(request);
+
     const parsed = sourceQuerySchema.safeParse(request.query);
     if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });
     try {
@@ -58,15 +70,21 @@ export function registerVirtualLibraryRoutes(
       fail(response, error);
     }
   });
-  app.get(base, (_request, response) => {
+  app.get(base, (request, response) => {
+    const store = storeFor(request);
+
     response.json({ libraries: store.list() });
   });
   app.post(base, (request, response) => {
+    const store = storeFor(request);
+
     const parsed = CreateVirtualLibrarySchema.safeParse(request.body);
     if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });
     response.status(201).json({ library: store.create(parsed.data) });
   });
   app.patch(`${base}/:id`, (request, response) => {
+    const store = storeFor(request);
+
     const parsed = UpdateVirtualLibrarySchema.safeParse(request.body);
     if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });
     try {
@@ -76,12 +94,17 @@ export function registerVirtualLibraryRoutes(
     }
   });
   app.delete(`${base}/:id`, (request, response) => {
+    const store = storeFor(request);
+
     if (!store.remove(String(request.params.id))) {
       return void response.status(404).json({ error: "virtual_library_not_found" });
     }
     response.status(204).end();
   });
   app.get(`${base}/:id/items`, async (request, response) => {
+    const store = storeFor(request);
+    const source = sourceFor(request);
+
     const id = String(request.params.id);
     if (!store.get(id)) return void response.status(404).json({ error: "virtual_library_not_found" });
     try {
@@ -92,6 +115,9 @@ export function registerVirtualLibraryRoutes(
     }
   });
   app.post(`${base}/:id/items`, async (request, response) => {
+    const store = storeFor(request);
+    const source = sourceFor(request);
+
     const parsed = AddVirtualLibraryItemsSchema.safeParse(request.body);
     if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });
     const id = String(request.params.id);
@@ -110,6 +136,8 @@ export function registerVirtualLibraryRoutes(
     }
   });
   app.delete(`${base}/:id/items/:itemId`, (request, response) => {
+    const store = storeFor(request);
+
     try {
       store.removeItem(String(request.params.id), String(request.params.itemId));
       response.status(204).end();

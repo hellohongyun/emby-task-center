@@ -4,6 +4,7 @@ import type { AppDatabase } from "@emby-task-center/database/client";
 import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import { retryRenewalReceipts } from "../subscriptions/renewal-outbox";
 import { buildSmtpTestEmail, renderEmail, type RenderedEmail } from "./email-template";
+import { isEmailDeliveryDisabled } from "./email-delivery-policy";
 
 export interface EmailOptions {
   host?: string;
@@ -39,6 +40,8 @@ export function isEmailConfigured(options: EmailOptions): boolean {
 }
 
 export interface EmailNotifier {
+  /** Environment-level guard; SMTP settings cannot override this protection. */
+  readonly deliveryDisabled?: boolean;
   /** 现取：后台刚保存的 SMTP 参数当场算数，不需要重启。 */
   configured: boolean;
   /** 仍缺哪些设置项（已配置时为空数组）；用于后台状态卡片给出可执行的提示。 */
@@ -58,8 +61,12 @@ export interface EmailNotifier {
  * 界面因此一直显示"未配置"、测试邮件按钮点不动，直到重启才"突然好了"。
  */
 export function createEmailNotifier(
-  options: EmailOptions & { resolve?: (() => EmailOptions) | undefined },
+  options: EmailOptions & {
+    resolve?: (() => EmailOptions) | undefined;
+    isDeliveryDisabled?: () => boolean;
+  },
 ): EmailNotifier {
+  const disabled = () => isEmailDeliveryDisabled() || options.isDeliveryDisabled?.() === true;
   function current(): EmailOptions {
     return options.resolve ? options.resolve() : options;
   }
@@ -69,6 +76,7 @@ export function createEmailNotifier(
   let cachedSignature: string | null = null;
   let cachedTransporter: Transporter | null = null;
   function transporter(): Transporter | null {
+    if (disabled()) throw new Error("email_delivery_disabled");
     const live = current();
     const signature = JSON.stringify([
       live.host ?? "",
@@ -96,10 +104,13 @@ export function createEmailNotifier(
   }
 
   const notifier: EmailNotifier = {
-    get configured() {
-      return isEmailConfigured(current());
+    get deliveryDisabled() {
+      return disabled();
     },
-    missingFields: () => missingEmailFields(current()),
+    get configured() {
+      return !disabled() && isEmailConfigured(current());
+    },
+    missingFields: () => (disabled() ? [] : missingEmailFields(current())),
     sendTest: async (email, sample) => {
       const transport = transporter();
       if (!transport) throw new Error("email_not_configured");
@@ -109,7 +120,10 @@ export function createEmailNotifier(
         ...(sample ?? buildSmtpTestEmail()),
       });
     },
-    retryPending: async (database) => retryRenewalReceipts(database, notifier),
+    retryPending: async (database) => {
+      if (disabled()) return;
+      await retryRenewalReceipts(database, notifier);
+    },
     sendNotification: async (email, subject, text, html, cc) => {
       const transport = transporter();
       if (!transport) throw new Error("email_not_configured");

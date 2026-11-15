@@ -7,6 +7,25 @@ const previewProps = { previewEmail: vi.fn(), cancelEmailPreview: vi.fn() };
 // 「全局通知收件人」（添加/删除全局收件邮箱）随「任务更新通知」整条链删除（2026-09），
 // 对应用例一并移除；这里守住连接状态与"未配置时说清还缺什么"。
 describe("SettingsView", () => {
+  it("shows the delivery policy instead of missing SMTP settings and blocks testing", async () => {
+    const testEmail = vi.fn();
+    render(SettingsView, {
+      props: {
+        status: { embyConfigured: true, emailConfigured: true, emailDeliveryDisabled: true },
+        loading: false,
+        testEmby: vi.fn(),
+        testEmail,
+        ...previewProps,
+      },
+    });
+    expect(screen.getByText("当前环境已禁用邮件发送。")).toBeVisible();
+    expect(screen.queryByText(/还缺：/)).not.toBeInTheDocument();
+    await fireEvent.update(screen.getByPlaceholderText("测试收件邮箱"), "operator@example.invalid");
+    expect(screen.getByRole("button", { name: "发送测试" })).toBeDisabled();
+    await fireEvent.submit(screen.getByRole("button", { name: "发送测试" }).closest("form")!);
+    expect(testEmail).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "预览邮件" })).toBeEnabled();
+  });
   it("disables an in-flight test and preserves the submitted email in its result", async () => {
     let resolve!: (value: unknown) => void;
     const testEmail = vi.fn(
