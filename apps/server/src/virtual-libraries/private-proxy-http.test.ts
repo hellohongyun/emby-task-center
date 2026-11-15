@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { gzipSync, deflateSync, brotliCompressSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
@@ -25,12 +26,15 @@ describe("private libraries through the actual HTTP proxy", () => {
   let database: DatabaseHandle;
   let proxy: VirtualLibraryProxy;
   let base: string;
+  let fixtureUpstream: string;
   let privateId: string;
   let publicId: string;
   let posterTag: string;
   let memberId: number;
   let observed: string[];
   let revoked = false;
+  let loginEncoding = "identity";
+  let sessionInfo: unknown;
   const get = (path: string, token = "alice-token", method = "GET") =>
     fetch(base + path, {
       method,
@@ -45,6 +49,8 @@ describe("private libraries through the actual HTTP proxy", () => {
     database = createDatabase(":memory:");
     observed = [];
     revoked = false;
+    loginEncoding = "identity";
+    sessionInfo = undefined;
     const now = new Date().toISOString();
     memberId = database.db
       .insert(submissionUsers)
@@ -73,6 +79,7 @@ describe("private libraries through the actual HTTP proxy", () => {
     const upstreamPort = await listen(
       createServer((request, response) => {
         const url = new URL(request.url!, "http://upstream.test");
+        url.pathname = url.pathname.replace(/^\/emby/i, "").replace(/\.json$/, "");
         observed.push(url.pathname);
         const token = request.headers["x-emby-token"];
         const id =
@@ -89,13 +96,22 @@ describe("private libraries through the actual HTTP proxy", () => {
           request.on("end", () => {
             const { Username } = JSON.parse(Buffer.concat(chunks).toString());
             const loginId = Username === "bob" ? bobId : Username === "admin" ? "admin" : aliceId;
-            response.writeHead(Username === "failed" ? 401 : 200, { "content-type": "application/json" }).end(
-              JSON.stringify({
-                AccessToken: `${Username}-token`,
-                User: { Id: loginId },
-                SessionInfo: { UserId: loginId },
-              }),
+            const body = Buffer.from(
+              "\uFEFF" +
+                JSON.stringify({
+                  AccessToken: `${Username}-token`,
+                  User: { Id: loginId },
+                  SessionInfo: sessionInfo === undefined ? { UserId: loginId } : sessionInfo,
+                }),
             );
+            const encode =
+              loginEncoding === "gzip" ? gzipSync : loginEncoding === "deflate" ? deflateSync : brotliCompressSync;
+            response
+              .writeHead(Username === "failed" ? 401 : 200, {
+                "content-type": "application/json",
+                "content-encoding": loginEncoding,
+              })
+              .end(loginEncoding === "identity" ? body : encode(body));
           });
           return;
         }
@@ -120,6 +136,7 @@ describe("private libraries through the actual HTTP proxy", () => {
       }),
     );
     const upstream = `http://127.0.0.1:${upstreamPort}`;
+    fixtureUpstream = upstream;
     writeSettings(database.db, { "emby.baseUrl": upstream, "emby.apiKey": "admin-must-never-be-used" });
     const vacant = createServer();
     const proxyPort = await listen(vacant);
@@ -164,6 +181,31 @@ describe("private libraries through the actual HTTP proxy", () => {
     expect(denied.status).toBe(401);
     expect((await get(`/Items/${privateId}`, "failed-token")).status).toBe(404);
   });
+  it.each(["gzip", "deflate", "br"])(
+    "learns %s login with BOM and null session through /emby and persists proof",
+    async (encoding) => {
+      expect((await get(`/Items/${privateId}`, "legacy-token")).status).toBe(404);
+      loginEncoding = encoding;
+      sessionInfo = null;
+      const response = await fetch(base + "/emby/Users/AuthenticateByName.json", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ Username: "legacy" }),
+      });
+      expect(response.status).toBe(200);
+      expect(((await response.json()) as { AccessToken: string }).AccessToken).toBe("legacy-token");
+      expect((await get(`/emby/Items/${privateId}`, "legacy-token")).status).toBe(200);
+      await proxy.close();
+      const vacant = createServer();
+      const restartedPort = await listen(vacant);
+      await new Promise<void>((resolve) => vacant.close(() => resolve()));
+      servers.splice(servers.indexOf(vacant), 1);
+      proxy = createVirtualLibraryProxy({ database: database.db, appPort: 3000 });
+      await proxy.configure({ enabled: true, upstream: fixtureUpstream, port: restartedPort });
+      base = `http://127.0.0.1:${restartedPort}`;
+      expect((await get(`/Items/${privateId}`, "legacy-token")).status).toBe(200);
+    },
+  );
   it("rejects guessed IDs, mixed queries, latest sections and tagged posters for other or anonymous accounts", async () => {
     for (const token of ["bob-token", "admin-token", "admin-must-never-be-used", ""]) {
       for (const path of [
@@ -190,6 +232,14 @@ describe("private libraries through the actual HTTP proxy", () => {
     expect(((await response.json()) as { Items: { Id: string }[] }).Items.map((item) => item.Id)).not.toContain(
       privateId,
     );
+  });
+  it("accepts an empty metadata token alongside a valid token but rejects nonempty conflicts", async () => {
+    const headers = { "x-emby-token": "alice-token", authorization: 'MediaBrowser UserId="bob", Token=""' };
+    expect((await fetch(base + `/Items/${privateId}`, { headers })).status).toBe(200);
+    expect((await fetch(base + `/Items/${privateId}?api_key=`, { headers })).status).toBe(200);
+    expect((await fetch(base + `/Items/${privateId}?api_key=bob-token`, { headers })).status).toBe(404);
+    headers.authorization = 'MediaBrowser Token="bob-token"';
+    expect((await fetch(base + `/Items/${privateId}`, { headers })).status).toBe(404);
   });
   it.each(["disabled", "expired", "frozen", "rebound", "duplicate", "deleted"] as const)(
     "rechecks %s state on the next request",

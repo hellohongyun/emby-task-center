@@ -28,6 +28,8 @@ pnpm exec vitest run apps/server/src/virtual-libraries apps/server/src/routes/vi
 
 身份回归明确模拟 Emby 的 `/Users/Me` 不存在，通过真实登录响应建立令牌归属；覆盖旧令牌未确认时不暴露私人库、冒充用户 ID 拒绝、账号改绑与令牌失效，以及服务重启后的归属保留。成功登录夹具不再虚构 Emby 不支持的身份端点。
 
+`authentication-response-http.test.ts` 验证压缩／BOM 登录响应的有界解析与原始 wire 保留，覆盖 gzip、deflate、br、异常编码、破损响应及解压大小限制。身份及 HTTP 代理回归另覆盖空 Token 与有效独立令牌并存、非空冲突、可空 SessionInfo 和带 `/emby`、`.json` 的登录地址。`private-diagnostics-http.test.ts` 使用 SenPlayer、Yamby、Hills、VidHub 的声明头验证缺少登录证明、确认私人范围与上游复核失败的日志，检查日志不含凭据或账号；这些声明头夹具不代表实际播放器版本已通过验收。
+
 `PersonalVirtualLibraries.test.ts` 验证门户入口与复用管理页面的私有 API、选片、排序和海报操作。完整浏览器回归运行前先构建：
 
 ```powershell

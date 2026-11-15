@@ -1,6 +1,11 @@
 import { request as httpRequest, type IncomingMessage, type ServerResponse, type IncomingHttpHeaders } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { Duplex } from "node:stream";
+import {
+  authenticationResponseLimit,
+  observeAuthenticationResponse,
+  type AuthenticationDiagnostic,
+} from "./authentication-response";
 
 export interface ProxyTarget {
   upstream: string;
@@ -54,6 +59,7 @@ export function forwardRequest(
   path = context.request.url ?? "/",
   onSuccess?: () => void,
   observeAuthentication?: (body: unknown) => void,
+  onAuthenticationDiagnostic?: (diagnostic: AuthenticationDiagnostic) => void,
 ): void {
   const target = targetUrl(context.upstream, path);
   const send = target.protocol === "https:" ? httpsRequest : httpRequest;
@@ -73,21 +79,23 @@ export function forwardRequest(
       if (observeAuthentication)
         incoming.on("data", (chunk: Buffer) => {
           size += chunk.length;
-          if (size <= 1_048_576) chunks.push(chunk);
+          if (size <= authenticationResponseLimit) chunks.push(chunk);
           else chunks.length = 0;
         });
       const headers = proxyHeaders(incoming.headers);
       context.response.writeHead(incoming.statusCode ?? 502, headers);
       incoming.on("error", () => context.response.destroy());
       incoming.once("end", () => {
+        if (observeAuthentication)
+          observeAuthenticationResponse(
+            incoming.statusCode ?? 502,
+            incoming.headers["content-encoding"],
+            size,
+            chunks,
+            observeAuthentication,
+            onAuthenticationDiagnostic,
+          );
         if ((incoming.statusCode ?? 500) < 300 && (incoming.statusCode ?? 0) >= 200) {
-          if (observeAuthentication && size <= 1_048_576) {
-            try {
-              observeAuthentication(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-            } catch {
-              /* An opaque login response cannot establish private-library ownership. */
-            }
-          }
           onSuccess?.();
         }
       });

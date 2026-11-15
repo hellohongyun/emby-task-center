@@ -27,6 +27,23 @@ docker compose logs --since 30m --tail 2000 --timestamps app
 
 项目目前没有事件循环延迟监测；直连健康检查超时不能直接证明是主线程阻塞。`uncaught_exception` 和 `unhandled_rejection` 触发退出码 1，不再忽略后继续服务；对照事件、容器重启与代理请求时间，并查明异常类型。正常停机首次信号立即停止调度，应用最多等待 25 秒收尾，Compose 提供 30 秒宽限；收尾超时或失败以非零状态退出。
 
+## 私人库只在部分客户端显示
+
+后台「系统日志」搜索「私人库诊断」，或查看容器输出的 `virtual_library_identity` 事件。记录中的 `client` 是声明客户端的固定类别，`route` 是接口类别，不含真实路径、账号或令牌。常见原因：
+
+| reason | 含义 |
+| --- | --- |
+| `recorded` | 已从成功登录响应保存身份绑定 |
+| `invalid_json`／`decoding_failed`／`unsupported_encoding` | 登录响应解析或解压失败 |
+| `persistence_error` | 登录身份保存失败 |
+| `login_proof_missing` | 当前请求没有可识别且已确认归属的登录凭据 |
+| `validation_failed`／`validation_unavailable` | 原客户端凭据复核被拒绝，或请求失败／超时 |
+| `member_unavailable` | 上游账号未唯一绑定可用会员 |
+| `private_scope_ready` | 身份与会员已确认，`privateLibraryCount` 表示当前账号的私人库数量 |
+| `no_personal_library` | 身份与会员已确认，但该会员没有私人库 |
+
+`decoded` 仅表示登录响应 JSON 可读，需结合 `recorded` 判断身份是否保存；`private_scope_ready` 表示服务端确认的可见范围，不代表播放器已渲染入口。重复的同类发现记录每分钟最多一条。排查时提供播放器名称、版本、操作时间及上述记录即可，无需提供账号密码或令牌。相关回归不替代实际播放器联调。
+
 ## 容器验证边界
 
 独立冒烟入口见 [测试说明](../tests/README.md)。脚本使用临时数据库和独立 Compose 项目，不检查生产容器。Docker daemon 不可用时退出码为 2，仅表示静态配置与构建已验证；运行时健康、持久化和只读文件系统仍未验收。

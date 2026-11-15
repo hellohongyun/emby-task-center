@@ -11,28 +11,38 @@ export async function privateMember(
   upstream: QueryUpstream,
   lookup?: (embyId: string) => number | undefined,
   verifiedUserId?: string,
+  report?: (reason: string, status?: number) => void,
 ): Promise<number | undefined> {
-  if (!lookup || !verifiedUserId) return undefined;
+  if (!lookup || !verifiedUserId) {
+    report?.("login_proof_missing");
+    return undefined;
+  }
   try {
     const target = authenticationUrl(url, `/Users/${encodeURIComponent(verifiedUserId)}`);
     setParameter(target, "UserId");
     const reply = await upstream(target, 3_000);
     const body = reply.body as { Id?: unknown } | null;
-    if (
-      reply.status < 200 ||
-      reply.status >= 300 ||
-      typeof body?.Id !== "string" ||
-      privateIdentity(body.Id) !== privateIdentity(verifiedUserId)
-    )
+    if (reply.status < 200 || reply.status >= 300) {
+      report?.("validation_failed", reply.status);
       return undefined;
+    }
+    if (typeof body?.Id !== "string" || privateIdentity(body.Id) !== privateIdentity(verifiedUserId)) {
+      report?.("invalid_identity_response", reply.status);
+      return undefined;
+    }
     const requested = [
       /^\/Users\/([^/]+)\//i.exec(url.pathname)?.[1],
       ...[...url.searchParams].filter(([key]) => key.toLowerCase() === "userid").map(([, value]) => value),
     ].filter((id): id is string => !!id);
-    if (requested.some((id) => privateIdentity(decodeURIComponent(id)) !== privateIdentity(body.Id as string)))
+    if (requested.some((id) => privateIdentity(decodeURIComponent(id)) !== privateIdentity(body.Id as string))) {
+      report?.("user_claim_mismatch");
       return undefined;
-    return lookup(body.Id);
+    }
+    const member = lookup(body.Id);
+    if (member === undefined) report?.("member_unavailable");
+    return member;
   } catch {
+    report?.("validation_unavailable");
     return undefined;
   }
 }

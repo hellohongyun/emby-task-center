@@ -13,6 +13,7 @@ import { privateIdentity } from "./private-access";
 import { createPrivateTokenIdentity } from "./private-token-identity";
 import { createPrivateIdentityStore } from "./private-identity-store";
 import { memberAccessError } from "../subscriptions/member-access";
+import { createPrivateDiagnosticReporter, type PrivateDiagnosticReporter } from "./private-diagnostics";
 import {
   readVirtualProxyConfig,
   saveVirtualProxyConfig,
@@ -30,6 +31,7 @@ export function createVirtualLibraryProxy(options: {
   database: AppDatabase;
   appPort: number;
   report?: (message: string) => void;
+  reportIdentity?: PrivateDiagnosticReporter;
 }) {
   const store = createVirtualLibraryStore(options.database, { all: true });
   const libraryOrders = createEmbyLibraryOrderStore(options.database);
@@ -41,6 +43,7 @@ export function createVirtualLibraryProxy(options: {
   };
   const marker = randomUUID();
   const identities = createPrivateTokenIdentity(createPrivateIdentityStore(options.database));
+  const reportIdentity = createPrivateDiagnosticReporter(options.reportIdentity);
   let active: { server: Server; sockets: Set<Socket>; config: VirtualProxyConfig } | undefined;
   let error: string | null = null;
   let pending = Promise.resolve();
@@ -99,6 +102,7 @@ export function createVirtualLibraryProxy(options: {
               return memberAccessError(options.database, member.email, true) ? undefined : member.id;
             },
             identities,
+            reportIdentity,
           ),
         );
         instance.server.on("connection", (socket) => {

@@ -12,6 +12,7 @@ import { appendOwnedHomeSections, ownedLatestLibraryId } from "./owned-home-sect
 import { isRootLibraryDiscovery } from "./root-library-discovery";
 import { privateMember, privateRequestStore, forbiddenPrivateReference } from "./private-access";
 import { createPrivateTokenIdentity, isPrivateAuthentication } from "./private-token-identity";
+import { privateClient, privateDiscoveryRoute, type PrivateDiagnosticReporter } from "./private-diagnostics";
 
 export function createVirtualProxyHandler(
   allStore: VirtualLibraryStore,
@@ -21,6 +22,7 @@ export function createVirtualProxyHandler(
   readAdminOrder?: (upstream: string) => readonly string[] | undefined,
   lookupMember?: (embyId: string) => number | undefined,
   identities = createPrivateTokenIdentity(),
+  reportIdentity?: PrivateDiagnosticReporter,
 ) {
   const repairMappings = createProxyMappingRepair(allStore);
   const homeSections = createHomeSectionCache();
@@ -37,6 +39,8 @@ export function createVirtualProxyHandler(
       const context: ProxyTarget = { upstream: upstream(), request, response, signal: abort.signal };
       const url = new URL(request.url ?? "/", "http://proxy.local");
       url.pathname = url.pathname.replace(/^\/emby(?=\/|$)/i, "") || "/";
+      const client = privateClient(request.headers);
+      const discoveryRoute = privateDiscoveryRoute(url);
       const libraries = allStore.list();
       const requestStore = { ...allStore, list: () => libraries };
       const hasPrivate = libraries.some((library) => library.ownerMemberId != null);
@@ -54,9 +58,27 @@ export function createVirtualProxyHandler(
             (target, timeout) => upstreamJson(context, target, timeout),
             lookupMember,
             identities.resolve(context.upstream, url, request.headers),
+            (reason, status) => {
+              if (discoveryRoute)
+                reportIdentity?.({
+                  client,
+                  route: discoveryRoute,
+                  reason,
+                  ...(status === undefined ? {} : { status }),
+                });
+            },
           )
         : undefined;
       const store = hasPrivate ? privateRequestStore(requestStore, memberId) : allStore;
+      if (hasPrivate && discoveryRoute && memberId !== undefined) {
+        const privateLibraryCount = store.list().filter((library) => library.ownerMemberId != null).length;
+        reportIdentity?.({
+          client,
+          route: discoveryRoute,
+          reason: privateLibraryCount ? "private_scope_ready" : "no_personal_library",
+          privateLibraryCount,
+        });
+      }
       if (hasPrivate && forbiddenPrivateReference(url, requestStore, store)) {
         sendJson(response, { status: 404, headers: {}, body: { error: "virtual_library_not_found" } });
         return;
@@ -162,7 +184,15 @@ export function createVirtualProxyHandler(
               }
             }
           : undefined,
-        isPrivateAuthentication(request.method, url) ? (body) => identities.observe(context.upstream, body) : undefined,
+        isPrivateAuthentication(request.method, url)
+          ? (body) => {
+              const reason = identities.observe(context.upstream, body);
+              reportIdentity?.({ client, route: "login", reason });
+            }
+          : undefined,
+        isPrivateAuthentication(request.method, url)
+          ? (diagnostic) => reportIdentity?.({ client, route: "login", ...diagnostic })
+          : undefined,
       );
     } catch {
       if (response.destroyed) return;

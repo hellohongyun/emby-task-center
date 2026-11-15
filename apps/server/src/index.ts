@@ -29,6 +29,7 @@ import { startQqAvatarRefresh } from "./subscriptions/qq-avatar-refresh";
 import { drainQqAvatarSync } from "./subscriptions/member-qq-avatar";
 import { startShare115Worker } from "./share-115/worker";
 import { isDevelopmentMode } from "./settings/development-mode";
+import { privateDiagnosticMessage } from "./virtual-libraries/private-diagnostics";
 
 // P3：bootstrap 变量集中解析（其余配置一律来自数据库设置）。
 const bootstrap = readBootstrapEnv();
@@ -157,6 +158,17 @@ const virtualLibraryProxy = createVirtualLibraryProxy({
   database: database.db,
   appPort: port,
   report: (message) => logger.warn({ event: "virtual_proxy_failed", message }),
+  reportIdentity: (entry) => {
+    const event = {
+      event: "virtual_library_identity",
+      module: "virtual-library",
+      message: privateDiagnosticMessage(entry),
+      detail: JSON.stringify(entry),
+    };
+    if (["recorded", "decoded", "private_scope_ready", "no_personal_library"].includes(entry.reason))
+      logger.info(event);
+    else logger.warn(event);
+  },
 });
 const app = createApp({
   virtualLibraryProxy,

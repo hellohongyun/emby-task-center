@@ -20,6 +20,9 @@ describe("upstream-proven private token identities", () => {
     [{ authorization: 'Emby UserId="bob", DeviceId="forged", Token="alice-token"' }, ""],
     [{ "x-emby-authorization": "MediaBrowser Token='alice-token'" }, ""],
     [{ authorization: "Bearer alice-token" }, ""],
+    [{ authorization: 'MediaBrowser Token="", UserId="bob"', "x-emby-token": "alice-token" }, ""],
+    [{ "x-emby-token": "alice-token" }, "?api_key="],
+    [{ authorization: 'MediaBrowser Token="alice-token"', "x-emby-token": "alice-token" }, ""],
     [{}, "?api_key=alice-token"],
     [{}, "?X-Emby-Token=alice-token"],
   ] as const)("resolves supported credential transport without trusting user labels", (headers, query) => {
@@ -35,6 +38,24 @@ describe("upstream-proven private token identities", () => {
     expect(identity.resolve("upstream", url("?api_key=alice-token&API_KEY=bob-token"), {})).toBeUndefined();
     identity.observe("upstream", { ...login, AccessToken: "conflict", SessionInfo: { UserId: "bob" } });
     expect(identity.resolve("upstream", url("?api_key=conflict"), {})).toBeUndefined();
+  });
+  it.each([undefined, null, {}, { UserId: null }, { UserId: "" }])(
+    "accepts absent optional session identity %j",
+    (SessionInfo) => {
+      const identity = createPrivateTokenIdentity();
+      expect(identity.observe("upstream", { ...login, SessionInfo })).toBe("recorded");
+      expect(identity.resolve("upstream", url(), { "x-emby-token": "alice-token" })).toBe("alice");
+    },
+  );
+  it("reports persistence failure without publishing a memory-only proof", () => {
+    const identity = createPrivateTokenIdentity({
+      read: () => undefined,
+      write: () => {
+        throw new Error("private");
+      },
+    });
+    expect(identity.observe("upstream", login)).toBe("persistence_error");
+    expect(identity.resolve("upstream", url(), { "x-emby-token": "alice-token" })).toBeUndefined();
   });
   it("persists only a scoped token hash and proven user ID across process recreation", () => {
     const database = createDatabase(":memory:");
@@ -60,6 +81,8 @@ describe("upstream-proven private token identities", () => {
     expect(identity.resolve("upstream", url(), { "x-emby-token": "alice-token" })).toBeUndefined();
     expect(isPrivateAuthentication("POST", new URL("http://proxy/Users/AuthenticateByName"))).toBe(true);
     expect(isPrivateAuthentication("POST", new URL("http://proxy/Users/alice/Authenticate"))).toBe(true);
+    expect(isPrivateAuthentication("POST", new URL("http://proxy/emby/Users/AuthenticateByName.json"))).toBe(true);
+    expect(isPrivateAuthentication("POST", new URL("http://proxy/emby/Users/alice/Authenticate.json"))).toBe(true);
     expect(isPrivateAuthentication("GET", new URL("http://proxy/Users/AuthenticateByName"))).toBe(false);
     expect(isPrivateAuthentication("POST", new URL("http://proxy/Users/alice/Configuration"))).toBe(false);
   });

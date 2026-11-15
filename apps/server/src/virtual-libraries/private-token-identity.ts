@@ -28,7 +28,8 @@ function credential(url: URL, headers: IncomingHttpHeaders): string | undefined 
     }
   }
   // Conflicting credentials have server-dependent precedence; never guess the owner.
-  return tokens.length && tokens.every((token) => token && token === tokens[0]) ? tokens[0] : undefined;
+  const present = tokens.filter((token) => token.trim().length > 0);
+  return present.length && present.every((token) => token === present[0]) ? present[0] : undefined;
 }
 
 function key(upstream: string, token: string) {
@@ -56,18 +57,24 @@ export function createPrivateTokenIdentity(persistence?: PrivateIdentityPersiste
         typeof auth.User?.Id !== "string" ||
         !auth.User.Id
       )
-        return;
+        return "invalid_authentication_response" as const;
       const id = auth.User.Id;
       if (
-        auth.SessionInfo?.UserId !== undefined &&
+        auth.SessionInfo?.UserId != null &&
+        auth.SessionInfo.UserId !== "" &&
         String(auth.SessionInfo.UserId).replaceAll("-", "").toLowerCase() !== id.replaceAll("-", "").toLowerCase()
       )
-        return;
+        return "session_user_conflict" as const;
       const hash = key(upstream, auth.AccessToken);
       if (!owners.has(hash) && owners.size >= 10_000) owners.delete(owners.keys().next().value!);
       const proof = { userId: id, updatedAt: Date.now() };
-      persistence?.write(hash, proof);
+      try {
+        persistence?.write(hash, proof);
+      } catch {
+        return "persistence_error" as const;
+      }
       owners.set(hash, proof);
+      return "recorded" as const;
     },
     resolve(upstream: string, url: URL, headers: IncomingHttpHeaders) {
       const token = credential(url, headers);
@@ -80,5 +87,8 @@ export function createPrivateTokenIdentity(persistence?: PrivateIdentityPersiste
 }
 
 export function isPrivateAuthentication(method: string | undefined, url: URL) {
-  return method === "POST" && /^\/Users\/(?:AuthenticateByName|[^/]+\/Authenticate)\/?$/i.test(url.pathname);
+  return (
+    method === "POST" &&
+    /^\/(?:emby\/)?Users\/(?:AuthenticateByName|[^/]+\/Authenticate)(?:\.json)?\/?$/i.test(url.pathname)
+  );
 }
