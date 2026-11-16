@@ -2,14 +2,14 @@ import type { VirtualLibraryStore } from "./store";
 import { authenticate } from "./query-scope";
 import { listBody, parameter, sendJson, UpstreamQueryError } from "./query-helpers";
 import { upstreamJson, type ProxyTarget } from "./proxy-transport";
+import { libraryPoster } from "./library-poster";
 
 /** Only locally owned poster IDs are handled; original media images stay upstream. */
 export async function serveOwnedPoster(context: ProxyTarget, url: URL, store: VirtualLibraryStore) {
   if (context.request.method !== "GET" && context.request.method !== "HEAD") return false;
   const image = /^\/Items\/([^/]+)\/Images\/(Primary|Thumb|Backdrop)(?:\/\d+)?$/i.exec(url.pathname);
   if (!image || !store.get(image[1])) return false;
-  const poster = store.getPoster(image[1]);
-  if (!poster) return false;
+  const poster = libraryPoster(store, image[1]);
   // Emby image elements carry the advertised image tag, not an API token.
   // A current exact tag grants access to this poster only; other requests still
   // use their own credentials, never the configured administrator key.

@@ -5,6 +5,7 @@ import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/
 import { writeSettings } from "../settings/store";
 import { createVirtualLibraryProxy, type VirtualLibraryProxy } from "./proxy";
 import { createVirtualLibraryStore } from "./store";
+import { seedMarketViewer } from "./market-test-support";
 
 describe("virtual library order through real HTTP proxy", () => {
   let database: DatabaseHandle;
@@ -55,6 +56,7 @@ describe("virtual library order through real HTTP proxy", () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const upstream = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     writeSettings(database.db, { "emby.baseUrl": upstream, "emby.apiKey": "admin-key-never-forwarded" });
+    for (const user of ["alice", "bob"]) seedMarketViewer(database.db, upstream, user, `${user}-token`, [virtualId]);
     const reservation = createServer();
     await new Promise<void>((resolve) => reservation.listen(0, "127.0.0.1", resolve));
     const port = (reservation.address() as AddressInfo).port;
@@ -103,8 +105,8 @@ describe("virtual library order through real HTTP proxy", () => {
     await proxy.start();
     expect(await views("alice")).toEqual(aliceOrder);
     expect(await views("bob")).toEqual(bobOrder);
-    expect(observed.filter((entry) => entry.path === "/emby/Users/alice")).toHaveLength(2);
-    expect(observed.filter((entry) => entry.path === "/emby/Users/bob")).toHaveLength(2);
+    expect(observed.filter((entry) => entry.path === "/emby/Users/alice")).toHaveLength(4);
+    expect(observed.filter((entry) => entry.path === "/emby/Users/bob")).toHaveLength(4);
     expect(observed.every((entry) => entry.token !== "admin-key-never-forwarded")).toBe(true);
   });
 
@@ -112,6 +114,9 @@ describe("virtual library order through real HTTP proxy", () => {
     const response = await fetch(`${base}/alice/Views`, { headers: { "x-emby-token": "bob-token" } });
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
-    expect(observed).toEqual([{ path: "/emby/Users/alice/Views", token: "bob-token", body: "" }]);
+    expect(observed).toEqual([
+      { path: "/emby/Users/bob", token: "bob-token", body: "" },
+      { path: "/emby/Users/alice/Views", token: "bob-token", body: "" },
+    ]);
   });
 });

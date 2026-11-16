@@ -33,6 +33,7 @@ export function registerVirtualLibraryRoutes(
     base?: string;
     storeForRequest?: (request: Request) => VirtualLibraryStore;
     sourceForRequest?: (request: Request) => ReturnType<typeof createVirtualLibrarySource>;
+    prepareCreate?: (request: Request) => Promise<((id: string) => void) | undefined>;
   },
 ): void {
   const defaultStore = createVirtualLibraryStore(options.database);
@@ -75,12 +76,18 @@ export function registerVirtualLibraryRoutes(
 
     response.json({ libraries: store.list() });
   });
-  app.post(base, (request, response) => {
+  app.post(base, async (request, response) => {
     const store = storeFor(request);
 
     const parsed = CreateVirtualLibrarySchema.safeParse(request.body);
     if (!parsed.success) return void response.status(400).json({ error: "invalid_request" });
-    response.status(201).json({ library: store.create(parsed.data) });
+    const applyOrder = await options.prepareCreate?.(request);
+    const library = options.database.transaction(() => {
+      const created = store.create(parsed.data);
+      applyOrder?.(created.id);
+      return created;
+    });
+    response.status(201).json({ library });
   });
   app.patch(`${base}/:id`, (request, response) => {
     const store = storeFor(request);

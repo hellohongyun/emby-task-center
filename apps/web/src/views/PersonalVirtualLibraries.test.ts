@@ -52,11 +52,12 @@ function setup() {
 
 it("uses only member endpoints and preserves personal controls without global proxy settings", async () => {
   const fetcher = setup();
-  expect(await screen.findByRole("heading", { name: "我的私人媒体库" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "我的虚拟媒体库" })).toBeInTheDocument();
   expect(await screen.findByRole("heading", { name: "我的精选" })).toBeInTheDocument();
-  expect(screen.getByText(/私人库排在公共库之前/)).toBeInTheDocument();
+  expect(screen.getByText(/在「我的媒体库顺序」自由调整位置/)).toBeInTheDocument();
   expect(screen.queryByText("反代设置")).not.toBeInTheDocument();
-  expect(screen.getByAltText("我的精选媒体库海报")).toHaveAttribute("src", `${base}/private-one/poster?tag=cover`);
+  for (const image of screen.getAllByAltText("我的精选媒体库海报"))
+    expect(image).toHaveAttribute("src", `${base}/private-one/poster?tag=cover`);
   await fireEvent.click(await screen.findByRole("checkbox", { name: "选择 小众电影" }));
   await fireEvent.click(screen.getByRole("button", { name: "加入已选（1）" }));
   const content = screen.getByRole("region", { name: "已加入的内容" });

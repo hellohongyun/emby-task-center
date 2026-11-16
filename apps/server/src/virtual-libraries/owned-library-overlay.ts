@@ -1,5 +1,6 @@
 import { anchorOwnedViews, applyAdminLibraryOrder } from "./view-order";
 import { libraryDto } from "./library-dto";
+import { legacyLibrarySequence } from "./personal-library-order-legacy";
 import type { OwnedViewAnchor } from "./owned-view-preferences";
 import {
   authenticationUrl,
@@ -21,6 +22,8 @@ interface OverlayContext {
   serverId?: unknown;
   ownedOrder?: OwnedViewAnchor[];
   adminOrder?: readonly string[];
+  personalOrder?: readonly string[];
+  ownLibraryIds?: readonly string[];
   collectionFoldersOnly?: boolean;
 }
 
@@ -60,12 +63,28 @@ async function completeLibraryList(
   const unpaged = new URL(url);
   setParameter(unpaged, "StartIndex");
   setParameter(unpaged, "Limit");
-  if (unpaged.href === url.href) return undefined;
   try {
     const complete = await upstream(unpaged);
     const items = Array.isArray(complete.body) ? complete.body : (complete.body as { Items?: unknown } | null)?.Items;
     if (complete.status < 200 || complete.status >= 300 || !validItems(items, collectionFoldersOnly)) return undefined;
-    if (items.length < Math.max(itemTotal(complete.body) ?? total ?? 0, original.length)) return undefined;
+    const expected = Math.max(itemTotal(complete.body) ?? total ?? 0, original.length);
+    if (items.length < expected) {
+      const merged = [...items];
+      const seen = new Set(merged.flatMap(keys));
+      while (merged.length < expected && merged.length < 10_000) {
+        const page = new URL(unpaged);
+        setParameter(page, "StartIndex", String(merged.length));
+        setParameter(page, "Limit", "200");
+        const next = await upstream(page);
+        const values = Array.isArray(next.body) ? next.body : (next.body as { Items?: unknown } | null)?.Items;
+        if (next.status < 200 || next.status >= 300 || !validItems(values, collectionFoldersOnly) || !values.length)
+          return undefined;
+        if (values.some((item) => !keys(item).length || keys(item).some((key) => seen.has(key)))) return undefined;
+        merged.push(...values);
+        values.flatMap(keys).forEach((key) => seen.add(key));
+      }
+      return merged.length >= expected ? merged : undefined;
+    }
     return items;
   } catch {
     return undefined;
@@ -99,10 +118,13 @@ export async function overlayLibraries(context: OverlayContext): Promise<Upstrea
   const start = integerParameter(url, "StartIndex", 0);
   const limit = integerParameter(url, "Limit", Number.MAX_SAFE_INTEGER);
   const adminOrder = onlyIds ? undefined : context.adminOrder;
+  const personalOrder = onlyIds ? undefined : context.personalOrder;
   const libraries = store.list();
   const hasPrivate = !onlyIds && libraries.some((library) => library.ownerMemberId != null);
   const source =
-    adminOrder || hasPrivate ? await completeLibraryList(context, original, total, start, limit) : original;
+    adminOrder || hasPrivate || personalOrder || context.ownLibraryIds
+      ? await completeLibraryList(context, original, total, start, limit)
+      : original;
   if (!source) return reply;
   const existing = new Set(source.flatMap(keys));
   const only = onlyIds ? new Set(onlyIds.map(identity)) : undefined;
@@ -123,6 +145,31 @@ export async function overlayLibraries(context: OverlayContext): Promise<Upstrea
     .filter((library) => !search || library.name.toLocaleLowerCase().includes(search))
     .map((library) => libraryDto(store, library.id, serverId))
     .filter((item) => !types || types.includes(String(item.Type).toLowerCase()));
+  if (!onlyIds && context.ownLibraryIds) {
+    const oldOrder = Array.isArray(configuration.OrderedViews)
+      ? configuration.OrderedViews.filter((id): id is string => typeof id === "string")
+      : [];
+    const legacy =
+      personalOrder === undefined
+        ? legacyLibrarySequence(source, additions, oldOrder, context.ownedOrder ?? [], context.ownLibraryIds)
+        : undefined;
+    const ownIds = new Set(context.ownLibraryIds.map(identity));
+    const savedIds = new Set(personalOrder?.map(identity));
+    const leading = additions.filter((item) => ownIds.has(identity(item.Id)) && !savedIds.has(identity(item.Id)));
+    const leadingIds = new Set(leading.map((item) => identity(item.Id)));
+    const rest = applyAdminLibraryOrder(
+      [...source, ...additions.filter((item) => !leadingIds.has(identity(item.Id)))],
+      adminOrder ?? [],
+      keys,
+    );
+    const ordered = legacy ?? [...leading, ...applyAdminLibraryOrder(rest, personalOrder ?? [], keys)];
+    const items = ordered.slice(start, start + limit);
+    return {
+      ...reply,
+      raw: undefined,
+      body: array ? items : { ...body, Items: items, TotalRecordCount: ordered.length },
+    };
+  }
   if (hasPrivate) {
     const privateIds = new Set(
       libraries.filter((library) => library.ownerMemberId != null).map((library) => library.id),

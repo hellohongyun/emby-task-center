@@ -121,6 +121,15 @@
   font-size: 14px;
   overflow-wrap: anywhere;
 }
+.vl-library-card-text {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  justify-items: start;
+}
+.vl-library-thumb {
+  border-radius: 6px;
+}
 .vl-library-card span,
 .vl-library-card small {
   font-size: 12px;

@@ -6,6 +6,7 @@ import { createEmbyLibraryOrderStore } from "../integrations/emby-library-order-
 import { writeSettings } from "../settings/store";
 import { createVirtualLibraryProxy, type VirtualLibraryProxy } from "./proxy";
 import { createVirtualLibraryStore } from "./store";
+import { seedMarketViewer } from "./market-test-support";
 
 const real = {
   Id: "101",
@@ -84,6 +85,7 @@ describe("modern Emby library discovery through real HTTP", () => {
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     upstreamBase = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    seedMarketViewer(database.db, upstreamBase, "u", "user-token", [virtualId]);
     writeSettings(database.db, { "emby.baseUrl": upstreamBase, "emby.apiKey": "admin-key-never-forwarded" });
     const reservation = createServer();
     await new Promise<void>((resolve) => reservation.listen(0, "127.0.0.1", resolve));
@@ -131,7 +133,7 @@ describe("modern Emby library discovery through real HTTP", () => {
     const denied = await get("/Users/u/Sections/dynamic-row-917/Items", "invalid-token");
     expect(denied.status).toBe(401);
     expect(await denied.json()).toEqual({ error: "unauthorized" });
-    expect(homeRequests().filter((request) => request.token === "invalid-token")).toHaveLength(1);
+    expect(homeRequests().filter((request) => request.token === "invalid-token")).toHaveLength(0);
     expect(observed.some((request) => request.token === "invalid-token" && request.path.includes("/Sections/"))).toBe(
       true,
     );
@@ -178,7 +180,7 @@ describe("modern Emby library discovery through real HTTP", () => {
     writeSettings(database.db, { "emby.baseUrl": native });
     const numericReal = { ...real, Guid: undefined };
     visibleLibraries = [numericReal, { ...numericReal, Id: "ttd-only" }, { ...numericReal, Id: "102" }];
-    configuration.OrderedViews = ["101", "ttd-only", virtualId, "102"];
+    configuration.OrderedViews = [];
     const orders = createEmbyLibraryOrderStore(database.db);
     orders.activate(native, upstreamBase, ["102", virtualId, real.Guid, "not-visible"], {}, { [real.Guid]: ["101"] });
     orders.save(native, ["101", "102", virtualId], {});
@@ -197,6 +199,7 @@ describe("modern Emby library discovery through real HTTP", () => {
     expect(observed.every((request) => request.token !== "admin-key-never-forwarded")).toBe(true);
 
     writeSettings(database.db, { "emby.baseUrl": "http://another-emby.invalid" });
+    configuration.OrderedViews = ["101", "ttd-only", virtualId, "102"];
     expect((await ids("/Users/u/Views")).ids).toEqual(["101", "ttd-only", virtualId, "102"]);
   });
 
@@ -205,7 +208,7 @@ describe("modern Emby library discovery through real HTTP", () => {
     visibleLibraries = [real, { ...real, Id: "102", Guid: undefined }];
     createEmbyLibraryOrderStore(database.db).activate(upstreamBase, upstreamBase, ["102", real.Guid], {});
     expect((await ids("/Users/u/Sections/dynamic-row-917/Items")).ids).toEqual(["102", "101"]);
-    expect(observed.every((request) => request.path !== "/emby/Users/u")).toBe(true);
+    expect(observed.filter((request) => request.path === "/emby/Users/u")).toHaveLength(1);
   });
 
   it.each(["/Items", "/Users/u/Items"])("preserves every upstream DTO for mixed lookup %s", async (path) => {
@@ -237,6 +240,12 @@ describe("modern Emby library discovery through real HTTP", () => {
     "preserves authentication failures for %s",
     async (path) => {
       const response = await get(path.replace("VIRTUAL", virtualId), "invalid-token");
+      if (path.includes("VIRTUAL")) {
+        expect(response.status).toBe(404);
+        expect(await response.json()).toEqual({ error: "virtual_library_not_found" });
+        expect(observed).toHaveLength(0);
+        return;
+      }
       expect(response.status).toBe(401);
       expect(response.headers.get("www-authenticate")).toBe("Emby");
       expect(await response.json()).toEqual({ error: "unauthorized" });

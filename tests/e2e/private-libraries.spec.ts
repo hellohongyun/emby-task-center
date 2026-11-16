@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import BetterSqlite3 from "better-sqlite3";
 import { resolve } from "node:path";
 import { freePort, startIsolatedServer } from "./real-server";
-import { startEmbyFixture } from "./real-upstream";
+import { startMarketFixture } from "./market-fixture";
 
 const endpoint = "/api/public/virtual-libraries";
 const emails = ["private-owner@example.test", "private-other@example.test"];
@@ -31,39 +31,7 @@ test("private libraries persist, stay owner-only, and precede public libraries",
   test.setTimeout(120_000);
   const application = await startIsolatedServer({
     seedDatabase: seed,
-    startUpstream: () =>
-      startEmbyFixture({
-        handle(request, response, _url, path) {
-          if (path === "/Users/Me") {
-            response.writeHead(404).end();
-            return true;
-          }
-          if (request.method === "POST" && path === "/Users/AuthenticateByName") {
-            let raw = "";
-            request.on("data", (chunk: Buffer) => {
-              raw += chunk.toString();
-            });
-            request.once("end", () => {
-              const credentials = JSON.parse(raw);
-              const index = emails.indexOf(credentials.Username);
-              if (index < 0 || credentials.Pw !== "fixture-password") response.writeHead(401).end();
-              else
-                response.writeHead(200, { "content-type": "application/json" }).end(
-                  JSON.stringify({
-                    AccessToken: index === 0 ? "owner-token" : "other-token",
-                    User: { Id: index === 0 ? "fixture-user" : "other-user" },
-                  }),
-                );
-            });
-            return true;
-          }
-          if (path === "/Users/other-user") {
-            response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ Id: "other-user" }));
-            return true;
-          }
-          return false;
-        },
-      }),
+    startUpstream: () => startMarketFixture({ emails }),
   });
   const owner = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const other = await browser.newContext();
@@ -85,6 +53,22 @@ test("private libraries persist, stay owner-only, and precede public libraries",
     });
     expect(shared.status()).toBe(201);
     const sharedId = (await shared.json()).library.id;
+    expect(
+      (
+        await admin.request.put(`${application.baseURL}/api/virtual-library-market/owned/${sharedId}/publication`, {
+          data: { published: true },
+        })
+      ).status(),
+    ).toBe(200);
+    for (const context of [owner, other])
+      expect(
+        (
+          await context.request.put(
+            `${application.baseURL}/api/public/virtual-library-market/${sharedId}/subscription`,
+            { data: { enabled: true } },
+          )
+        ).status(),
+      ).toBe(200);
     const page = await owner.newPage();
     // Avoid external poster/avatar requests; the application and source are local fixtures.
     await page.route("**/*", (route) =>
@@ -93,7 +77,10 @@ test("private libraries persist, stay owner-only, and precede public libraries",
     await page.goto(application.baseURL + "/");
     await page.getByRole("checkbox", { name: /14 天免打扰/ }).check();
     await page.getByRole("button", { name: "我知道了", exact: true }).click();
-    await page.getByRole("navigation", { name: "移动端导航" }).getByRole("button", { name: "私人库" }).click();
+    await page
+      .getByRole("navigation", { name: "移动端导航" })
+      .getByRole("button", { name: "虚拟库", exact: true })
+      .click();
     await page.getByRole("button", { name: /新建虚拟媒体库/ }).click();
     await page.getByLabel("媒体库名称").fill("我的小众精选");
     await page.getByLabel("排序", { exact: true }).fill("5");
@@ -146,7 +133,10 @@ test("private libraries persist, stay owner-only, and precede public libraries",
     });
     expect(uploadedSize).toBeGreaterThan(0);
     expect(uploadedSize).toBeLessThan(original.length);
-    await expect(page.getByAltText("我的小众精选媒体库海报")).toHaveJSProperty("naturalWidth", 1600);
+    await expect(
+      page.getByRole("region", { name: "媒体库海报" }).getByAltText("我的小众精选媒体库海报"),
+    ).toHaveJSProperty("naturalWidth", 1600);
+    await expect(page.locator(".vl-library-thumb").first()).toHaveJSProperty("naturalWidth", 1600);
     await page.unroute(posterUrl);
     const second = await owner.request.post(application.baseURL + endpoint, {
       data: { name: "最前面的私人库", sortOrder: -1 },
@@ -201,15 +191,18 @@ test("private libraries persist, stay owner-only, and precede public libraries",
     const spoofed = await other.request.get(proxy + "/Users/fixture-user/Views", {
       headers: { "X-Emby-Token": "other-token" },
     });
-    expect((await spoofed.json()).Items.map((item: { Id: string }) => item.Id)).toEqual(["fixture-movies", sharedId]);
+    expect((await spoofed.json()).Items.map((item: { Id: string }) => item.Id)).toEqual(["fixture-movies"]);
     await application.restart();
     await page.reload();
-    await page.getByRole("navigation", { name: "移动端导航" }).getByRole("button", { name: "私人库" }).click();
+    await page
+      .getByRole("navigation", { name: "移动端导航" })
+      .getByRole("button", { name: "虚拟库", exact: true })
+      .click();
     await page.getByRole("button", { name: /我的小众精选 混合/ }).click();
     await expect(
       page.getByRole("region", { name: "已加入的内容" }).getByText("隔离测试电影", { exact: true }),
     ).toBeVisible();
-    await expect(page.getByAltText("我的小众精选媒体库海报")).toBeVisible();
+    await expect(page.getByRole("region", { name: "媒体库海报" }).getByAltText("我的小众精选媒体库海报")).toBeVisible();
     const restored = await owner.request.get(proxy + "/Users/fixture-user/Views", {
       headers: { "X-Emby-Token": "owner-token" },
     });

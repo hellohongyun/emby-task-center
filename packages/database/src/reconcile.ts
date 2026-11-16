@@ -20,10 +20,14 @@ import { sql } from "drizzle-orm";
 import type { AppDatabase } from "./client";
 import { reconcileLegacyArticleAddresses } from "./legacy-article-address";
 import { reconcileVirtualLibraries } from "./virtual-libraries-reconcile";
+import { reconcileVirtualLibraryMarket } from "./virtual-library-market-reconcile";
+import { reconcileUpstreamLibraryMarket } from "./upstream-library-market-reconcile";
 import { reconcileLogMetadata } from "./log-metadata-reconcile";
 
 export function applyPostMigrationReconciliation(database: AppDatabase): void {
   reconcileVirtualLibraries(database);
+  reconcileVirtualLibraryMarket(database);
+  reconcileUpstreamLibraryMarket(database);
   reconcileMediaRequests(database);
   reconcileShare115(database);
   reconcileRenewalOutbox(database);

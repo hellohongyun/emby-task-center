@@ -131,7 +131,9 @@ it("saves the enabled reverse proxy and displays the actual listening port", asy
   await fireEvent.update(screen.getByRole("spinbutton", { name: "监听端口" }), "8098");
   await fireEvent.click(screen.getByRole("checkbox", { name: "启用客户端反代" }));
   await fireEvent.click(screen.getByRole("button", { name: "保存反代设置" }));
-  expect(await screen.findByText("http://localhost:8098")).toBeInTheDocument();
+  await waitFor(() =>
+    expect(screen.getAllByText("http://localhost:8098").find((element) => element.closest("summary"))).toBeVisible(),
+  );
   expect(fetch).toHaveBeenCalledWith(
     "/api/virtual-libraries/proxy",
     expect.objectContaining({

@@ -24,9 +24,9 @@ withDefaults(defineProps<{ view?: AppView }>(), { view: "tasks" });
 const emit = defineEmits<{ view: [view: AppView]; logout: [] }>();
 const moreOpen = ref(false);
 const moreItems: { key: AppView; label: string; icon: string }[] = [
-  { key: "virtualLibraries", label: "虚拟媒体库", icon: mdiDatabaseSearchOutline },
+  { key: "virtualLibraries", label: "虚拟库与市场", icon: mdiDatabaseSearchOutline },
   { key: "submissions", label: "会员与运营", icon: mdiAccountGroup },
-  { key: "libraryOrder", label: "媒体库顺序", icon: mdiSortVariant },
+  { key: "libraryOrder", label: "默认媒体库顺序", icon: mdiSortVariant },
   { key: "mediaRequests", label: "求片与补集", icon: mdiPlaylistPlus },
   { key: "share115", label: "115 转存", icon: mdiCloudDownloadOutline },
   { key: "cardKeys", label: "卡密", icon: mdiTicketConfirmationOutline },

@@ -123,7 +123,8 @@ describe("owned library insertion", () => {
     const upstream = vi.fn<QueryUpstream>().mockResolvedValue(reply);
     const { response } = await apply({ query: "?Limit=1", reply, upstream, adminOrder: ["local-b", "native-b"] });
     expect(response).toBe(reply);
-    expect(upstream).toHaveBeenCalledTimes(1);
+    expect(upstream).toHaveBeenCalledTimes(2);
+    expect(upstream.mock.calls[1][0].searchParams.get("StartIndex")).toBe("1");
   });
 
   it("sorts an entire upstream list when the upstream ignores the requested limit", async () => {

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import type { VirtualLibrary } from "@emby-task-center/contracts/virtual-library";
 import { virtualLibraryRequests } from "../../composables/virtual-library-requests";
 import { compressPoster } from "../../composables/compress-poster";
+import VirtualLibraryCover from "./VirtualLibraryCover.vue";
 
 const props = defineProps<{
   library: VirtualLibrary;
@@ -20,7 +21,6 @@ const file = ref<File | null>(null);
 const input = ref<HTMLInputElement>();
 const preview = ref("");
 const notice = ref("");
-const imageFailed = ref(false);
 const storedImage = computed(() =>
   props.library.posterImageTag
     ? `${props.base ?? "/api/virtual-libraries"}/${encodeURIComponent(props.library.id)}/poster?tag=${encodeURIComponent(props.library.posterImageTag)}`
@@ -37,7 +37,6 @@ function clearSelection() {
   preview.value = "";
   file.value = null;
   if (input.value) input.value.value = "";
-  imageFailed.value = false;
 }
 async function selectFile(event: Event) {
   const selected = (event.target as HTMLInputElement).files?.[0];
@@ -90,7 +89,7 @@ async function save(remove = false) {
   if (!result || props.library.id !== id) return;
   clearSelection();
   emit("saved", result.library);
-  notice.value = remove ? "自定义海报已移除" : "媒体库海报已保存，客户端刷新后可见";
+  notice.value = remove ? "自定义海报已移除，已恢复系统默认海报" : "媒体库海报已保存，客户端刷新后可见";
 }
 watch(
   () => props.library.id,
@@ -98,12 +97,6 @@ watch(
     clearSelection();
     error.value = "";
     notice.value = "";
-  },
-);
-watch(
-  () => props.library.posterImageTag,
-  () => {
-    imageFailed.value = false;
   },
 );
 watch(
@@ -121,12 +114,14 @@ onBeforeUnmount(clearSelection);
 <template>
   <section class="vl-panel vl-library-poster" aria-label="媒体库海报">
     <div class="vl-poster-preview">
-      <img v-if="image && !imageFailed" :src="image" :alt="`${library.name}媒体库海报`" @error="imageFailed = true" />
-      <span v-else>{{ imageFailed ? "海报暂时无法加载" : "未设置自定义海报" }}</span>
+      <VirtualLibraryCover :src="image" :name="library.name" />
     </div>
     <div class="vl-poster-content">
       <h2>媒体库海报</h2>
-      <p class="vl-muted">设置此虚拟库在客户端媒体库列表中的封面，不会修改库内影片海报。</p>
+      <p class="vl-poster-state">
+        {{ preview ? "新海报预览 · 尚未保存" : library.posterImageTag ? "正在使用自定义海报" : "正在使用系统默认海报" }}
+      </p>
+      <p class="vl-muted">未上传时自动使用系统默认海报；自定义封面不会修改库内影片海报。</p>
       <label class="vl-poster-file">
         <span>{{ library.posterImageTag ? "更换图片" : "选择图片" }}</span>
         <input ref="input" type="file" accept="image/jpeg,image/png,image/webp" :disabled="busy" @change="selectFile" />

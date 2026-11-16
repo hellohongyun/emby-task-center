@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { appSettings, auditLogs } from "@emby-task-center/database/schema";
 import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createApp } from "../app";
+import { createLegacyLibraryOrderTestApp as createApp } from "../test-support/legacy-library-order-app";
 import { staticCredentialVerifier } from "../auth/test-session";
 import type { EmbyClient } from "../integrations/emby-client";
 import type { EmbyLibraryOrderSession } from "../integrations/emby-library-order-client";

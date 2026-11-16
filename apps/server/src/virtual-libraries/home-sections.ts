@@ -19,6 +19,8 @@ interface HomeSectionContext {
   homeSections?: unknown;
   ownedOrder?: OwnedViewAnchor[];
   adminOrder?: readonly string[];
+  personalOrder?: readonly string[];
+  ownLibraryIds?: readonly string[];
 }
 
 /** Emby 4.10 loads the home library row through a server-defined section ID. */
@@ -29,9 +31,11 @@ export async function homeSectionItems({
   homeSections,
   ownedOrder,
   adminOrder,
+  personalOrder,
+  ownLibraryIds,
 }: HomeSectionContext): Promise<UpstreamJson | undefined> {
   const match = /^\/Users\/([^/]+)\/Sections\/([^/]+)\/Items\/?$/i.exec(url.pathname);
-  if (!match || (!adminOrder && !store.list().length)) return undefined;
+  if (!match || (!adminOrder && ownLibraryIds === undefined && !store.list().length)) return undefined;
   const ownLibrary = ownedLatestLibraryId(decodeURIComponent(match[2]), store);
   if (ownLibrary) {
     const latest = new URL(url);
@@ -61,5 +65,14 @@ export async function homeSectionItems({
     return undefined;
   }
 
-  return overlayLibraries({ url, store, upstream, reply: await upstream(url), ownedOrder, adminOrder });
+  return overlayLibraries({
+    url,
+    store,
+    upstream,
+    reply: await upstream(url),
+    ownedOrder,
+    adminOrder,
+    personalOrder,
+    ownLibraryIds,
+  });
 }

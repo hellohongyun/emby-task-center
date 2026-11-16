@@ -7,6 +7,7 @@ import { queueCardRenewalReceipt } from "./card-renewal-receipt";
 import { readSetting } from "../settings/store";
 import { cardMembershipExpiry, isUnlimitedMembership, visibleMembershipExpiryLabel } from "./membership-expiry-grant";
 import { isMemberExpiryCleanupPending } from "./member-expiry-cleanup-guard";
+import { createVirtualLibraryMarketService } from "../virtual-libraries/market-service";
 
 export type CardActivationMode = { kind: "register"; qqNumber: string; joinSource: string | null } | { kind: "renew" };
 
@@ -53,7 +54,8 @@ export function activateMembershipWithCard(
           !entitlement.deferredMembershipMs && !entitlement.followsDriveExpiry,
         );
       } else {
-        tx.insert(submissionUsers)
+        const member = tx
+          .insert(submissionUsers)
           .values({
             email,
             qqNumber: mode?.kind === "register" ? mode.qqNumber : null,
@@ -66,7 +68,9 @@ export function activateMembershipWithCard(
             createdAt: timestamp,
             updatedAt: timestamp,
           })
-          .run();
+          .returning({ id: submissionUsers.id })
+          .get();
+        if (mode?.kind === "register") createVirtualLibraryMarketService(tx).initializeMember(member.id);
       }
       return { card, existing, receiptKey };
     },

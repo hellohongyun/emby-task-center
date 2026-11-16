@@ -18,12 +18,13 @@ const address = computed(() => {
 </script>
 
 <template>
-  <details class="vl-panel vl-proxy" open>
+  <details class="vl-panel vl-proxy" :open="!state?.status.running">
     <summary>
       客户端连接与反代
       <span class="vl-badge" :class="{ running: state?.status.running }">{{
         loading ? "加载中" : state?.status.running ? "运行中" : "未运行"
       }}</span>
+      <small v-if="state?.status.running">{{ address }}</small>
     </summary>
     <form @submit.prevent="emit('save', { ...config, upstream: config.upstream.trim() })">
       <p class="vl-muted">客户端连接本服务的反代端口，即可在原有媒体库旁看到新增的虚拟媒体库。</p>

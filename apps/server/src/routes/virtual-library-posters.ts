@@ -7,6 +7,7 @@ import express, {
 } from "express";
 import type { VirtualLibraryStore } from "../virtual-libraries/store";
 import { InvalidPosterError, MAX_POSTER_BYTES } from "../virtual-libraries/poster-image";
+import { libraryPoster } from "../virtual-libraries/library-poster";
 
 /** Registered after the administrator gate; binary data lives with the existing database. */
 export function registerVirtualLibraryPosterRoutes(
@@ -56,8 +57,7 @@ export function registerVirtualLibraryPosterRoutes(
     const store = storeFor(request);
     if (!store.get(String(request.params.id)))
       return void response.status(404).json({ error: "virtual_library_not_found" });
-    const poster = store.getPoster(String(request.params.id));
-    if (!poster) return void response.status(404).json({ error: "poster_not_found" });
+    const poster = libraryPoster(store, String(request.params.id));
     const etag = `"${poster.imageTag}"`;
     response.set({
       "Content-Type": poster.contentType,

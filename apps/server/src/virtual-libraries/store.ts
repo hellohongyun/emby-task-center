@@ -11,6 +11,7 @@ import {
   type VirtualLibrary,
   type VirtualLibraryItem,
 } from "@emby-task-center/contracts/virtual-library";
+import { VIRTUAL_LIBRARY_ADMIN_OWNER } from "@emby-task-center/contracts/virtual-library-market";
 import { validateVirtualLibraryItems } from "./type-validation";
 import { createPosterStore } from "./poster-store";
 
@@ -20,20 +21,29 @@ export class VirtualLibraryNotFoundError extends Error {
   }
 }
 
-export type VirtualLibraryScope = { ownerMemberId: number } | { all: true };
+export type VirtualLibraryScope = { ownerMemberId: number } | { ownerAdminId: string } | { all: true };
 
 export function createVirtualLibraryStore(database: AppDatabase, scope?: VirtualLibraryScope) {
   const scopeFilter =
     scope && "all" in scope
       ? undefined
-      : scope
+      : scope && "ownerMemberId" in scope
         ? eq(virtualLibraries.ownerMemberId, scope.ownerMemberId)
-        : isNull(virtualLibraries.ownerMemberId);
+        : and(
+            isNull(virtualLibraries.ownerMemberId),
+            eq(
+              virtualLibraries.ownerAdminId,
+              scope && "ownerAdminId" in scope ? scope.ownerAdminId : VIRTUAL_LIBRARY_ADMIN_OWNER,
+            ),
+          );
   function list(): VirtualLibrary[] {
     return database
       .select({
         id: virtualLibraries.id,
         ownerMemberId: virtualLibraries.ownerMemberId,
+        ownerAdminId: virtualLibraries.ownerAdminId,
+        published: virtualLibraries.published,
+        publicationVersion: virtualLibraries.publicationVersion,
         name: virtualLibraries.name,
         collectionType: virtualLibraries.collectionType,
         sortOrder: virtualLibraries.sortOrder,
@@ -102,6 +112,12 @@ export function createVirtualLibraryStore(database: AppDatabase, scope?: Virtual
       const row = {
         ...parsed,
         ownerMemberId: scope && "ownerMemberId" in scope ? scope.ownerMemberId : null,
+        ownerAdminId:
+          scope && "ownerMemberId" in scope
+            ? null
+            : scope && "ownerAdminId" in scope
+              ? scope.ownerAdminId
+              : VIRTUAL_LIBRARY_ADMIN_OWNER,
         id: randomBytes(16).toString("hex"),
         createdAt: now,
         updatedAt: now,

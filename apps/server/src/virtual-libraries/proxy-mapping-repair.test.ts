@@ -5,6 +5,7 @@ import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/
 import { writeSettings } from "../settings/store";
 import { createVirtualLibraryProxy, type VirtualLibraryProxy } from "./proxy";
 import { createVirtualLibraryStore } from "./store";
+import { seedMarketViewer } from "./market-test-support";
 
 const oldItem = {
   itemId: "old-series",
@@ -64,6 +65,10 @@ describe("virtual proxy repairs mappings with client credentials", () => {
         response.end(deniedBody);
         return;
       }
+      if (/^\/(?:emby\/)?Users\/client$/.test(url.pathname)) {
+        response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ Id: "client" }));
+        return;
+      }
       if (url.pathname.endsWith("/Images/Primary")) {
         response.writeHead(200, { "content-type": "image/jpeg" }).end("original-poster-bytes");
         return;
@@ -82,6 +87,8 @@ describe("virtual proxy repairs mappings with client credentials", () => {
       response.end(JSON.stringify({ Items: items, TotalRecordCount: items.length }));
     });
     const upstream = `http://127.0.0.1:${await listen(upstreamServer)}`;
+    seedMarketViewer(database.db, upstream, "client", "client-token", [libraryId]);
+    seedMarketViewer(database.db, upstream, "client", "denied-client", []);
     writeSettings(database.db, { "emby.baseUrl": upstream, "emby.apiKey": "admin-key-must-not-be-used" });
     proxy = createVirtualLibraryProxy({ database: database.db, appPort: 3000 });
     const port = await freePort();
@@ -120,24 +127,22 @@ describe("virtual proxy repairs mappings with client credentials", () => {
     expect(finalQuery.searchParams.has("ParentId")).toBe(false);
   });
 
-  it.each(["detail", "cover"])("repairs before serving a virtual %s", async (entry) => {
-    const path =
-      entry === "detail" ? `/emby/Users/client/Items/${libraryId}` : `/emby/Items/${libraryId}/Images/Primary`;
+  it("repairs before serving virtual folder details", async () => {
+    const path = `/emby/Users/client/Items/${libraryId}`;
     const response = await clientFetch(path);
     expect(response.status).toBe(200);
-    if (entry === "detail") expect(await response.json()).toMatchObject({ Id: libraryId, Type: "CollectionFolder" });
-    else {
-      expect(await response.text()).toBe("original-poster-bytes");
-      expect(observed.at(-1)!.url.pathname).toBe("/emby/Items/new-series/Images/Primary");
-    }
+    expect(await response.json()).toMatchObject({ Id: libraryId, Type: "CollectionFolder" });
     expectRepair();
   });
 
-  it("preserves upstream 401 and mapping for a rejected client without substituting the admin key", async () => {
+  it("conceals protected libraries for rejected clients and preserves upstream failures on ordinary requests", async () => {
     const response = await clientFetch(`/emby/Users/client/Items?ParentId=${libraryId}`, "denied-client");
-    expect(response.status).toBe(401);
-    expect(response.headers.get("www-authenticate")).toBe("Emby original challenge");
-    expect(await response.text()).toBe(deniedBody);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "virtual_library_not_found" });
+    const ordinary = await clientFetch("/emby/Items/original-series/PlaybackInfo", "denied-client");
+    expect(ordinary.status).toBe(401);
+    expect(ordinary.headers.get("www-authenticate")).toBe("Emby original challenge");
+    expect(await ordinary.text()).toBe(deniedBody);
     expect(store.listItems(libraryId)).toEqual([oldItem]);
     expect(observed.length).toBeGreaterThan(0);
     expect(observed.every(({ token }) => token === "denied-client")).toBe(true);
@@ -155,7 +160,12 @@ describe("virtual proxy repairs mappings with client credentials", () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ Items: [newDto], TotalRecordCount: 1 });
     }
-    expect(observed.map(({ url }) => `${url.pathname}${url.search}`)).toEqual(paths);
+    expect(
+      observed
+        .filter(({ url }) => url.pathname !== "/emby/Users/client")
+        .map(({ url }) => `${url.pathname}${url.search}`),
+    ).toEqual(paths);
+    expect(observed.some(({ url }) => url.searchParams.has("AnyProviderIdEquals"))).toBe(false);
     expect(observed.every(({ token }) => token === "client-token")).toBe(true);
     expect(store.listItems(libraryId)).toEqual([oldItem]);
   });

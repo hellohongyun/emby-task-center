@@ -24,14 +24,14 @@ export const VIEW_SEGMENTS: ReadonlyArray<{ view: AppView; segment: string; labe
   { view: "tasks", segment: "tasks", label: "任务" },
   { view: "missingEpisodes", segment: "missing-episodes", label: "缺集总览" },
   { view: "library", segment: "library", label: "媒体库" },
-  { view: "virtualLibraries", segment: "virtual-libraries", label: "虚拟媒体库" },
+  { view: "virtualLibraries", segment: "virtual-libraries", label: "虚拟库与市场" },
   { view: "mediaRequests", segment: "media-requests", label: "求片与补集" },
   { view: "share115", segment: "115-shares", label: "115 转存" },
   { view: "system", segment: "system", label: "系统状态" },
   { view: "logs", segment: "logs", label: "日志" }, // 含「操作审计」Tab
   { view: "config", segment: "config", label: "系统设置" },
   { view: "submissions", segment: "submissions", label: "会员与运营" },
-  { view: "libraryOrder", segment: "library-order", label: "媒体库顺序" },
+  { view: "libraryOrder", segment: "library-order", label: "默认媒体库顺序" },
   { view: "cardKeys", segment: "cardKeys", label: "卡密" },
 ];
 
@@ -103,14 +103,17 @@ export function createAppRouter(): Router {
           { path: "tasks", component: () => import("./views/TasksPage.vue") },
           { path: "missing-episodes", component: () => import("./views/MissingEpisodesPage.vue") },
           { path: "library", component: () => import("./views/LibraryPage.vue") },
-          { path: "virtual-libraries", component: () => import("./views/VirtualLibrariesPage.vue") },
+          {
+            path: "virtual-libraries",
+            component: () => import("./components/virtual-libraries/VirtualLibraryWorkspace.vue"),
+          },
           { path: "media-requests", component: () => import("./views/MediaRequestsPage.vue") },
           { path: "115-shares", component: () => import("./views/Share115Page.vue") },
           { path: "system", component: () => import("./views/SystemPage.vue") },
           { path: "logs", component: () => import("./views/LogsPage.vue") },
           { path: "config", component: () => import("./views/SystemSettingsPage.vue") },
           { path: "submissions", component: () => import("./views/MembersPage.vue") },
-          { path: "library-order", component: () => import("./views/LibraryOrderPage.vue") },
+          { path: "library-order", component: () => import("./views/DefaultLibraryOrderPage.vue") },
           { path: "cardKeys", component: () => import("./components/CardKeysView.vue") },
           ...VIEW_REDIRECTS.map((item) => ({
             path: item.segment,

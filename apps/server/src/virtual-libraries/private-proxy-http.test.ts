@@ -7,6 +7,7 @@ import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/
 import { submissionUsers, concurrencyEscalationState } from "@emby-task-center/database/schema";
 import { writeSettings } from "../settings/store";
 import { createVirtualLibraryStore } from "./store";
+import { createVirtualLibraryMarketService } from "./market-service";
 import { createVirtualLibraryProxy, type VirtualLibraryProxy } from "./proxy";
 
 const aliceId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -76,6 +77,10 @@ describe("private libraries through the actual HTTP proxy", () => {
     privateStore.setPoster(privateId, png, "image/png");
     posterTag = privateStore.getPoster(privateId)!.imageTag;
     publicId = createVirtualLibraryStore(database.db).create({ name: "公共" }).id;
+    const market = createVirtualLibraryMarketService(database.db);
+    market.publication({ adminId: "primary-admin" }, publicId, true);
+    for (const member of database.db.select().from(submissionUsers).all())
+      market.subscribe(`member:${member.id}`, publicId, true);
     const upstreamPort = await listen(
       createServer((request, response) => {
         const url = new URL(request.url!, "http://upstream.test");

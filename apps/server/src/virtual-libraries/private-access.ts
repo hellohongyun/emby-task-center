@@ -1,6 +1,14 @@
 import type { VirtualLibraryStore } from "./store";
 import { authenticationUrl, setParameter, type QueryUpstream } from "./query-helpers";
 
+export interface ProxyLibraryAccess {
+  memberId?: number;
+  subscriberId: string;
+  visibleLibraryIds: readonly string[];
+  ownLibraryIds: readonly string[];
+  personalOrder?: readonly string[];
+}
+
 export function privateIdentity(value: string) {
   return /^[a-f\d-]{32,36}$/i.test(value) ? value.replaceAll("-", "").toLowerCase() : value;
 }
@@ -14,6 +22,24 @@ export async function privateMember(
   report?: (reason: string, status?: number) => void,
 ): Promise<number | undefined> {
   if (!lookup || !verifiedUserId) {
+    report?.("login_proof_missing");
+    return undefined;
+  }
+  const userId = await validatePrivateUser(url, upstream, verifiedUserId, report);
+  if (!userId) return undefined;
+  const member = lookup(userId);
+  if (member === undefined) report?.("member_unavailable");
+  return member;
+}
+
+/** Ownership is established by the login proof, then revalidated with the same credentials. */
+export async function validatePrivateUser(
+  url: URL,
+  upstream: QueryUpstream,
+  verifiedUserId?: string,
+  report?: (reason: string, status?: number) => void,
+): Promise<string | undefined> {
+  if (!verifiedUserId) {
     report?.("login_proof_missing");
     return undefined;
   }
@@ -38,9 +64,7 @@ export async function privateMember(
       report?.("user_claim_mismatch");
       return undefined;
     }
-    const member = lookup(body.Id);
-    if (member === undefined) report?.("member_unavailable");
-    return member;
+    return body.Id;
   } catch {
     report?.("validation_unavailable");
     return undefined;
@@ -48,9 +72,20 @@ export async function privateMember(
 }
 
 /** Narrow every library read, including posters and repair lookups, for one request. */
-export function privateRequestStore(store: VirtualLibraryStore, memberId: number | undefined) {
+export function privateRequestStore(
+  store: VirtualLibraryStore,
+  memberId: number | undefined,
+  libraryIds?: readonly string[],
+) {
+  const allowed = libraryIds ? new Set(libraryIds.map(privateIdentity)) : undefined;
   const visible = () =>
-    store.list().filter((library) => library.ownerMemberId == null || library.ownerMemberId === memberId);
+    store
+      .list()
+      .filter((library) =>
+        allowed
+          ? allowed.has(privateIdentity(library.id))
+          : library.ownerMemberId == null || library.ownerMemberId === memberId,
+      );
   const get = (id: string) => visible().find((library) => privateIdentity(library.id) === privateIdentity(id));
   return {
     ...store,
@@ -68,7 +103,12 @@ export function privateRequestStore(store: VirtualLibraryStore, memberId: number
 }
 
 /** Stop guessed private IDs locally, even on unsupported routes or mixed-ID queries. */
-export function forbiddenPrivateReference(url: URL, all: VirtualLibraryStore, visible: VirtualLibraryStore) {
+export function forbiddenPrivateReference(
+  url: URL,
+  all: VirtualLibraryStore,
+  visible: VirtualLibraryStore,
+  protectAll = false,
+) {
   const values = [
     ...url.pathname.split("/").map(decodeURIComponent),
     ...[...url.searchParams.values()].flatMap((value) => value.split(",")),
@@ -78,6 +118,8 @@ export function forbiddenPrivateReference(url: URL, all: VirtualLibraryStore, vi
     .list()
     .some(
       (library) =>
-        library.ownerMemberId != null && references.has(privateIdentity(library.id)) && !visible.get(library.id),
+        (protectAll || library.ownerMemberId != null) &&
+        references.has(privateIdentity(library.id)) &&
+        !visible.get(library.id),
     );
 }

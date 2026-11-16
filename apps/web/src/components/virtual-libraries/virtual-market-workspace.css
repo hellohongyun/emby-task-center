@@ -1,0 +1,241 @@
+.vm-workspace-intro {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin: 0 0 18px;
+}
+.vm-workspace-intro p {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+.vm-workspace-intro > span {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.vm-account {
+  margin-bottom: 24px;
+  background: var(--bg-raised);
+}
+.vm-account .vm-section-head strong {
+  font-size: 14px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.vm-account .vm-status {
+  margin-right: 8px;
+}
+.vm-account p {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+.vm-account .vm-section-head > div {
+  display: block;
+}
+.vm-account .vm-section-head > div > p {
+  margin-top: 8px;
+}
+.vm-account-form {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+  display: grid;
+  gap: 14px;
+}
+.vm-account-form .vm-field {
+  width: 100%;
+  margin: 0;
+}
+.vm-discard {
+  border-color: var(--warn);
+  margin-bottom: 20px;
+}
+.vm-discard > strong {
+  font-weight: 650;
+}
+.vm-default-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  cursor: pointer;
+}
+.vm-default-row.selected {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.vm-default-row > span:nth-child(3) {
+  flex: 1;
+  min-width: 0;
+}
+.vm-default-thumb {
+  max-width: 96px;
+  flex: 0 0 96px;
+  border-radius: 6px;
+}
+.vm-default-row strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.vm-default-row small {
+  display: block;
+  color: var(--text-dim);
+  margin-top: 5px;
+  font-size: 12px;
+}
+.vm-order-rank {
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  background: var(--bg);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  font-weight: 650;
+}
+.vm-drag-handle {
+  color: var(--text-faint);
+  font-size: 22px;
+  cursor: grab;
+}
+.vm-order-name {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 7px;
+  justify-items: start;
+}
+.vm-savebar {
+  justify-content: space-between;
+  position: sticky;
+  bottom: 16px;
+  z-index: 5;
+  box-shadow: var(--shadow);
+}
+.vm-savebar > div:first-child {
+  flex: 1;
+  min-width: 180px;
+}
+.vm-savebar p {
+  margin-top: 7px;
+  font-size: 12px;
+}
+.vl-library-summary {
+  margin: 0 0 20px;
+}
+.vl-page .vl-library-card .vm-status {
+  align-self: start;
+  color: var(--text-dim);
+}
+.vl-page .vl-library-card .vm-status.good {
+  color: var(--accent);
+}
+.vm-publication {
+  display: grid;
+  gap: 14px;
+}
+.vm-publication.published {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+.vm-publication h3 {
+  font-size: 17px;
+  font-weight: 650;
+  margin: 9px 0 0;
+}
+.vm-publication .vl-section-head > div:first-child {
+  flex: 1;
+}
+.vm-user-row[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+@media (max-width: 600px) {
+  .vm-workspace-intro {
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 14px;
+  }
+  .vm-workspace-intro p {
+    font-size: 18px;
+  }
+  .vm-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 10px;
+    scrollbar-width: thin;
+    scroll-snap-type: x proximity;
+  }
+  .vm-tabs button {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    min-height: 44px;
+  }
+  .vm-tabs button small {
+    display: none;
+  }
+  .vm-account {
+    margin-bottom: 18px;
+  }
+  .vm-account .vm-section-head {
+    flex-direction: row;
+    align-items: start;
+    gap: 10px;
+  }
+  .vm-account .vm-section-head button {
+    flex-shrink: 0;
+    padding-inline: 10px;
+  }
+  .vm-account .vm-section-head strong {
+    display: block;
+    margin-top: 8px;
+  }
+  .vm-account .vm-section-head p {
+    font-size: 12px;
+  }
+  .vm-default-row {
+    display: grid;
+    grid-template-columns: 20px 68px minmax(0, 1fr);
+    gap: 10px;
+    padding: 13px;
+  }
+  .vm-default-row > .vm-status {
+    grid-column: 3;
+    justify-self: start;
+    font-size: 10px;
+    padding-inline: 7px;
+  }
+  .vm-default-thumb {
+    max-width: 68px;
+    grid-row: span 2;
+  }
+  .vm-order li {
+    gap: 9px;
+  }
+  .vm-drag-handle {
+    display: none;
+  }
+  .vm-order-rank {
+    width: 28px;
+    height: 28px;
+  }
+  .vm-order .vm-actions {
+    flex-wrap: nowrap;
+    gap: 5px;
+  }
+  .vm-order .vm-actions button {
+    padding-inline: 9px;
+  }
+  .vm-savebar {
+    bottom: 82px;
+  }
+  .vm-savebar .vm-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

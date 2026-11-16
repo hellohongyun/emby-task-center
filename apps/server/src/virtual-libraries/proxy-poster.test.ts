@@ -5,6 +5,7 @@ import { createDatabase } from "@emby-task-center/database/client";
 import { createVirtualLibraryStore } from "./store";
 import { createVirtualProxyHandler } from "./proxy-handler";
 import { libraryDto } from "./library-dto";
+import { DEFAULT_LIBRARY_POSTER_TAG } from "@emby-task-center/contracts/library-poster";
 const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l7sAAAAASUVORK5CYII=",
   "base64",
@@ -50,6 +51,29 @@ async function fixture() {
   return { base, store, library, observed };
 }
 describe("owned custom posters through HTTP proxy", () => {
+  it("restores native-client-compatible system artwork after removing a custom poster", async () => {
+    const { base, store, library, observed } = await fixture();
+    const oldTag = store.getPoster(library.id)!.imageTag;
+    store.removePoster(library.id);
+    expect(libraryDto(store, library.id).PrimaryImageTag).toBe(DEFAULT_LIBRARY_POSTER_TAG);
+    const path = `${base}/Items/${library.id}/Images/Primary`;
+    const response = await fetch(path, {
+      headers: { "x-emby-token": "client-token", "if-none-match": `"${oldTag}"` },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    const bytes = Buffer.from(await response.arrayBuffer());
+    expect(bytes.subarray(1, 4).toString()).toBe("PNG");
+    const head = await fetch(path, { method: "HEAD", headers: { "x-emby-token": "client-token" } });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-length")).toBe(String(bytes.length));
+    expect(await head.text()).toBe("");
+    expect(observed.every((entry) => !entry.path.includes("/Images/"))).toBe(true);
+    const cached = await fetch(path, {
+      headers: { "x-emby-token": "client-token", "if-none-match": `"${DEFAULT_LIBRARY_POSTER_TAG}"` },
+    });
+    expect(cached.status).toBe(304);
+  });
   it("serves each advertised image type with original client auth, stable bytes and HEAD", async () => {
     const { base, store, library, observed } = await fixture();
     const dto = libraryDto(store, library.id);

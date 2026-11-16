@@ -27,6 +27,8 @@ interface QueryContext {
   homeSections?: unknown;
   ownedOrder?: OwnedViewAnchor[];
   adminOrder?: readonly string[];
+  personalOrder?: readonly string[];
+  ownLibraryIds?: readonly string[];
 }
 
 async function appendLibraries(context: QueryContext) {
@@ -36,7 +38,7 @@ async function appendLibraries(context: QueryContext) {
 export async function handleVirtualQuery(context: QueryContext): Promise<boolean> {
   if (context.request.method !== "GET") return false;
   const { url, store, upstream, response } = context;
-  if (!context.adminOrder && store.list().length === 0) return false;
+  if (!context.adminOrder && context.ownLibraryIds === undefined && store.list().length === 0) return false;
   const path = url.pathname;
   const detail = /^\/(?:Users\/[^/]+\/)?Items\/([^/]+)\/?$/i.exec(path);
   const library = detail ? store.get(decodeURIComponent(detail[1])) : undefined;

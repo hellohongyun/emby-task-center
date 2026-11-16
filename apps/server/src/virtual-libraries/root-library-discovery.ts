@@ -53,6 +53,8 @@ interface RootDiscoveryContext {
   reply: UpstreamJson;
   ownedOrder?: OwnedViewAnchor[];
   adminOrder?: readonly string[];
+  personalOrder?: readonly string[];
+  ownLibraryIds?: readonly string[];
 }
 
 /** Preserve every upstream item; append owned libraries only to confirmed root folder lists. */
@@ -65,6 +67,7 @@ export async function rootLibraryDiscovery(context: RootDiscoveryContext): Promi
     !body ||
     !Array.isArray(body.Items) ||
     (!body.Items.length &&
+      context.ownLibraryIds === undefined &&
       !((adminOrder || personal) && typeof body.TotalRecordCount === "number" && body.TotalRecordCount > 0)) ||
     body.Items.some((item) => !item || typeof item !== "object" || item.Type !== "CollectionFolder")
   )

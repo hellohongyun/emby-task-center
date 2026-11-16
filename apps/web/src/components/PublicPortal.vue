@@ -31,7 +31,7 @@ const navItems = [
   { value: "library", label: "影视库", icon: mdiLibraryOutline },
   { value: "requests", label: "求片", icon: mdiPlaylistPlus },
   { value: "share115", label: "115 转存", icon: mdiCloudDownloadOutline },
-  { value: "virtualLibraries", label: "私人库", icon: mdiLibraryOutline },
+  { value: "virtualLibraries", label: "虚拟库", icon: mdiLibraryOutline },
   { value: "profile", label: "我的", icon: mdiAccountCircle },
 ] as const;
 

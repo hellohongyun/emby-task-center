@@ -5,6 +5,9 @@ export const virtualLibraries = sqliteTable(
   {
     id: text("id").primaryKey(),
     ownerMemberId: integer("owner_member_id"),
+    ownerAdminId: text("owner_admin_id"),
+    published: integer("published", { mode: "boolean" }).notNull().default(false),
+    publicationVersion: integer("publication_version").notNull().default(0),
     name: text("name").notNull(),
     collectionType: text("collection_type", { enum: ["movies", "tvshows", "mixed"] })
       .notNull()

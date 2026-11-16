@@ -2,6 +2,7 @@ import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import { startIsolatedServer } from "./real-server";
+import { marketEmails, startMarketFixture } from "./market-fixture";
 
 async function freePort() {
   const probe = createServer();
@@ -18,7 +19,7 @@ async function freePort() {
 test("virtual libraries persist mappings and appear beside original Emby libraries through the real proxy", async ({
   browser,
 }) => {
-  const application = await startIsolatedServer();
+  const application = await startIsolatedServer({ startUpstream: startMarketFixture });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const externalRequests: string[] = [];
   await context.route("**/*", async (route) => {
@@ -34,7 +35,7 @@ test("virtual libraries persist mappings and appear beside original Emby librari
     await page.getByLabel("管理员账号").fill("admin");
     await page.getByLabel("管理员口令").fill("admin123");
     await page.getByRole("button", { name: "进入任务中心" }).click();
-    await expect(page.getByRole("heading", { name: "虚拟媒体库", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "我的虚拟媒体库", exact: true })).toBeVisible();
     await expect(page.getByRole("checkbox", { name: "启用客户端反代" })).not.toBeChecked();
     const initialProxy = await context.request.get(`${application.baseURL}/api/virtual-libraries/proxy`);
     expect(await initialProxy.json()).toMatchObject({ config: { enabled: false }, status: { running: false } });
@@ -90,11 +91,25 @@ test("virtual libraries persist mappings and appear beside original Emby librari
     await page.getByLabel("监听端口").fill(String(port));
     await page.getByRole("checkbox", { name: "启用客户端反代" }).check();
     await page.getByRole("button", { name: "保存反代设置" }).click();
-    await expect(page.getByText(`http://127.0.0.1:${port}`, { exact: true })).toBeVisible();
+    await expect(page.locator("summary").getByText(`http://127.0.0.1:${port}`, { exact: true })).toBeVisible();
 
     const proxy = `http://127.0.0.1:${port}`;
+    expect(
+      (
+        await context.request.put(`${application.baseURL}/api/virtual-library-market/defaults`, {
+          data: { libraryIds: [], adminEmbyUserId: "fixture-user" },
+        })
+      ).status(),
+    ).toBe(200);
+    expect(
+      (
+        await context.request.post(`${proxy}/Users/AuthenticateByName`, {
+          data: { Username: marketEmails[0], Pw: "fixture-password" },
+        })
+      ).status(),
+    ).toBe(200);
     const views = await context.request.get(`${proxy}/Users/fixture-user/Views`, {
-      headers: { "X-Emby-Token": "local-fixture-only" },
+      headers: { "X-Emby-Token": "owner-token" },
     });
     expect(views.status()).toBe(200);
     const viewItems = (await views.json()).Items as Array<{ Id: string; Name: string }>;
@@ -104,7 +119,7 @@ test("virtual libraries persist mappings and appear beside original Emby librari
         expect.objectContaining({ Id: library.id, Name: "隔离虚拟精选" }),
       ]),
     );
-    const scopedUrl = `${proxy}/Users/fixture-user/Items?ParentId=${encodeURIComponent(library.id)}&Recursive=true`;
+    const scopedUrl = `${proxy}/Users/fixture-user/Items?ParentId=${encodeURIComponent(library.id)}&Recursive=true&api_key=owner-token`;
     const scoped = await context.request.get(scopedUrl);
     expect(scoped.status()).toBe(200);
     expect((await scoped.json()).Items).toEqual([

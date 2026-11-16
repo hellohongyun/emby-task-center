@@ -141,6 +141,29 @@ export interface SendCodeResult {
 
 export function friendlyError(code?: string): string {
   switch (code) {
+    case "admin_emby_account_required":
+      return "请先在虚拟库工作台顶部绑定管理员播放器账号。";
+    case "emby_not_configured":
+      return "请先配置真实 Emby 地址、API Key 和 TgtoDrive 的 Emby 反代入口。";
+    case "upstream_server_mismatch":
+      return "TgtoDrive 反代与真实 Emby 的服务器标识不一致，请核对两端连接的是同一台 Emby。";
+    case "upstream_catalog_unavailable":
+      return "暂时无法读取来源目录，请检查 Emby、TgtoDrive 反代地址和 API Key 后重试。";
+    case "invalid_upstream_catalog":
+    case "incomplete_upstream_catalog":
+      return "来源未返回完整的媒体库目录，本次未更新接入状态，请稍后重新同步。";
+    case "upstream_catalog_changed":
+    case "invalid_upstream_library_selection":
+      return "来源列表已变化，请重新同步后选择要接入的库。";
+    case "upstream_library_unavailable":
+      return "该库已从来源移除或暂不可用，请同步来源列表后重试。";
+    case "emby_account_required":
+      return "请先绑定 Emby 账号，再使用媒体库功能。";
+    case "invalid_library_order":
+      return "媒体库列表已变化，请刷新后重新调整顺序。";
+    case "virtual_library_unavailable":
+    case "market_library_unavailable":
+      return "该媒体库已下架或暂不可用，请刷新市场。";
     case "membership_expired":
       return "会员已过期，请在我的页面续费后浏览内容。";
     case "member_frozen":

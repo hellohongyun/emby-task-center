@@ -18,6 +18,8 @@ interface DiscoveryContext {
   upstream: QueryUpstream;
   ownedOrder?: OwnedViewAnchor[];
   adminOrder?: readonly string[];
+  personalOrder?: readonly string[];
+  ownLibraryIds?: readonly string[];
 }
 
 function identity(value: unknown): string {
@@ -34,6 +36,8 @@ export async function discoveryItems({
   upstream,
   ownedOrder,
   adminOrder,
+  personalOrder,
+  ownLibraryIds,
 }: DiscoveryContext): Promise<UpstreamJson | undefined> {
   const folders = /^\/Library\/MediaFolders\/?$/i.test(url.pathname);
   const byIds = /^\/(?:Users\/[^/]+\/)?Items\/?$/i.test(url.pathname);
@@ -41,9 +45,20 @@ export async function discoveryItems({
   const ids = (parameter(url, "Ids") ?? "").split(",").filter(Boolean);
   const libraries = new Map(store.list().map((library) => [identity(library.id), library.id]));
   const virtualIds = [...new Set(ids.map((id) => libraries.get(identity(id))).filter((id): id is string => !!id))];
-  if (folders ? !adminOrder && !store.list().length : !virtualIds.length) return undefined;
+  if (folders ? !adminOrder && ownLibraryIds === undefined && !store.list().length : !virtualIds.length)
+    return undefined;
   try {
-    if (folders) return overlayLibraries({ url, store, upstream, reply: await upstream(url), ownedOrder, adminOrder });
+    if (folders)
+      return overlayLibraries({
+        url,
+        store,
+        upstream,
+        reply: await upstream(url),
+        ownedOrder,
+        adminOrder,
+        personalOrder,
+        ownLibraryIds,
+      });
     const realIds = ids.filter((id) => !libraries.has(identity(id)));
     let reply: UpstreamJson;
     let serverId: unknown;

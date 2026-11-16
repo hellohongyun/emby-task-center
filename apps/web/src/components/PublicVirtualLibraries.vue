@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import VirtualLibrariesPage from "../views/VirtualLibrariesPage.vue";
+import VirtualLibraryWorkspace from "./virtual-libraries/VirtualLibraryWorkspace.vue";
 import { usePortalSession } from "../composables/usePortalSession";
 import { portalAccessError } from "../composables/portal-access";
 
@@ -26,5 +26,5 @@ onMounted(checkAccount);
     <p>{{ failed ? "暂时无法读取账号，请稍后重试。" : "请联系管理员绑定 Emby 账号后使用私人媒体库。" }}</p>
     <button type="button" @click="checkAccount">重新检查</button>
   </section>
-  <VirtualLibrariesPage v-else personal :require-auth="() => (portalAccessError = 'unauthorized')" />
+  <VirtualLibraryWorkspace v-else personal :require-auth="() => (portalAccessError = 'unauthorized')" />
 </template>

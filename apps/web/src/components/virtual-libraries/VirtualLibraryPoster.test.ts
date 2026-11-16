@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { VirtualLibrary } from "@emby-task-center/contracts/virtual-library";
 import VirtualLibraryPoster from "./VirtualLibraryPoster.vue";
 import { compressPoster } from "../../composables/compress-poster";
+import { DEFAULT_LIBRARY_POSTER_URL } from "@emby-task-center/contracts/library-poster";
 
 vi.mock("../../composables/compress-poster", () => ({ compressPoster: vi.fn(async (file: File) => file) }));
 
@@ -98,6 +99,9 @@ it("removes only the selected library poster", async () => {
     "/api/virtual-libraries/one/poster",
     expect.objectContaining({ method: "DELETE" }),
   );
+  await view.rerender({ library });
+  expect(screen.getByRole("img")).toHaveAttribute("src", DEFAULT_LIBRARY_POSTER_URL);
+  expect(screen.getByText("正在使用系统默认海报")).toBeVisible();
 });
 
 it("does not apply a previous library upload response after the selection changes", async () => {
@@ -118,7 +122,7 @@ it("does not apply a previous library upload response after the selection change
   finish(json({ library: { ...library, posterImageTag: "old-library" } }));
   await waitFor(() => expect(screen.getByRole("button", { name: "保存海报" })).toBeDisabled());
   expect(view.emitted().saved).toBeUndefined();
-  expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  expect(screen.getByRole("img")).toHaveAttribute("src", DEFAULT_LIBRARY_POSTER_URL);
 });
 
 it("requests login again for an expired admin session", async () => {

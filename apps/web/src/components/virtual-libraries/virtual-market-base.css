@@ -1,0 +1,185 @@
+.vm-workspace,
+.vm-page {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text);
+}
+.vm-page {
+  display: grid;
+  gap: 20px;
+}
+.vm-page h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.025em;
+}
+.vm-page h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+.vm-page h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+.vm-page p {
+  margin: 0;
+  line-height: 1.65;
+  color: var(--text-dim);
+}
+.vm-workspace :where(button),
+.vm-page :where(button) {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 16px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    border-color 0.16s,
+    background 0.16s;
+}
+.vm-workspace :where(button:not(:disabled):hover),
+.vm-page :where(button:not(:disabled):hover) {
+  border-color: var(--accent);
+}
+.vm-workspace :where(button:disabled),
+.vm-page :where(button:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.vm-workspace :where(button:focus-visible, input:focus-visible, select:focus-visible),
+.vm-page :where(button:focus-visible, input:focus-visible, select:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.vm-workspace :where(input:not([type="checkbox"]), select),
+.vm-page :where(input:not([type="checkbox"]), select) {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+.vm-workspace :where(input[type="checkbox"]),
+.vm-page :where(input[type="checkbox"]) {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+.vm-workspace :where(input::placeholder),
+.vm-page :where(input::placeholder) {
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+.vm-workspace .vm-button-primary,
+.vm-page .vm-button-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+}
+.vm-workspace .vm-button-danger,
+.vm-page .vm-button-danger {
+  color: #ffb7b7;
+  border-color: #944949;
+  background: #2b1c22;
+}
+.vm-heading,
+.vm-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+}
+.vm-heading > div:first-child,
+.vm-section-head > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+.vm-heading > button {
+  flex-shrink: 0;
+}
+.vm-heading p {
+  max-width: 740px;
+}
+.vm-tabs,
+.vm-actions,
+.vm-toolbar,
+.vm-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.vm-tabs {
+  gap: 10px;
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.vm-tabs button {
+  flex: 1 1 140px;
+  text-align: left;
+  display: grid;
+  gap: 4px;
+  padding: 12px 16px;
+  min-height: 56px;
+}
+.vm-tabs button strong {
+  font-size: 14px;
+  font-weight: 650;
+}
+.vm-tabs button small {
+  display: block;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 400;
+}
+.vm-tabs button[aria-pressed="true"],
+.vm-filters button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 11%, var(--surface));
+  color: var(--accent);
+}
+@media (max-width: 600px) {
+  .vm-page {
+    gap: 16px;
+  }
+  .vm-page h1 {
+    font-size: 22px;
+  }
+  .vm-heading,
+  .vm-section-head {
+    flex-direction: column;
+    gap: 14px;
+  }
+  .vm-heading > .vm-actions {
+    width: 100%;
+  }
+  .vm-tabs {
+    gap: 7px;
+    margin-bottom: 18px;
+  }
+  .vm-tabs button {
+    flex: 1 1 calc(50% - 7px);
+    padding: 10px 12px;
+  }
+}

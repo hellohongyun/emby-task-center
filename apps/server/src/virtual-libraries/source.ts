@@ -47,10 +47,15 @@ function validItem(value: unknown): value is EmbyItem {
   return typeof item.Id === "string" && item.Id.length > 0 && typeof item.Name === "string";
 }
 
-export function createVirtualLibrarySource(database: AppDatabase, fetcher: typeof fetch = fetch, userId?: string) {
+export function createVirtualLibrarySource(
+  database: AppDatabase,
+  fetcher: typeof fetch = fetch,
+  userId?: string,
+  upstreamOverride?: string,
+) {
   async function request(path: string, params: Record<string, string> = {}): Promise<unknown> {
     const { values } = readSettings(database);
-    const baseUrl = values["emby.baseUrl"];
+    const baseUrl = upstreamOverride ?? values["emby.baseUrl"];
     const apiKey = values["emby.apiKey"];
     if (!baseUrl || !apiKey) throw new VirtualLibrarySourceError("请先在系统设置配置 Emby 地址和 API Key", 503);
     let url: URL;
@@ -118,14 +123,18 @@ export function createVirtualLibrarySource(database: AppDatabase, fetcher: typeo
   }
 
   return {
-    async libraries(): Promise<{ id: string; name: string }[]> {
+    async libraries(options?: { includeGuid?: boolean }): Promise<{ id: string; name: string; guid?: string }[]> {
       const payload = await request(userId ? `Users/${encodeURIComponent(userId)}/Views` : "Library/VirtualFolders");
       if (userId) {
-        const views = (payload as { Items?: { Id: string; Name: string }[] })?.Items;
+        const views = (payload as { Items?: { Id: string; Name: string; Guid?: string }[] })?.Items;
         if (!Array.isArray(views)) throw new VirtualLibrarySourceError("Emby 返回了无效的媒体库列表");
         return views
           .filter((item) => typeof item.Id === "string" && typeof item.Name === "string")
-          .map((item) => ({ id: item.Id, name: item.Name }));
+          .map((item) => ({
+            id: item.Id,
+            name: item.Name,
+            ...(options?.includeGuid && typeof item.Guid === "string" ? { guid: item.Guid } : {}),
+          }));
       }
       if (!Array.isArray(payload)) throw new VirtualLibrarySourceError("Emby 返回了无效的媒体库列表");
       return payload.flatMap((entry: { ItemId?: string; Name?: string }) =>

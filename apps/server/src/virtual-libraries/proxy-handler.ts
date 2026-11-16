@@ -10,9 +10,16 @@ import type { OwnedViewPreferences } from "./owned-view-preferences";
 import { serveOwnedPoster } from "./proxy-poster";
 import { appendOwnedHomeSections, ownedLatestLibraryId } from "./owned-home-sections";
 import { isRootLibraryDiscovery } from "./root-library-discovery";
-import { privateMember, privateRequestStore, forbiddenPrivateReference } from "./private-access";
+import {
+  privateMember,
+  privateRequestStore,
+  forbiddenPrivateReference,
+  validatePrivateUser,
+  type ProxyLibraryAccess,
+} from "./private-access";
 import { createPrivateTokenIdentity, isPrivateAuthentication } from "./private-token-identity";
 import { privateClient, privateDiscoveryRoute, type PrivateDiagnosticReporter } from "./private-diagnostics";
+import { externalLibraryAccess, type ReadExternalLibraryAccess } from "./external-library-access";
 
 export function createVirtualProxyHandler(
   allStore: VirtualLibraryStore,
@@ -23,6 +30,8 @@ export function createVirtualProxyHandler(
   lookupMember?: (embyId: string) => number | undefined,
   identities = createPrivateTokenIdentity(),
   reportIdentity?: PrivateDiagnosticReporter,
+  resolveLibraryAccess?: (embyId: string) => ProxyLibraryAccess | undefined,
+  readExternalAccess?: ReadExternalLibraryAccess,
 ) {
   const repairMappings = createProxyMappingRepair(allStore);
   const homeSections = createHomeSectionCache();
@@ -39,39 +48,72 @@ export function createVirtualProxyHandler(
       const context: ProxyTarget = { upstream: upstream(), request, response, signal: abort.signal };
       const url = new URL(request.url ?? "/", "http://proxy.local");
       url.pathname = url.pathname.replace(/^\/emby(?=\/|$)/i, "") || "/";
+      const rawUpstream = (target: URL, timeout?: number) => upstreamJson(context, target, timeout);
+      const externalCatalog = readExternalAccess?.();
+      const hasExternal = !!externalCatalog?.libraries.length;
+      const publicExternal = externalCatalog ? externalLibraryAccess(externalCatalog, rawUpstream) : undefined;
       const client = privateClient(request.headers);
       const discoveryRoute = privateDiscoveryRoute(url);
       const libraries = allStore.list();
       const requestStore = { ...allStore, list: () => libraries };
       const hasPrivate = libraries.some((library) => library.ownerMemberId != null);
-      const publicStore = hasPrivate ? privateRequestStore(requestStore, undefined) : allStore;
+      const protectedLibraries = !!resolveLibraryAccess || hasPrivate;
+      const publicStore = resolveLibraryAccess
+        ? privateRequestStore(requestStore, undefined, [])
+        : hasPrivate
+          ? privateRequestStore(requestStore, undefined)
+          : allStore;
       const privateBrowsing =
-        hasPrivate &&
-        (forbiddenPrivateReference(url, requestStore, publicStore) ||
+        protectedLibraries &&
+        (publicExternal?.references(url) ||
+          (hasExternal && publicExternal?.handles(url)) ||
+          forbiddenPrivateReference(url, requestStore, publicStore, !!resolveLibraryAccess) ||
           ((request.method === "GET" || request.method === "HEAD") &&
             /^\/(?:Users\/[^/]+\/(?:Views|HomeSections|Sections\/[^/]+\/Items|Items)|Library\/MediaFolders|Items)\/?$/i.test(
               url.pathname,
             )));
-      const memberId = privateBrowsing
-        ? await privateMember(
-            url,
-            (target, timeout) => upstreamJson(context, target, timeout),
-            lookupMember,
-            identities.resolve(context.upstream, url, request.headers),
-            (reason, status) => {
-              if (discoveryRoute)
-                reportIdentity?.({
-                  client,
-                  route: discoveryRoute,
-                  reason,
-                  ...(status === undefined ? {} : { status }),
-                });
-            },
-          )
+      const report = (reason: string, status?: number) => {
+        if (discoveryRoute)
+          reportIdentity?.({ client, route: discoveryRoute, reason, ...(status === undefined ? {} : { status }) });
+      };
+      const provenId = privateBrowsing ? identities.resolve(context.upstream, url, request.headers) : undefined;
+      const validatedId =
+        privateBrowsing && resolveLibraryAccess
+          ? await validatePrivateUser(
+              url,
+              (target, timeout) => upstreamJson(context, target, timeout),
+              provenId,
+              report,
+            )
+          : undefined;
+      const access = validatedId ? resolveLibraryAccess?.(validatedId) : undefined;
+      const external = hasExternal
+        ? externalLibraryAccess(readExternalAccess!(validatedId), rawUpstream, validatedId)
         : undefined;
-      const store = hasPrivate ? privateRequestStore(requestStore, memberId) : allStore;
-      if (hasPrivate && discoveryRoute && memberId !== undefined) {
-        const privateLibraryCount = store.list().filter((library) => library.ownerMemberId != null).length;
+      const queryUpstream = external?.query ?? rawUpstream;
+      if (validatedId && !access) report("member_unavailable");
+      const memberId = resolveLibraryAccess
+        ? access?.memberId
+        : privateBrowsing
+          ? await privateMember(
+              url,
+              (target, timeout) => upstreamJson(context, target, timeout),
+              lookupMember,
+              provenId,
+              report,
+            )
+          : undefined;
+      const store = resolveLibraryAccess
+        ? privateRequestStore(requestStore, undefined, access?.visibleLibraryIds ?? [])
+        : hasPrivate
+          ? privateRequestStore(requestStore, memberId)
+          : allStore;
+      const ownLibraryIds = resolveLibraryAccess && access ? access.ownLibraryIds : hasExternal ? [] : undefined;
+      const personalOrder = access?.personalOrder;
+      if (protectedLibraries && discoveryRoute && (access || memberId !== undefined)) {
+        const privateLibraryCount = resolveLibraryAccess
+          ? store.list().length
+          : store.list().filter((library) => library.ownerMemberId != null).length;
         reportIdentity?.({
           client,
           route: discoveryRoute,
@@ -79,7 +121,10 @@ export function createVirtualProxyHandler(
           privateLibraryCount,
         });
       }
-      if (hasPrivate && forbiddenPrivateReference(url, requestStore, store)) {
+      if (
+        (external && (await external.forbidden(url))) ||
+        (protectedLibraries && forbiddenPrivateReference(url, requestStore, store, !!resolveLibraryAccess))
+      ) {
         sendJson(response, { status: 404, headers: {}, body: { error: "virtual_library_not_found" } });
         return;
       }
@@ -91,12 +136,12 @@ export function createVirtualProxyHandler(
           isRootLibraryDiscovery(url));
       const adminOrder = orderedDiscovery ? readAdminOrder?.(context.upstream) : undefined;
       const ownedOrder =
-        !adminOrder && user && orderedDiscovery && store.list().length
+        (!adminOrder || resolveLibraryAccess) && user && orderedDiscovery && store.list().length
           ? preferences?.read(context.upstream, decodeURIComponent(user))
           : undefined;
       const homeUser = /^\/Users\/([^/]+)\/(HomeSections|Sections\/[^/]+\/Items)\/?$/i.exec(url.pathname);
       let knownSections: unknown;
-      if (request.method === "GET" && homeUser && (adminOrder || store.list().length)) {
+      if (request.method === "GET" && homeUser && (adminOrder || store.list().length || hasExternal)) {
         const scope = createHash("sha256")
           .update(
             JSON.stringify([
@@ -113,9 +158,12 @@ export function createVirtualProxyHandler(
           const reply = await appendOwnedHomeSections({
             url,
             store,
-            upstream: (target, timeout) => upstreamJson(context, target, timeout),
-            reply: await upstreamJson(context, url),
+            upstream: queryUpstream,
+            reply: await queryUpstream(url),
             ownedOrder,
+            personalOrder,
+            ownLibraryIds,
+            adminOrder,
           });
           if (reply.status >= 200 && reply.status < 300) homeSections.write(scope, homeUser[1], reply.body);
           sendJson(response, reply);
@@ -142,21 +190,6 @@ export function createVirtualProxyHandler(
           context.signal,
         );
       }
-      if (image && (request.method === "GET" || request.method === "HEAD") && store.get(image[1]!)) {
-        const first = store.listItems(image[1]!).find((item) => item.imageTag);
-        if (first) {
-          const prefix = /^\/emby\//i.test(request.url ?? "") ? "/emby" : "";
-          forwardRequest(context, `${prefix}/Items/${encodeURIComponent(first.itemId)}/Images/Primary${url.search}`);
-        } else {
-          response.writeHead(200, { "content-type": "image/svg+xml", "cache-control": "no-cache" });
-          response.end(
-            request.method === "HEAD"
-              ? undefined
-              : '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="340" viewBox="0 0 600 340"><rect width="600" height="340" rx="20" fill="#14252f"/><path d="M210 100h75l22 26h83v115H210Z" fill="#67bf74"/><path d="m285 151 48 30-48 30Z" fill="#14252f"/></svg>',
-          );
-        }
-        return;
-      }
       if (
         await handleVirtualQuery({
           request,
@@ -166,10 +199,16 @@ export function createVirtualProxyHandler(
           homeSections: knownSections,
           ownedOrder,
           adminOrder,
-          upstream: (target, timeoutMs) => upstreamJson(context, target, timeoutMs),
+          personalOrder,
+          ownLibraryIds,
+          upstream: queryUpstream,
         })
       )
         return;
+      if (external && request.method === "GET" && external.handles(url)) {
+        sendJson(response, await external.query(url));
+        return;
+      }
       const deleted = request.method === "DELETE" ? /^\/Items\/([^/]+)\/?$/i.exec(url.pathname)?.[1] : undefined;
       preferences?.observe(request, response, url, context.upstream);
       forwardRequest(

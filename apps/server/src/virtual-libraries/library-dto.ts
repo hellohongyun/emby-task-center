@@ -1,9 +1,12 @@
 import type { Item, VirtualQueryStore } from "./query-helpers";
+import {
+  DEFAULT_LIBRARY_POSTER_TAG,
+  DEFAULT_LIBRARY_POSTER_ASPECT_RATIO,
+} from "@emby-task-center/contracts/library-poster";
 
 export function libraryDto(store: VirtualQueryStore, id: string, serverId?: unknown): Item {
   const library = store.get(id)!;
-  const cover = store.listItems(id).find((item) => item.imageTag);
-  const imageTag = library.posterImageTag ?? cover?.imageTag;
+  const imageTag = library.posterImageTag ?? DEFAULT_LIBRARY_POSTER_TAG;
   return {
     Id: library.id,
     Guid: library.id,
@@ -22,11 +25,11 @@ export function libraryDto(store: VirtualQueryStore, id: string, serverId?: unkn
     ChildCount: library.itemCount,
     DisplayPreferencesId: library.id,
     DateCreated: library.createdAt,
-    ImageTags: imageTag ? { Primary: imageTag, ...(library.posterImageTag ? { Thumb: imageTag } : {}) } : {},
-    HasPrimaryImage: Boolean(imageTag),
-    ...(imageTag ? { PrimaryImageTag: imageTag } : {}),
-    ...(library.posterImageTag ? { BackdropImageTags: [imageTag] } : {}),
-    PrimaryImageAspectRatio: library.posterAspectRatio ?? 16 / 9,
+    ImageTags: { Primary: imageTag, Thumb: imageTag },
+    HasPrimaryImage: true,
+    PrimaryImageTag: imageTag,
+    BackdropImageTags: [imageTag],
+    PrimaryImageAspectRatio: library.posterAspectRatio ?? DEFAULT_LIBRARY_POSTER_ASPECT_RATIO,
     // This logical folder has no independent playback history. Never copy a
     // source item's user state or another user's preferences onto the library.
     UserData: {

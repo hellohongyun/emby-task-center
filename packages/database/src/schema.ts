@@ -20,6 +20,10 @@ import { sql } from "drizzle-orm";
 import { check, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { virtualLibraries, virtualLibraryItems, virtualLibraryPosters } from "./virtual-libraries-schema";
 export { virtualLibraries, virtualLibraryItems, virtualLibraryPosters } from "./virtual-libraries-schema";
+import { virtualLibrarySubscriptions, virtualLibraryUserOrders } from "./virtual-library-market-schema";
+export { virtualLibrarySubscriptions, virtualLibraryUserOrders } from "./virtual-library-market-schema";
+import { upstreamVirtualLibraries, upstreamVirtualLibrarySubscriptions } from "./upstream-library-market-schema";
+export { upstreamVirtualLibraries, upstreamVirtualLibrarySubscriptions } from "./upstream-library-market-schema";
 
 const mediaTypes = ["movie", "tv"] as const;
 const rootMediaTypes = ["movie", "tv", "mixed"] as const;
@@ -968,6 +972,10 @@ export const schema = {
   share115Submissions,
   share115TransferJobs,
   virtualLibraryPosters,
+  virtualLibrarySubscriptions,
+  virtualLibraryUserOrders,
+  upstreamVirtualLibraries,
+  upstreamVirtualLibrarySubscriptions,
   virtualLibraries,
   virtualLibraryItems,
   cardKeys,

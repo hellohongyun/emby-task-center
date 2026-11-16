@@ -6,6 +6,7 @@ import { createDatabase, type DatabaseHandle } from "@emby-task-center/database/
 import { createVirtualLibraryStore } from "../virtual-libraries/store";
 import { registerVirtualLibraryRoutes } from "./virtual-libraries";
 import { pngPoster } from "../virtual-libraries/poster-fixtures";
+import { DEFAULT_LIBRARY_POSTER_TAG } from "@emby-task-center/contracts/library-poster";
 
 const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jGZkAAAAASUVORK5CYII=",
@@ -36,7 +37,12 @@ describe("custom virtual library poster API", () => {
 
   it("uploads and reads original bytes, conditionally caches and removes only the poster", async () => {
     const path = `${base}/${id}/poster`;
-    expect((await fetch(path)).status).toBe(404);
+    const initial = await fetch(path);
+    expect(initial.status).toBe(200);
+    expect(initial.headers.get("content-type")).toContain("image/png");
+    expect(initial.headers.get("etag")).toBe(`"${DEFAULT_LIBRARY_POSTER_TAG}"`);
+    const initialBytes = Buffer.from(await initial.arrayBuffer());
+    expect(initialBytes.subarray(1, 4).toString()).toBe("PNG");
     const response = await put(path);
     expect(response.status).toBe(200);
     const { library } = (await response.json()) as { library: { posterImageTag: string; posterAspectRatio: number } };
@@ -52,7 +58,10 @@ describe("custom virtual library poster API", () => {
     expect(await (await fetch(path, { method: "DELETE" })).json()).toMatchObject({
       library: { id, posterImageTag: null },
     });
-    expect((await fetch(path)).status).toBe(404);
+    const restored = await fetch(path, { headers: { "if-none-match": image.headers.get("etag")! } });
+    expect(restored.status).toBe(200);
+    expect(restored.headers.get("etag")).toBe(`"${DEFAULT_LIBRARY_POSTER_TAG}"`);
+    expect(Buffer.from(await restored.arrayBuffer())).toEqual(initialBytes);
     expect(createVirtualLibraryStore(handle.db).get(id)).toBeDefined();
   });
 

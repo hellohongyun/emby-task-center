@@ -6,6 +6,7 @@ import { memberAccessError } from "../subscriptions/member-access";
 import { createVirtualLibraryStore } from "../virtual-libraries/store";
 import { createVirtualLibrarySource } from "../virtual-libraries/source";
 import { registerVirtualLibraryRoutes } from "./virtual-libraries";
+import { prepareCreatedLibraryOrder } from "../virtual-libraries/library-create-order";
 
 export function registerPublicVirtualLibraryRoutes(
   app: Express,
@@ -34,6 +35,7 @@ export function registerPublicVirtualLibraryRoutes(
   registerVirtualLibraryRoutes(app, {
     database: options.database,
     base,
+    prepareCreate: (request) => prepareCreatedLibraryOrder(options.database, memberFor(request)!.embyUserId),
     storeForRequest: (request) =>
       createVirtualLibraryStore(options.database, { ownerMemberId: memberFor(request)!.id }),
     sourceForRequest: (request) => {

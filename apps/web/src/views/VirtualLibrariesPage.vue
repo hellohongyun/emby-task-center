@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useAppServices } from "../state/app-services";
 import { useVirtualLibraries, type LibraryDraft } from "../composables/useVirtualLibraries";
 import VirtualLibraryForm from "../components/virtual-libraries/VirtualLibraryForm.vue";
@@ -7,11 +7,14 @@ import VirtualLibraryItems from "../components/virtual-libraries/VirtualLibraryI
 import VirtualProxySettings from "../components/virtual-libraries/VirtualProxySettings.vue";
 import VirtualSourcePicker from "../components/virtual-libraries/VirtualSourcePicker.vue";
 import VirtualLibraryPoster from "../components/virtual-libraries/VirtualLibraryPoster.vue";
+import VirtualLibraryCover from "../components/virtual-libraries/VirtualLibraryCover.vue";
 import VirtualNameQueue from "../components/virtual-libraries/VirtualNameQueue.vue";
+import VirtualLibraryPublication from "../components/virtual-libraries/VirtualLibraryPublication.vue";
 import { useVirtualNameQueue } from "../composables/useVirtualNameQueue";
 import type { VirtualLibrary } from "@emby-task-center/contracts/virtual-library";
 
 const props = defineProps<{ personal?: boolean; requireAuth?: () => void }>();
+const emit = defineEmits<{ "dirty-change": [value: boolean] }>();
 const services = props.personal ? null : useAppServices();
 const requireAuth = props.requireAuth ?? services?.requireAuth ?? (() => undefined);
 const base = props.personal ? "/api/public/virtual-libraries" : "/api/virtual-libraries";
@@ -47,6 +50,9 @@ const editingId = ref<string>();
 const draft = ref<LibraryDraft>({ name: "", collectionType: "mixed", sortOrder: 0 });
 const deleteConfirm = ref(false);
 const notice = ref("");
+const publishedCount = computed(() => libraries.value.filter((library) => library.published).length);
+watch(formOpen, (value) => emit("dirty-change", value));
+onBeforeUnmount(() => emit("dirty-change", false));
 watch(selectedId, () => {
   deleteConfirm.value = false;
   formOpen.value = false;
@@ -87,6 +93,7 @@ async function addItems() {
   if (await queue.add()) notice.value = "已选内容已加入虚拟媒体库";
 }
 function updatePoster(library: VirtualLibrary) {
+  notice.value = "";
   libraries.value = libraries.value.map((current) => (current.id === library.id ? library : current));
 }
 </script>
@@ -95,13 +102,27 @@ function updatePoster(library: VirtualLibrary) {
   <div class="vl-page">
     <header class="vl-page-head">
       <div>
-        <h1>{{ personal ? "我的私人媒体库" : "虚拟媒体库" }}</h1>
-        <p v-if="personal">仅自己的账号可见。连接虚拟库反代后，私人库排在公共库之前；编辑排序数字可调整私人库顺序。</p>
+        <h1>我的虚拟媒体库</h1>
+        <p v-if="personal">自己的库始终可见；可上架市场供其他用户启用，在「我的媒体库顺序」自由调整位置。</p>
         <p v-if="personal">播放器需在本服务反代入口登录；已有登录态请退出后重新登录一次。</p>
-        <p v-else>将 Emby 已有影片或剧集映射到新媒体库，在客户端与原有媒体库一起展示。</p>
+        <p v-else>管理自己创建的库，上架后其他用户可自主启用，修改同步给所有启用者。</p>
       </div>
       <button class="vl-primary" type="button" :disabled="saving" @click="openForm()">＋ 新建虚拟媒体库</button>
     </header>
+    <div class="vm-summary vl-library-summary" aria-label="我的虚拟库状态">
+      <div class="vm-summary-item">
+        <strong>{{ loading ? "—" : libraries.length }}</strong
+        ><span>自己创建的库</span>
+      </div>
+      <div class="vm-summary-item">
+        <strong>{{ loading ? "—" : publishedCount }}</strong
+        ><span>已上架市场</span>
+      </div>
+      <div class="vm-summary-item">
+        <strong>{{ loading ? "—" : libraries.length - publishedCount }}</strong
+        ><span>仅自己可见</span>
+      </div>
+    </div>
     <p v-if="error" class="vl-error" role="alert">
       {{ error }}<button type="button" @click="error = ''">关闭提示</button>
     </p>
@@ -142,22 +163,42 @@ function updatePoster(library: VirtualLibrary) {
           :class="{ active: selectedId === library.id }"
           :disabled="saving"
           :aria-pressed="selectedId === library.id"
+          :aria-label="`${library.name} ${library.collectionType === 'movies' ? '电影' : library.collectionType === 'tvshows' ? '剧集' : '混合'} · ${library.itemCount} 项内容 ${library.published ? '已上架市场' : '仅自己可见'}`"
           @click="api.selectLibrary(library.id)"
         >
-          <strong>{{ library.name }}</strong
-          ><span
-            >{{
-              library.collectionType === "movies" ? "电影" : library.collectionType === "tvshows" ? "剧集" : "混合"
-            }}
-            · {{ library.itemCount }} 项内容</span
-          ><small>排序 {{ library.sortOrder }}</small>
+          <VirtualLibraryCover
+            class="vl-library-thumb"
+            :name="library.name"
+            :src="
+              library.posterImageTag
+                ? `${base}/${encodeURIComponent(library.id)}/poster?tag=${encodeURIComponent(library.posterImageTag)}`
+                : undefined
+            "
+          />
+          <div class="vl-library-card-text">
+            <strong>{{ library.name }}</strong
+            ><span
+              >{{
+                library.collectionType === "movies" ? "电影" : library.collectionType === "tvshows" ? "剧集" : "混合"
+              }}
+              · {{ library.itemCount }} 项内容</span
+            ><small class="vm-status" :class="library.published ? 'good' : 'muted'">{{
+              library.published ? "已上架市场" : "仅自己可见"
+            }}</small>
+          </div>
         </button>
       </aside>
       <div v-if="selectedLibrary" class="vl-main">
         <section class="vl-panel vl-section-head">
           <div>
             <h2>{{ selectedLibrary.name }}</h2>
-            <p class="vl-muted">保留原影片资料、播放进度与客户端原有功能。</p>
+            <p class="vl-muted">
+              {{
+                selectedLibrary.published
+                  ? "市场正在展示这个库，修改会同步给所有启用者。"
+                  : "这个库目前仅自己可见，可以在下方上架到市场。"
+              }}
+            </p>
           </div>
           <div class="vl-actions">
             <button type="button" :disabled="saving" @click="openForm(true)">编辑媒体库</button
@@ -173,6 +214,13 @@ function updatePoster(library: VirtualLibrary) {
             ><button type="button" :disabled="saving" @click="deleteConfirm = false">取消</button>
           </div>
         </section>
+        <VirtualLibraryPublication
+          :key="`publication-${selectedLibrary.id}`"
+          :library="selectedLibrary"
+          :personal="personal"
+          :require-auth="requireAuth"
+          @saved="updatePoster"
+        />
         <VirtualLibraryPoster
           :key="selectedLibrary.id"
           :library="selectedLibrary"

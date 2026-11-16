@@ -2,6 +2,27 @@
 
 ## 单元与组件回归
 
+市场与个人排序使用临时 SQLite 和本地 HTTP 上游验证：`market-service.test.ts`、`virtual-library-market.test.ts`、`market-proxy-http.test.ts`、`personal-library-order.test.ts`、`personal-library-order-legacy.test.ts`、`market-registration.test.ts` 及数据库 `virtual-library-market-reconcile.test.ts`。覆盖同源更新、作者独占编辑、管理员只读查看、订阅启停、下架及重上架撤权、账号状态、新注册默认幂等、跨类型排序及旧个人 Guid／Id 锚点迁移。管理员与会员使用同一个 Emby 账号时，开关共用订阅，作者写权限仍分开。旧全量同步模块的独立兼容测试使用专用测试应用，生产应用不再注册该接口。
+
+构建后可运行真实浏览器回归：
+
+```powershell
+pnpm build
+pnpm exec playwright test --config playwright.real.config.ts tests/e2e/market-libraries.spec.ts tests/e2e/private-libraries.spec.ts tests/e2e/virtual-libraries.spec.ts
+```
+
+市场用例使用实际页面和 API 完成创建、上架、启停、排序、管理员查看与默认设置，检查重启持久化、下架后直接库 ID 拒绝及重新上架不自动恢复，并验证 320／390／1440 像素无横向溢出。它不使用生产数据库，不访问外网、不投递真实邮件，也不代表各款播放器已通过实机验收。
+
+TgtoDrive 市场接入由 `upstream-market-service.test.ts`、`external-library-proxy.test.ts` 和 `VirtualUpstreamMarket.test.ts` 验证。真实浏览器回归运行 `pnpm exec playwright test --config playwright.real.config.ts tests/e2e/upstream-market.spec.ts`，使用两个本地 HTTP 来源模拟同一 Emby 的直连及 TgtoDrive 注入，检查原生库排除、批量接入、按账号初始化、启停及撤权、原始 DTO 保留、默认名单、排序和重启。目录和用户范围读取均为夹具 GET，不登录真实 TgtoDrive、不发送邮件或修改上游数据。
+
+该流程还检查 Emby 与反代配置为同一个 TgtoDrive 入口时的目录识别，以及上游只向 Views 注入虚拟库时根目录发现的补齐；补齐使用播放器原凭据，关闭或未授权的库不参与。
+
+市场 UI 状态回归由 `VirtualMarketUX.test.ts` 和 `VirtualLibraryWorkflowUX.test.ts` 覆盖搜索／筛选、启用徽标与独立忙态、请求失败保持原状态、排序及默认设置保存失败保留草稿、切换标签的未保存提示，以及管理员播放器账号独立保存。`virtual-library-market-defaults.test.ts` 使用真实 HTTP 验证 PATCH 仅更新提交字段，绑定与默认名单互不覆盖，空请求、未知字段及会员越权被拒绝。市场浏览器用例另验证未保存排序切换前必须处理草稿。
+
+媒体库封面采用上传图片优先、未上传时使用内置海报的规则。封面组件回归覆盖缺图、加载失败回退及更换图片后恢复加载；海报接口和代理回归检查默认 PNG、上传／移除、缓存 tag 切换，以及默认封面仍受身份和订阅范围限制。排序接口另检查自己的库、订阅库、其他用户私人库、关闭订阅及作者下架后的封面权限。
+
+用户库只读查看由 `VirtualUserLibraries.test.ts` 验证首库自动选择、切库不残留旧内容、请求失败重试和影片筛选／缺图。`virtual-user-library-images.test.ts` 使用临时数据库与本地图片源验证管理员和关联范围校验、非数字 ID、缺图片 tag、无副作用读取及移除关联后拒绝访问；市场浏览器回归另检查真实图片请求加载成功。此处不修复作者关联，不使用公开海报端点放宽访问范围。
+
 开发调试保护通过 `email-delivery-policy.test.ts`、`renewal-smtp.integration.test.ts`、`local-launcher.test.ts`、`development-mode.test.ts` 和自动操作专项测试验证：禁发时不创建 SMTP 连接、保留待发记录；本地启动不能通过环境中的 false 绕过禁发；模式切换立即生效且不改变原业务配置。SMTP 验证仅连接本地夹具，不向真实用户投递。`DevelopmentModePanel.test.ts` 覆盖独立保存和错误回退；浏览器回归命令为 `pnpm exec playwright test --config playwright.real.config.ts tests/e2e/development-mode.spec.ts`（先 `pnpm build`）。
 
 `query-descendant-types.test.ts` 验证 SenPlayer 类型组合的子项读取范围、合法视频子项、分集、未限定类型展开及原剧归组海报，使用隔离上游夹具，不代替播放器实测。

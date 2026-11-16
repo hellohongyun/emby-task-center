@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { submissionUsers } from "@emby-task-center/database/schema";
 import { createServer, type Server } from "node:http";
 import type { Socket } from "node:net";
 import type { AppDatabase } from "@emby-task-center/database/client";
@@ -7,12 +6,13 @@ import { createEmbyLibraryOrderStore, expandLibraryOrder } from "../integrations
 import { readSettings } from "../settings/store";
 import { createVirtualLibraryStore } from "./store";
 import { createVirtualProxyHandler } from "./proxy-handler";
+import { createVirtualLibraryMarketService } from "./market-service";
+import { createUpstreamLibraryMarketService } from "./upstream-market-service";
+import { createPersonalLibraryOrderService } from "./personal-library-order";
 import { createOwnedViewPreferences } from "./owned-view-preferences";
 import { forwardUpgrade } from "./proxy-transport";
-import { privateIdentity } from "./private-access";
 import { createPrivateTokenIdentity } from "./private-token-identity";
 import { createPrivateIdentityStore } from "./private-identity-store";
-import { memberAccessError } from "../subscriptions/member-access";
 import { createPrivateDiagnosticReporter, type PrivateDiagnosticReporter } from "./private-diagnostics";
 import {
   readVirtualProxyConfig,
@@ -36,6 +36,9 @@ export function createVirtualLibraryProxy(options: {
   const store = createVirtualLibraryStore(options.database, { all: true });
   const libraryOrders = createEmbyLibraryOrderStore(options.database);
   const preferences = createOwnedViewPreferences(options.database, store);
+  const market = createVirtualLibraryMarketService(options.database);
+  const external = createUpstreamLibraryMarketService(options.database);
+  const personalOrders = createPersonalLibraryOrderService(options.database);
   const readAdminOrder = (upstream: string) => {
     const embyUrl = readSettings(options.database).values["emby.baseUrl"];
     const active = libraryOrders.readActive(embyUrl || upstream, upstream);
@@ -89,20 +92,28 @@ export function createVirtualLibraryProxy(options: {
             marker,
             preferences,
             readAdminOrder,
-            (embyId) => {
-              const members = options.database
-                .select()
-                .from(submissionUsers)
-                .all()
-                .filter(
-                  (member) => member.embyUserId && privateIdentity(member.embyUserId) === privateIdentity(embyId),
-                );
-              if (members.length !== 1) return undefined;
-              const member = members[0];
-              return memberAccessError(options.database, member.email, true) ? undefined : member.id;
-            },
+            undefined,
             identities,
             reportIdentity,
+            (embyId) => {
+              const access = market.resolveAccess(embyId);
+              return access
+                ? {
+                    ...access,
+                    personalOrder: personalOrders.read(virtualProxyUpstream(options.database, instance.config), embyId),
+                  }
+                : undefined;
+            },
+            (embyId) => {
+              const subscriberId = embyId ? market.resolveAccess(embyId)?.subscriberId : undefined;
+              return {
+                libraries: external.rows().map((library) => ({
+                  id: library.sourceId,
+                  aliases: [library.sourceId, ...(library.sourceGuid ? [library.sourceGuid] : [])],
+                  enabled: !!subscriberId && external.isEnabled(subscriberId, library.id),
+                })),
+              };
+            },
           ),
         );
         instance.server.on("connection", (socket) => {

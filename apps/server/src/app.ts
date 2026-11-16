@@ -11,7 +11,6 @@ import type { EmailNotifier } from "./notifications/email-service";
 import { registerAuthRoutes, type AuthLimitOptions } from "./routes/auth";
 import { registerIntegrationRoutes, type IntegrationStatusFlag } from "./routes/integrations";
 import { registerEmbyUserRoutes } from "./routes/emby-users";
-import { registerEmbyLibraryOrderRoutes } from "./routes/emby-library-order";
 import { registerCardRoutes } from "./routes/cards";
 import { registerLibraryRoutes } from "./routes/library";
 import { registerLogRoutes } from "./routes/logs";
@@ -50,6 +49,10 @@ import { registerTgtoResourcesRoutes } from "./routes/tgto-resources";
 import type { TgtoDriveClient } from "./integrations/tgtodrive-client";
 import { registerPansouAdminRoutes } from "./routes/pansou-admin";
 import { registerPublicVirtualLibraryRoutes } from "./routes/public-virtual-libraries";
+import { registerVirtualLibraryMarketRoutes } from "./routes/virtual-library-market";
+import { registerPersonalLibraryOrderRoutes } from "./routes/personal-library-order";
+import { prepareCreatedLibraryOrder } from "./virtual-libraries/library-create-order";
+import { createVirtualLibraryMarketService } from "./virtual-libraries/market-service";
 import { registerVirtualLibraryRoutes } from "./routes/virtual-libraries";
 import { registerVirtualLibraryProxyRoutes } from "./routes/virtual-library-proxy";
 import type { VirtualLibraryProxy } from "./virtual-libraries/proxy";
@@ -185,11 +188,22 @@ export function createApp(options: AppOptions) {
     logger: options.logger,
   });
   registerPublicVirtualLibraryRoutes(app, { database: options.database, publicSession });
+  registerVirtualLibraryMarketRoutes(app, { database: options.database, publicSession });
+  registerPersonalLibraryOrderRoutes(app, { database: options.database, publicSession });
   app.use("/api", sessions.requireSession);
   registerAdminMediaRequestRoutes(app, { database: options.database });
   registerAdminShare115Routes(app, share115Routes);
   registerVirtualLibraryProxyRoutes(app, options.database, options.virtualLibraryProxy);
-  registerVirtualLibraryRoutes(app, { database: options.database });
+  registerVirtualLibraryRoutes(app, {
+    database: options.database,
+    prepareCreate: () =>
+      prepareCreatedLibraryOrder(
+        options.database,
+        createVirtualLibraryMarketService(options.database).readDefaults().adminEmbyUserId,
+      ),
+  });
+  registerVirtualLibraryMarketRoutes(app, { database: options.database });
+  registerPersonalLibraryOrderRoutes(app, { database: options.database });
   registerLogRoutes(app, options.database, options.logger);
   registerDashboardRoutes(app, options.database);
   registerCardRoutes(app, options.database);
@@ -242,7 +256,6 @@ export function createApp(options: AppOptions) {
     services: options.integrationServices,
   });
   registerEmbyUserRoutes(app, options.integrationServices?.emby, options.database);
-  registerEmbyLibraryOrderRoutes(app, options.integrationServices?.emby, options.database, options.virtualLibraryProxy);
   registerMemberCleanupRoutes(app, options.database, options.integrationServices?.emby);
   // 会员使用记录（登录/播放/时段）：数据由后台采样器与 Emby 活动日志回填写入，这里只读 + 手动刷新。
   registerMemberUsageRoutes(app, {

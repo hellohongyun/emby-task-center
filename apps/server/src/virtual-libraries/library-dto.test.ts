@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { libraryDto } from "./library-dto";
 import type { VirtualQueryStore } from "./query-helpers";
+import { DEFAULT_LIBRARY_POSTER_TAG } from "@emby-task-center/contracts/library-poster";
 
 const library = {
   id: "0123456789abcdef0123456789abcdef",
@@ -52,21 +53,21 @@ describe("owned CollectionFolder client metadata", () => {
     expect(dto).not.toHaveProperty("CanDownload");
   });
 
-  it("advertises the mapped library cover consistently for clients", () => {
+  it("advertises built-in artwork instead of a mapped film's image", () => {
     const dto = libraryDto(store("poster-tag"), library.id);
     expect(dto).toMatchObject({
-      ImageTags: { Primary: "poster-tag" },
-      PrimaryImageTag: "poster-tag",
+      ImageTags: { Primary: DEFAULT_LIBRARY_POSTER_TAG, Thumb: DEFAULT_LIBRARY_POSTER_TAG },
+      PrimaryImageTag: DEFAULT_LIBRARY_POSTER_TAG,
       HasPrimaryImage: true,
       PrimaryImageAspectRatio: 16 / 9,
     });
   });
 
-  it("does not invent an image tag when the library has no cover", () => {
+  it("advertises the same built-in artwork for an empty library", () => {
     const dto = libraryDto(store(null), library.id);
-    expect(dto.ImageTags).toEqual({});
-    expect(dto.HasPrimaryImage).toBe(false);
-    expect(dto).not.toHaveProperty("PrimaryImageTag");
+    expect(dto.ImageTags).toEqual({ Primary: DEFAULT_LIBRARY_POSTER_TAG, Thumb: DEFAULT_LIBRARY_POSTER_TAG });
+    expect(dto.HasPrimaryImage).toBe(true);
+    expect(dto.PrimaryImageTag).toBe(DEFAULT_LIBRARY_POSTER_TAG);
     expect(dto).not.toHaveProperty("ServerId");
   });
 });

@@ -6,6 +6,7 @@ import { createEmbyLibraryOrderStore } from "../integrations/emby-library-order-
 import { writeSettings } from "../settings/store";
 import { createVirtualLibraryProxy, type VirtualLibraryProxy } from "./proxy";
 import { createVirtualLibraryStore } from "./store";
+import { seedMarketViewer } from "./market-test-support";
 
 const ttd = { Id: "11111111-1111-5111-8111-111111111111", Guid: "11111111111151118111111111111111", Name: "TTD" };
 const native = { Id: "123", Guid: "22222222222252228222222222222222", Name: "Native" };
@@ -68,6 +69,7 @@ describe("owned order across an upstream TTD library", () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const upstream = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     writeSettings(database.db, { "emby.baseUrl": upstream });
+    for (const user of ["alice", "bob"]) seedMarketViewer(database.db, upstream, user, `${user}-token`, [owned]);
     const reservation = createServer();
     await new Promise<void>((resolve) => reservation.listen(0, "127.0.0.1", resolve));
     const port = (reservation.address() as AddressInfo).port;
@@ -107,7 +109,9 @@ describe("owned order across an upstream TTD library", () => {
       },
     );
     const body = await response.json();
-    expect(body.Items.filter((item: { Id: string }) => item.Id !== owned)).toEqual([ttd, native]);
+    const upstreamItems = body.Items.filter((item: { Id: string }) => item.Id !== owned);
+    expect(upstreamItems).toHaveLength(2);
+    expect(upstreamItems).toEqual(expect.arrayContaining([ttd, native]));
     expect(body.Upstream).toBe("unchanged");
     return body.Items.map((item: { Id: string }) => item.Id);
   }
