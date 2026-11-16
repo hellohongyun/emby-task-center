@@ -4,6 +4,8 @@
 
 市场与个人排序使用临时 SQLite 和本地 HTTP 上游验证：`market-service.test.ts`、`virtual-library-market.test.ts`、`market-proxy-http.test.ts`、`personal-library-order.test.ts`、`personal-library-order-legacy.test.ts`、`market-registration.test.ts` 及数据库 `virtual-library-market-reconcile.test.ts`。覆盖同源更新、作者独占编辑、管理员只读查看、订阅启停、下架及重上架撤权、账号状态、新注册默认幂等、跨类型排序及旧个人 Guid／Id 锚点迁移。管理员与会员使用同一个 Emby 账号时，开关共用订阅，作者写权限仍分开。旧全量同步模块的独立兼容测试使用专用测试应用，生产应用不再注册该接口。
 
+`admin-market-proxy-http.test.ts` 单独验证没有会员记录、仅显式绑定 Emby 账号的管理员：通过反代登录后，Views、MediaFolders 和根目录可显示自有库及已启用的系统库；未记录的旧令牌不取得市场范围，重新登录后恢复。测试还检查普通会员隔离和管理员冒用其他用户 ID 的拒绝，使用本地 HTTP 夹具，不连接真实播放器或服务器。
+
 构建后可运行真实浏览器回归：
 
 ```powershell
@@ -16,6 +18,10 @@ pnpm exec playwright test --config playwright.real.config.ts tests/e2e/market-li
 TgtoDrive 市场接入由 `upstream-market-service.test.ts`、`external-library-proxy.test.ts` 和 `VirtualUpstreamMarket.test.ts` 验证。真实浏览器回归运行 `pnpm exec playwright test --config playwright.real.config.ts tests/e2e/upstream-market.spec.ts`，使用两个本地 HTTP 来源模拟同一 Emby 的直连及 TgtoDrive 注入，检查原生库排除、批量接入、按账号初始化、启停及撤权、原始 DTO 保留、默认名单、排序和重启。目录和用户范围读取均为夹具 GET，不登录真实 TgtoDrive、不发送邮件或修改上游数据。
 
 该流程还检查 Emby 与反代配置为同一个 TgtoDrive 入口时的目录识别，以及上游只向 Views 注入虚拟库时根目录发现的补齐；补齐使用播放器原凭据，关闭或未授权的库不参与。
+
+`market-discovery-pagination.test.ts` 使用 25 个实体库、8 个自有库和 15 个外部库的夹具，验证只订阅 2 个外部库时的完整列表与分页。来源忽略 Limit 并返回完整目录时保留此行为，避免排序末尾的订阅库被再次截断；来源实际分页时仍按页返回并保留正确总数。同时检查 TgtoDrive 自定义首页分区只保留已启用库及其原始 DTO。
+
+`market-discovery-http.test.ts` 通过实际 HTTP 代理登录验证相同的 35 库场景，覆盖 Views、MediaFolders、根 Items 和动态首页媒体库分区。另检查启用库的首页分区与影片原样返回、关闭后立即撤权，以及上游空库仍返回空列表；全程使用本地夹具和播放器原凭据，不使用管理 API Key 扩大播放范围。
 
 市场 UI 状态回归由 `VirtualMarketUX.test.ts` 和 `VirtualLibraryWorkflowUX.test.ts` 覆盖搜索／筛选、启用徽标与独立忙态、请求失败保持原状态、排序及默认设置保存失败保留草稿、切换标签的未保存提示，以及管理员播放器账号独立保存。`virtual-library-market-defaults.test.ts` 使用真实 HTTP 验证 PATCH 仅更新提交字段，绑定与默认名单互不覆盖，空请求、未知字段及会员越权被拒绝。市场浏览器用例另验证未保存排序切换前必须处理草稿。
 

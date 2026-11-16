@@ -163,7 +163,10 @@ export async function overlayLibraries(context: OverlayContext): Promise<Upstrea
       keys,
     );
     const ordered = legacy ?? [...leading, ...applyAdminLibraryOrder(rest, personalOrder ?? [], keys)];
-    const items = ordered.slice(start, start + limit);
+    const items =
+      (reply.unpagedLibraryList ?? (start === 0 && original.length > limit && original.length >= source.length))
+        ? ordered
+        : ordered.slice(start, start + limit);
     return {
       ...reply,
       raw: undefined,

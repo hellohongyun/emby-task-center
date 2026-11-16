@@ -8,6 +8,8 @@ export interface UpstreamJson {
   headers: IncomingHttpHeaders;
   body: unknown;
   raw?: Buffer;
+  /** Internal browsing hint: the source returned a complete list despite a smaller Limit. */
+  unpagedLibraryList?: boolean;
 }
 export type QueryUpstream = (url: URL, timeoutMs?: number) => Promise<UpstreamJson>;
 export type Item = Record<string, unknown> & { Id?: string };

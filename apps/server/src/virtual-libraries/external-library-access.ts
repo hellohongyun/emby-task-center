@@ -57,6 +57,14 @@ export function externalLibraryAccess(access: ExternalLibraryAccess, raw: QueryU
   function items(reply: UpstreamJson): unknown[] | undefined {
     return Array.isArray(reply.body) ? reply.body : (reply.body as { Items?: unknown[] } | null)?.Items;
   }
+  function unpaged(url: URL, original: UpstreamJson, complete: UpstreamJson) {
+    const count = items(original)?.length ?? 0;
+    return (
+      integerParameter(url, "StartIndex", 0) === 0 &&
+      count > integerParameter(url, "Limit", Number.MAX_SAFE_INTEGER) &&
+      count === items(complete)?.length
+    );
+  }
   async function complete(url: URL, initial: UpstreamJson) {
     const original = items(initial);
     if (!Array.isArray(original)) return initial;
@@ -114,6 +122,9 @@ export function externalLibraryAccess(access: ExternalLibraryAccess, raw: QueryU
     for (const [name, value] of url.searchParams)
       if (/^(fields|includehidden|enableimages|enableuserdata|imagetypelimit|enableimagetypes)$/i.test(name))
         target.searchParams.set(name, value);
+    // Retain the client's page size so the fallback also detects an upstream
+    // that serves its entire Views catalog instead of a requested first page.
+    setParameter(target, "Limit", parameter(url, "Limit"));
     try {
       const source = await raw(target);
       if (source.status < 200 || source.status >= 300 || !Array.isArray(items(source))) return reply;
@@ -131,6 +142,9 @@ export function externalLibraryAccess(access: ExternalLibraryAccess, raw: QueryU
       return {
         ...reply,
         raw: undefined,
+        unpagedLibraryList:
+          reply.unpagedLibraryList ||
+          (integerParameter(url, "StartIndex", 0) === 0 && unpaged(target, source, completeSource)),
         body: Array.isArray(reply.body)
           ? combined
           : {
@@ -156,7 +170,11 @@ export function externalLibraryAccess(access: ExternalLibraryAccess, raw: QueryU
       /^\/(?:Users\/[^/]+\/Views|Library\/MediaFolders)\/?$/i.test(url.pathname) ||
       (isRootLibraryDiscovery(url) && original.every((item) => (item as Item)?.Type === "CollectionFolder")) ||
       (await section(url))?.SectionType === "userviews";
-    if (libraryList) reply = await appendMissing(url, await complete(url, reply));
+    if (libraryList) {
+      const whole = await complete(url, reply);
+      whole.unpagedLibraryList = unpaged(url, reply, whole);
+      reply = await appendMissing(url, whole);
+    }
     const values = items(reply)!;
     const filtered = values.filter((item) => !hidden(item));
     if (!libraryList && filtered.length === values.length) return reply;
