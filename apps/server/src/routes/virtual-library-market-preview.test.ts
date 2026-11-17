@@ -25,7 +25,8 @@ describe("market preview read-only HTTP boundaries", () => {
   let cookie: string;
   let calls: string[], visible: boolean;
   let onImage: (() => void) | undefined;
-  let catalogDelay: boolean;
+  let catalogBarrier: Promise<void> | undefined;
+  let onPreviewRequest: (() => void) | undefined;
   const servers: Server[] = [];
   async function listen(server: Server) {
     servers.push(server);
@@ -38,7 +39,8 @@ describe("market preview read-only HTTP boundaries", () => {
   beforeEach(async () => {
     db = createDatabase(":memory:");
     onImage = undefined;
-    catalogDelay = false;
+    catalogBarrier = undefined;
+    onPreviewRequest = undefined;
     calls = [];
     visible = true;
     upstream = await listen(
@@ -50,7 +52,7 @@ describe("market preview read-only HTTP boundaries", () => {
           return void res.writeHead(200, { "content-type": "image/png" }).end(png);
         }
         res.setHeader("Content-Type", "application/json");
-        if (catalogDelay) await new Promise((resolve) => setTimeout(resolve, 30));
+        await catalogBarrier;
         if (url.pathname.endsWith("/Views"))
           return void res.end(JSON.stringify({ Items: visible ? [{ Id: "ttd-root" }] : [] }));
         if (url.pathname.endsWith("/Items")) {
@@ -113,6 +115,11 @@ describe("market preview read-only HTTP boundaries", () => {
     const session = createPublicSessionManager("fixture-preview", (email) => getSubmissionUserByEmail(db.db, email));
     cookie = session.issueCookie("viewer@example.test").split(";")[0];
     const app = express();
+    app.use((_req, _res, next) => {
+      next();
+      // The route has synchronously reached its first catalog await before next() returns.
+      onPreviewRequest?.();
+    });
     registerVirtualLibraryMarketRoutes(app, { database: db.db, publicSession: session });
     app.use("/api/virtual-library-market", (req, res, next) =>
       req.headers["x-admin"] === "yes" ? next() : void res.status(401).end(),
@@ -213,9 +220,17 @@ describe("market preview read-only HTTP boundaries", () => {
     expect(calls).toEqual(["/emby/Items/first/Images/Primary"]);
   });
   it("coalesces concurrent viewer catalog reads but reauthorizes every later batch", async () => {
-    catalogDelay = true;
+    let releaseCatalog!: () => void;
+    catalogBarrier = new Promise<void>((resolve) => {
+      releaseCatalog = resolve;
+    });
+    let entered = 0;
+    onPreviewRequest = () => {
+      if (++entered === 8) releaseCatalog();
+    };
     const path = `${base}${pub}/ttd-market/items/ttd-film/poster`;
     const responses = await Promise.all(Array.from({ length: 8 }, () => fetch(path, request())));
+    onPreviewRequest = undefined;
     expect(responses.every((response) => response.status === 200)).toBe(true);
     expect(calls.filter((url) => url.includes("/Views"))).toHaveLength(1);
     expect(calls.filter((url) => url.includes("/Users/viewer/Items?"))).toHaveLength(1);
