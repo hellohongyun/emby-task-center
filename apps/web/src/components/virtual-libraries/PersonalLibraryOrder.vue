@@ -98,7 +98,7 @@ onMounted(load);
           {{
             defaults
               ? "设置新用户及恢复默认时使用的模板，不覆盖用户已保存的个人顺序。"
-              : "这里的编号就是播放器的显示顺序。拖动或使用上下移动按钮，私人库也可以自由移动。"
+              : "这里的编号就是播放器的显示顺序。可拖动、上下移动或一键置顶置底，调整后统一保存。"
           }}
         </p>
       </div>
@@ -142,7 +142,15 @@ onMounted(load);
           ><span class="vm-status muted">{{ label(item.kind) }}</span>
           <span v-if="item.source === 'tgtodrive'" class="vm-status muted">系统自带</span>
         </div>
-        <div class="vm-actions">
+        <div class="vm-actions vm-order-actions">
+          <button
+            type="button"
+            :disabled="index === 0 || busy || loading"
+            :aria-label="`置顶 ${item.name}`"
+            @click="move(item.id, 0)"
+          >
+            置顶
+          </button>
           <button
             type="button"
             :disabled="index === 0 || busy || loading"
@@ -157,6 +165,14 @@ onMounted(load);
             @click="move(item.id, index + 1)"
           >
             下移
+          </button>
+          <button
+            type="button"
+            :disabled="index === rows.length - 1 || busy || loading"
+            :aria-label="`置底 ${item.name}`"
+            @click="move(item.id, rows.length - 1)"
+          >
+            置底
           </button>
         </div>
       </li>
@@ -199,9 +215,15 @@ onMounted(load);
   .vm-order-poster {
     width: 76px;
   }
-  .vm-order .vm-actions {
+  .vm-order .vm-order-actions {
     grid-column: 2 / -1;
-    justify-content: flex-end;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .vm-order-actions button {
+    min-width: 0;
+    min-height: 44px;
   }
 }
 </style>

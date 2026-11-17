@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import CopyTextButton from "./CopyTextButton.vue";
 
-defineProps<{ groupNumber: string; disabled?: boolean }>();
+defineProps<{ groupNumber: string; notice: string | null; disabled?: boolean }>();
 const inviteCode = defineModel<string>({ required: true });
 </script>
 
@@ -14,12 +14,10 @@ const inviteCode = defineModel<string>({ required: true });
       type="text"
       maxlength="120"
       autocomplete="off"
-      aria-describedby="registration-group-help"
+      :aria-describedby="notice ? 'registration-group-help' : undefined"
       :disabled="disabled"
     />
-    <p id="registration-group-help">
-      请在 QQ 搜索群号 <strong>{{ groupNumber }}</strong> 并申请入群，打开「群公告」查看「会员注册邀请码」。
-    </p>
+    <p v-if="notice" id="registration-group-help">{{ notice }}</p>
     <CopyTextButton :text="groupNumber" label="复制群号" />
   </div>
 </template>
@@ -40,6 +38,8 @@ const inviteCode = defineModel<string>({ required: true });
 }
 .registration-invite p {
   margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-size: 0.82rem;
   line-height: 1.55;
 }

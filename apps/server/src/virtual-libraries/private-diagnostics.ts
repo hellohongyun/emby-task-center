@@ -9,6 +9,7 @@ export interface PrivateDiagnostic {
   encoding?: string;
   bytes?: number;
   privateLibraryCount?: number;
+  accountType?: "administrator" | "member" | "mixed" | "unresolved";
 }
 export type PrivateDiagnosticReporter = (entry: PrivateDiagnostic) => void;
 
@@ -44,7 +45,7 @@ export function createPrivateDiagnosticReporter(report?: PrivateDiagnosticReport
   return (entry: PrivateDiagnostic) => {
     if (!report) return;
     if (entry.route !== "login") {
-      const key = JSON.stringify([entry.client, entry.route, entry.reason, entry.status]);
+      const key = JSON.stringify([entry.client, entry.route, entry.reason, entry.status, entry.accountType]);
       const now = Date.now();
       if (last.has(key) && now - last.get(key)! < 60_000) return;
       if (last.size >= 512) last.delete(last.keys().next().value!);
@@ -74,10 +75,12 @@ const reasons: Record<string, string> = {
   validation_failed: "上游未通过登录凭据复核",
   invalid_identity_response: "上游账号复核响应无法识别",
   user_claim_mismatch: "请求账号与登录账号不一致",
-  member_unavailable: "登录账号未唯一绑定可用会员",
+  member_unavailable: "登录账号未匹配管理员绑定或可用会员",
   validation_unavailable: "上游账号复核失败或超时",
-  private_scope_ready: "登录身份已确认，私人库范围已就绪",
-  no_personal_library: "登录账号没有对应的私人库",
+  private_scope_ready: "登录身份已确认，已计算本地虚拟库可见范围",
+  no_personal_library: "登录账号没有当前可见的本地虚拟库（不含外部订阅库）",
+  discovery_result: "媒体库发现响应已核对（详情含实际返回数量）",
+  discovery_passthrough: "发现请求按上游原响应透传（未核对条目数量）",
 };
 export function privateDiagnosticMessage(entry: PrivateDiagnostic) {
   return `私人库诊断［${entry.client}］：${reasons[entry.reason] ?? "登录身份未能确认"}`;

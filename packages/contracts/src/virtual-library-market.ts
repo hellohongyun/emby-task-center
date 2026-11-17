@@ -1,4 +1,4 @@
-import type { VirtualLibrary } from "./virtual-library";
+import type { VirtualLibrary, VirtualLibraryItem } from "./virtual-library";
 
 /** The application currently has one administrator principal, independent of its login name. */
 export const VIRTUAL_LIBRARY_ADMIN_OWNER = "primary-admin";
@@ -6,6 +6,7 @@ export interface MarketLibrary extends VirtualLibrary {
   source?: "local" | "tgtodrive";
   playbackId?: string;
   authorName: string;
+  authorAvatarUrl?: string | null;
   owned: boolean;
   enabled: boolean;
   canSubscribe?: boolean;
@@ -13,6 +14,14 @@ export interface MarketLibrary extends VirtualLibrary {
 export interface MarketUserLibrary extends VirtualLibrary {
   ownerEmail: string | null;
   authorName: string;
+  authorAvatarUrl?: string | null;
+}
+export interface MarketLibraryDetails {
+  library: MarketLibrary;
+  items: VirtualLibraryItem[];
+  total: number;
+  startIndex: number;
+  limit: number;
 }
 export interface MarketDefaults {
   libraryIds: string[];

@@ -101,7 +101,12 @@ async function stubPortalApis(page: Page, options: StubOptions) {
         needsCard: !registered,
         expired: false,
         ...(!registered && { qqNumber: registrationQq }),
-        ...(options.requireGroupInvite && { groupInvite: { groupNumber: registrationGroup } }),
+        ...(options.requireGroupInvite && {
+          groupInvite: {
+            groupNumber: registrationGroup,
+            notice: `请在 QQ 搜索群号 ${registrationGroup} 并申请入群，打开「群公告」查看「会员注册邀请码」。`,
+          },
+        }),
       },
     });
   });
@@ -310,6 +315,52 @@ test("没配彩蛋文案的卡：验证通过也不弹窗，不留空壳弹层",
   await page.getByRole("button", { name: "验证卡密" }).click();
   await expect(page.locator("form .notice.ok")).toContainText("卡密有效：月卡");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(errors, "uncaught page errors: " + errors.join("\n")).toEqual([]);
+});
+
+test("「我的 → 平台须知」展开超长不可断内容时，手机端不会被撑出屏幕", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(String(err)));
+  await stubPortalApis(page, { registered: true });
+
+  // 后台正文常会粘进没有空格的长链接／令牌：这类内容不能按最长单词把整页顶宽。
+  const longUrl = `https://example.com/${"a".repeat(180)}?token=${"b".repeat(80)}`;
+  // 只返回普通说明、不返回 announcement，避免种子公告弹窗遮挡导航（与 stubPortalApis 的口径一致）。
+  await page.route("**/api/public/articles", (route) =>
+    route.fulfill({
+      json: {
+        articles: [
+          { code: "rules", title: "平台使用规范", content: `服务器地址：${longUrl}\n其余说明不变。` },
+          { code: "disclaimer", title: "免责声明", content: "1. 本站为个人技术交流与学习用途。" },
+        ],
+      },
+    }),
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await page.goto("/");
+  await page.getByPlaceholder("you@example.com").fill("member@example.com");
+  await page.getByRole("button", { name: "下一步" }).click();
+  await page.getByRole("button", { name: "发送验证码" }).click();
+  await page.getByPlaceholder("6 位验证码").fill("123456");
+  await page.getByRole("button", { name: "登录" }).click();
+  await expect(page.getByRole("heading", { name: "开心果影院" })).toBeVisible();
+
+  await page.getByRole("button", { name: "我的" }).first().click();
+  const notice = page.locator(".article").first();
+  await expect(notice).toBeVisible();
+  await notice.locator("summary").click();
+  const content = page.locator(".article-body").first();
+  await expect(content).toContainText("服务器地址：");
+
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const bodyFits = await content.evaluate((element) => element.scrollWidth <= element.clientWidth);
+  expect(bodyFits, "正文应折行显示，而不是横向溢出").toBe(true);
+  const cardFits = await page
+    .locator(".card.wide")
+    .evaluate((element) => element.getBoundingClientRect().right <= window.innerWidth + 1);
+  expect(cardFits, "平台须知卡片不能超出屏幕宽度").toBe(true);
+
   expect(errors, "uncaught page errors: " + errors.join("\n")).toEqual([]);
 });
 

@@ -16,6 +16,7 @@ export function usePublicLoginFlow() {
   const cardCode = ref("");
   const inviteCode = ref("");
   const groupNumber = ref("");
+  const groupInviteNotice = ref<string | null>(null);
   const registration = ref<RegistrationProof | null>(null);
   const qqNumber = ref("");
   const joinSource = ref("");
@@ -95,6 +96,7 @@ export function usePublicLoginFlow() {
       if (!entry) return;
       expired.value = entry.expired;
       groupNumber.value = entry.groupInvite?.groupNumber ?? "";
+      groupInviteNotice.value = entry.groupInvite?.notice ?? null;
       step.value = entry.needsCard ? "register" : "login";
     } finally {
       booting.value = false;
@@ -159,6 +161,7 @@ export function usePublicLoginFlow() {
     cardCode.value = "";
     inviteCode.value = "";
     groupNumber.value = "";
+    groupInviteNotice.value = null;
     registration.value = null;
     qqNumber.value = "";
     joinSource.value = "";
@@ -229,6 +232,7 @@ export function usePublicLoginFlow() {
     cardCode,
     inviteCode,
     groupNumber,
+    groupInviteNotice,
     qqNumber,
     joinSource,
     avatarUrl,

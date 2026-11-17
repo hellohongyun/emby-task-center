@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { VirtualLibraryItem } from "@emby-task-center/contracts/virtual-library";
-const props = defineProps<{ libraryId: string; items: VirtualLibraryItem[] }>();
+const props = defineProps<{
+  libraryId: string;
+  items: VirtualLibraryItem[];
+  posterBase?: string;
+  paginated?: boolean;
+  emptyHint?: string;
+}>();
 const search = ref("");
 const type = ref("");
 const failed = ref(new Set<string>());
@@ -15,13 +21,14 @@ const visible = computed(() =>
   ),
 );
 const poster = (item: VirtualLibraryItem) =>
-  `/api/virtual-library-market/user-libraries/${encodeURIComponent(props.libraryId)}/items/${encodeURIComponent(item.itemId)}/poster${item.imageTag ? `?tag=${encodeURIComponent(item.imageTag)}` : ""}`;
+  `${props.posterBase ?? `/api/virtual-library-market/user-libraries/${encodeURIComponent(props.libraryId)}`}/items/${encodeURIComponent(item.itemId)}/poster${item.imageTag ? `?tag=${encodeURIComponent(item.imageTag)}` : ""}`;
 </script>
 <template>
   <section class="vul-films" aria-label="库内影片">
     <div class="vul-film-toolbar">
       <label class="vul-search"
-        >搜索当前库影片<input v-model="search" type="search" placeholder="影片名称或年份"
+        >{{ paginated ? "搜索本页影片" : "搜索当前库影片"
+        }}<input v-model="search" type="search" placeholder="影片名称或年份"
       /></label>
       <label class="vul-type"
         >内容类型<select v-model="type">
@@ -33,7 +40,7 @@ const poster = (item: VirtualLibraryItem) =>
     </div>
     <div v-if="!items.length" class="vul-state">
       <strong>此库尚无影片。</strong>
-      <p>作者添加内容后会在这里展示。</p>
+      <p>{{ emptyHint ?? "作者添加内容后会在这里展示。" }}</p>
     </div>
     <div v-else-if="!visible.length" class="vul-state">
       <strong>没有匹配的影片</strong>

@@ -25,6 +25,42 @@
   object-fit: contain;
   background: var(--bg);
 }
+.vm-page .vm-card-preview {
+  position: relative;
+  display: block;
+  padding: 0;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+  cursor: pointer;
+}
+.vm-preview-label {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: #081019db;
+  color: #fff;
+  font-size: 12px;
+}
+.vm-card-preview .vl-cover-image {
+  width: 100%;
+}
+.vm-page .vm-title-preview {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 44px;
+}
+.vm-title-preview:hover {
+  text-decoration: underline;
+}
 .vm-card-body {
   padding: 18px;
   display: flex;

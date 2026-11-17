@@ -40,7 +40,7 @@ async function inMemberOrder<T>(database: AppDatabase, id: number, action: () =>
   }
 }
 
-async function fetchQqAvatar(qqNumber: string, signal?: AbortSignal) {
+export async function fetchQqAvatar(qqNumber: string, signal?: AbortSignal) {
   const url = qqAvatarUrl(qqNumber);
   const result = await fetchImage(url, {
     timeoutMs: 4000,

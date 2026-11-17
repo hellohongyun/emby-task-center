@@ -16,6 +16,7 @@
 import { z } from "zod";
 import { SITE_BRAND_NAME } from "@emby-task-center/contracts/site-brand";
 import { VIRTUAL_PROXY_SETTINGS } from "../virtual-libraries/proxy-setting-definitions";
+import { GROUP_REGISTRATION_NOTICE_SETTINGS } from "./group-registration-definitions";
 
 import { ALL_PLATFORMS, DEFAULT_ENABLED_PLATFORMS, PLATFORM_META } from "../pansou/pansou-filter";
 import { DEFAULT_PANSOU_BASE_URL, DEFAULT_PANSOU_SEARCH_SRC, DEFAULT_PANSOU_TIMEOUT_MS } from "../pansou/pansou-client";
@@ -298,6 +299,7 @@ export const SETTINGS = {
       .default(""),
     secret: true,
   },
+  ...GROUP_REGISTRATION_NOTICE_SETTINGS,
   "member.autoLinkDays": {
     group: "member",
     label: "Emby 账号自动绑定默认天数",

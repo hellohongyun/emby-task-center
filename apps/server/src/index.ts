@@ -165,7 +165,16 @@ const virtualLibraryProxy = createVirtualLibraryProxy({
       message: privateDiagnosticMessage(entry),
       detail: JSON.stringify(entry),
     };
-    if (["recorded", "decoded", "private_scope_ready", "no_personal_library"].includes(entry.reason))
+    if (
+      [
+        "recorded",
+        "decoded",
+        "private_scope_ready",
+        "no_personal_library",
+        "discovery_result",
+        "discovery_passthrough",
+      ].includes(entry.reason)
+    )
       logger.info(event);
     else logger.warn(event);
   },

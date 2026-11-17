@@ -1,6 +1,7 @@
 import type { IncomingHttpHeaders, ServerResponse } from "node:http";
 import type { createVirtualLibraryStore } from "./store";
 import { proxyHeaders } from "./proxy-transport";
+import { notifyJsonResponse } from "./query-response-observer";
 
 export type VirtualQueryStore = Pick<ReturnType<typeof createVirtualLibraryStore>, "list" | "get" | "listItems">;
 export interface UpstreamJson {
@@ -78,6 +79,7 @@ export async function allPages(upstream: QueryUpstream, source: URL): Promise<It
   return items;
 }
 export function sendJson(response: ServerResponse, result: UpstreamJson) {
+  notifyJsonResponse(response, result);
   response.statusCode = result.status;
   if (result.raw) {
     for (const [key, value] of Object.entries(proxyHeaders(result.headers))) {

@@ -2,6 +2,7 @@ import type { VirtualLibraryStore } from "./store";
 import { authenticationUrl, setParameter, type QueryUpstream } from "./query-helpers";
 
 export interface ProxyLibraryAccess {
+  administrator?: boolean;
   memberId?: number;
   subscriberId: string;
   visibleLibraryIds: readonly string[];

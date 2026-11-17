@@ -20,6 +20,8 @@ import {
 import { createPrivateTokenIdentity, isPrivateAuthentication } from "./private-token-identity";
 import { privateClient, privateDiscoveryRoute, type PrivateDiagnosticReporter } from "./private-diagnostics";
 import { externalLibraryAccess, type ReadExternalLibraryAccess } from "./external-library-access";
+import { observeJsonResponse } from "./query-response-observer";
+import { observeDiscoveryResponse } from "./discovery-diagnostics";
 
 export function createVirtualProxyHandler(
   allStore: VirtualLibraryStore,
@@ -87,9 +89,8 @@ export function createVirtualProxyHandler(
             )
           : undefined;
       const access = validatedId ? resolveLibraryAccess?.(validatedId) : undefined;
-      const external = hasExternal
-        ? externalLibraryAccess(readExternalAccess!(validatedId), rawUpstream, validatedId)
-        : undefined;
+      const scopedExternal = hasExternal ? readExternalAccess!(validatedId) : undefined;
+      const external = scopedExternal ? externalLibraryAccess(scopedExternal, rawUpstream, validatedId) : undefined;
       const queryUpstream = external?.query ?? rawUpstream;
       if (validatedId && !access) report("member_unavailable");
       const memberId = resolveLibraryAccess
@@ -110,6 +111,52 @@ export function createVirtualProxyHandler(
           : allStore;
       const ownLibraryIds = resolveLibraryAccess && access ? access.ownLibraryIds : hasExternal ? [] : undefined;
       const personalOrder = access?.personalOrder;
+      let knownSections: unknown;
+      if (request.method === "GET" && discoveryRoute && reportIdentity) {
+        let observed = false;
+        const accountType = access?.administrator
+          ? access.memberId === undefined
+            ? "administrator"
+            : "mixed"
+          : memberId === undefined
+            ? "unresolved"
+            : "member";
+        observeJsonResponse(response, (reply) => {
+          observed = true;
+          const sectionId = /^\/Users\/[^/]+\/Sections\/([^/]+)\/Items\/?$/i.exec(url.pathname)?.[1];
+          observeDiscoveryResponse({
+            method: request.method!,
+            url,
+            reply,
+            visibleLocalLibraryIds: store.list().map((library) => library.id),
+            externalLibraries: scopedExternal?.libraries ?? [],
+            accountType,
+            client,
+            reporter: reportIdentity,
+            confirmedUserViews:
+              Array.isArray(knownSections) &&
+              knownSections.some(
+                (section) =>
+                  section?.Id === (sectionId && decodeURIComponent(sectionId)) && section?.SectionType === "userviews",
+              ),
+          });
+        });
+        response.once("finish", () => {
+          if (!observed) {
+            try {
+              reportIdentity({
+                client,
+                route: discoveryRoute,
+                reason: "discovery_passthrough",
+                accountType,
+                status: response.statusCode,
+              });
+            } catch {
+              /* Observational only. */
+            }
+          }
+        });
+      }
       if (protectedLibraries && discoveryRoute && (access || memberId !== undefined)) {
         const privateLibraryCount = resolveLibraryAccess
           ? store.list().length
@@ -140,7 +187,6 @@ export function createVirtualProxyHandler(
           ? preferences?.read(context.upstream, decodeURIComponent(user))
           : undefined;
       const homeUser = /^\/Users\/([^/]+)\/(HomeSections|Sections\/[^/]+\/Items)\/?$/i.exec(url.pathname);
-      let knownSections: unknown;
       if (request.method === "GET" && homeUser && (adminOrder || store.list().length || hasExternal)) {
         const scope = createHash("sha256")
           .update(

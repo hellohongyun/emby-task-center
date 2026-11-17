@@ -486,6 +486,8 @@ onBeforeUnmount(() => {
 /* ===== 布局 ===== */
 .profile {
   display: grid;
+  /* 显式单列并允许收缩：平台须知等长内容不能按最长不可断词把整页撑宽。 */
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   max-width: 920px;
   margin: 0 auto;
@@ -661,6 +663,7 @@ onBeforeUnmount(() => {
 /* ===== 卡片 ===== */
 .card {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 18px;
   border: 1px solid #1f313d;
@@ -920,6 +923,7 @@ button.reset:hover {
 /* ===== 平台须知 ===== */
 .article-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 .article {
@@ -933,6 +937,7 @@ button.reset:hover {
   font-size: 13px;
   cursor: pointer;
   list-style: none;
+  overflow-wrap: anywhere;
 }
 .article summary::marker {
   display: none;
@@ -951,6 +956,8 @@ button.reset:hover {
   font-size: 12px;
   line-height: 1.8;
   white-space: pre-wrap;
+  /* 后台正文可能粘进没有空格的长链接/令牌：宁可折行，也不要撑破手机屏幕。 */
+  overflow-wrap: anywhere;
 }
 
 /* ===== 共用 ===== */
@@ -1004,6 +1011,7 @@ button.reset:hover {
   font-size: 12px;
   line-height: 1.8;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 760px) {

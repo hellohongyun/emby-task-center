@@ -10,6 +10,8 @@ import { createEmbyClient } from "../integrations/emby-client";
 import { readSettings } from "../settings/store";
 import { and, eq } from "drizzle-orm";
 import { virtualLibraries, virtualLibraryItems } from "@emby-task-center/database/schema";
+import { marketAuthorAvatar } from "../virtual-libraries/market-author-avatar";
+import { sendMarketImage } from "./virtual-library-market-preview";
 
 const defaultsSchema = z.strictObject({
   libraryIds: z.array(z.string().min(1)).max(10000),
@@ -49,6 +51,13 @@ export function registerMarketAdminRoutes(app: Express, database: AppDatabase, b
     }
   });
   app.get(`${base}/user-libraries`, (_req, res) => res.json({ libraries: service.userLibraries() }));
+  app.get(`${base}/user-libraries/:id/author-avatar`, async (req, res) => {
+    try {
+      sendMarketImage(res, await marketAuthorAvatar(database, String(req.params.id), true));
+    } catch (error) {
+      marketRouteError(res, error);
+    }
+  });
   app.get(`${base}/user-libraries/:id/items`, (req, res) => {
     const id = String(req.params.id),
       library = store.get(id);

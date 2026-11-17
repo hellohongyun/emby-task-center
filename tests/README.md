@@ -29,6 +29,10 @@ TgtoDrive 市场接入由 `upstream-market-service.test.ts`、`external-library-
 
 用户库只读查看由 `VirtualUserLibraries.test.ts` 验证首库自动选择、切库不残留旧内容、请求失败重试和影片筛选／缺图。`virtual-user-library-images.test.ts` 使用临时数据库与本地图片源验证管理员和关联范围校验、非数字 ID、缺图片 tag、无副作用读取及移除关联后拒绝访问；市场浏览器回归另检查真实图片请求加载成功。此处不修复作者关联，不使用公开海报端点放宽访问范围。
 
+市场详情由 `virtual-library-market-preview.test.ts` 和 `VirtualMarketDetails.test.ts` 验证：已上架但未启用的库可分页预览，订阅状态不变；未上架私人库、下架或作者不可用时拒绝详情和图片。系统库按查看者绑定范围查询，并发图片只合并进行中的目录核验，不缓存授权结果。作者头像使用认证代理，后台用户库显示头像，市场不暴露联系方式。组件回归覆盖中文错误、来源空态、分页、关闭与焦点恢复。
+
+真实浏览器用例为 `pnpm exec playwright test --config playwright.real.config.ts tests/e2e/market-library-details.spec.ts`（先 `pnpm build`），使用临时 SQLite、43 项本地影片及本地 QQ 图片夹具，验证未启用预览、真实头像和海报、分页／本页筛选、移动端布局、键盘焦点和下架撤权；不访问公网、不操作真实账号或片单。
+
 开发调试保护通过 `email-delivery-policy.test.ts`、`renewal-smtp.integration.test.ts`、`local-launcher.test.ts`、`development-mode.test.ts` 和自动操作专项测试验证：禁发时不创建 SMTP 连接、保留待发记录；本地启动不能通过环境中的 false 绕过禁发；模式切换立即生效且不改变原业务配置。SMTP 验证仅连接本地夹具，不向真实用户投递。`DevelopmentModePanel.test.ts` 覆盖独立保存和错误回退；浏览器回归命令为 `pnpm exec playwright test --config playwright.real.config.ts tests/e2e/development-mode.spec.ts`（先 `pnpm build`）。
 
 `query-descendant-types.test.ts` 验证 SenPlayer 类型组合的子项读取范围、合法视频子项、分集、未限定类型展开及原剧归组海报，使用隔离上游夹具，不代替播放器实测。
@@ -56,6 +60,8 @@ pnpm exec vitest run apps/server/src/virtual-libraries apps/server/src/routes/vi
 身份回归明确模拟 Emby 的 `/Users/Me` 不存在，通过真实登录响应建立令牌归属；覆盖旧令牌未确认时不暴露私人库、冒充用户 ID 拒绝、账号改绑与令牌失效，以及服务重启后的归属保留。成功登录夹具不再虚构 Emby 不支持的身份端点。
 
 `authentication-response-http.test.ts` 验证压缩／BOM 登录响应的有界解析与原始 wire 保留，覆盖 gzip、deflate、br、异常编码、破损响应及解压大小限制。身份及 HTTP 代理回归另覆盖空 Token 与有效独立令牌并存、非空冲突、可空 SessionInfo 和带 `/emby`、`.json` 的登录地址。`private-diagnostics-http.test.ts` 使用 SenPlayer、Yamby、Hills、VidHub 的声明头验证缺少登录证明、确认私人范围与上游复核失败的日志，检查日志不含凭据或账号；这些声明头夹具不代表实际播放器版本已通过验收。
+
+`discovery-diagnostics.test.ts` 检查已计算可见范围与实际返回数量分开记录，覆盖 Id／Guid、首页分区、根目录识别缺口、分页、错误或非 JSON 响应及隐私。`admin-market-proxy-http.test.ts` 另通过 HTTP 检查已绑定管理员和未确认旧令牌的最终响应计数；诊断不参与授权，不缓冲播放响应，日志回调异常不得改变返回。
 
 `PersonalVirtualLibraries.test.ts` 验证门户入口与复用管理页面的私有 API、选片、排序和海报操作。完整浏览器回归运行前先构建：
 

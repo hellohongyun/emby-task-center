@@ -153,7 +153,7 @@ describe("PublicLoginView 登录/开通分流", () => {
           needsCard: true,
           expired: false,
           qqNumber: "123456789",
-          groupInvite: { groupNumber: "92345678" },
+          groupInvite: { groupNumber: "92345678", notice: "请加入 92345678，查看群公告中的邀请码。" },
         }),
     });
     render(PublicLoginView);

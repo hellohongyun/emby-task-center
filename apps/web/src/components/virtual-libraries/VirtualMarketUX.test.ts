@@ -52,13 +52,13 @@ describe("market status and per-library actions", () => {
     render(VirtualMarketView, { props: { personal: true, requireAuth: vi.fn() } });
     const card = await screen.findByRole("article", { name: "纪录片精选" });
     await fireEvent.click(within(card).getByRole("button", { name: "启用媒体库" }));
-    expect(within(card).getByRole("button").hasAttribute("disabled")).toBe(true);
+    expect(within(card).getByRole("button", { name: "启用媒体库" }).hasAttribute("disabled")).toBe(true);
     expect(
       within(screen.getByRole("article", { name: "动画精选" }))
-        .getByRole("button")
+        .getByRole("button", { name: "关闭媒体库" })
         .hasAttribute("disabled"),
     ).toBe(false);
-    await fireEvent.click(within(card).getByRole("button"));
+    await fireEvent.click(within(card).getByRole("button", { name: "启用媒体库" }));
     expect(fetch.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
     finish(json({ enabled: true }));
     await screen.findByText("已启用「纪录片精选」，播放器刷新后显示。");

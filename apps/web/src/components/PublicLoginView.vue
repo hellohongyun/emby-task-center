@@ -15,6 +15,7 @@ const {
   cardCode,
   inviteCode,
   groupNumber,
+  groupInviteNotice,
   qqNumber,
   joinSource,
   avatarUrl,
@@ -143,6 +144,7 @@ const {
           v-if="groupNumber"
           v-model="inviteCode"
           :group-number="groupNumber"
+          :notice="groupInviteNotice"
           :disabled="sendingCode || s.loading.value"
         />
 

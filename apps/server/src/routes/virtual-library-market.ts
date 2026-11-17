@@ -12,6 +12,7 @@ import { libraryPoster } from "../virtual-libraries/library-poster";
 import { createUpstreamLibraryMarketService } from "../virtual-libraries/upstream-market-service";
 import { UpstreamLibraryError } from "../virtual-libraries/upstream-library-catalog";
 import { upstreamMarketPoster } from "../virtual-libraries/upstream-market-poster";
+import { marketAvatarUrl, registerMarketPreviewRoutes } from "./virtual-library-market-preview";
 
 const publicationSchema = z.strictObject({ published: z.boolean() });
 const subscriptionSchema = z.strictObject({ enabled: z.boolean() });
@@ -46,7 +47,10 @@ export function registerVirtualLibraryMarketRoutes(
       next();
     });
   else registerMarketAdminRoutes(app, database, base);
-  app.get(base, (req, res) => res.json({ libraries: service.list(actor(req)) }));
+  registerMarketPreviewRoutes(app, database, base, actor);
+  app.get(base, (req, res) =>
+    res.json({ libraries: service.list(actor(req)).map((value) => marketAvatarUrl(value, base)) }),
+  );
   app.put(`${base}/owned/:id/publication`, (req, res) => {
     const parsed = publicationSchema.safeParse(req.body);
     if (!parsed.success) return void res.status(400).json({ error: "invalid_request" });

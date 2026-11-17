@@ -72,6 +72,8 @@ describe("settings store", () => {
       enabled: true,
       groupNumber: "123456789",
       inviteCode: "Invite_2026",
+      noticeEnabled: true,
+      notice: "请在 QQ 搜索群号 {groupNumber} 并申请入群，打开「群公告」查看「会员注册邀请码」。",
     });
     expect(
       toPublicSettings(readSettings(database.db)).find((item) => item.key === "member.groupInviteCode"),
@@ -84,6 +86,35 @@ describe("settings store", () => {
     expect(invalidChange.updated).toEqual([]);
     expect(invalidChange.rejected).toHaveLength(2);
     expect(readGroupRegistrationSettings(database.db).groupNumber).toBe("123456789");
+  });
+
+  it("persists the invite notice independently and rejects invalid notice values", () => {
+    const notice = "申请加入 {groupNumber}\n从群公告获取邀请码。";
+    expect(
+      writeSettings(database.db, {
+        "member.groupInviteNoticeEnabled": false,
+        "member.groupInviteNotice": notice,
+      }).rejected,
+    ).toEqual([]);
+    expect(readGroupRegistrationSettings(database.db)).toMatchObject({
+      enabled: false,
+      noticeEnabled: false,
+      notice,
+    });
+    const entries = toPublicSettings(readSettings(database.db));
+    expect(entries.find((entry) => entry.key === "member.groupInviteNotice")).toMatchObject({
+      value: notice,
+      multiline: true,
+      secret: false,
+    });
+    expect(
+      writeSettings(database.db, {
+        "member.groupInviteNoticeEnabled": "false",
+        "member.groupInviteNotice": "a".repeat(2001),
+      }).rejected,
+    ).toHaveLength(2);
+    expect(readGroupRegistrationSettings(database.db)).toMatchObject({ noticeEnabled: false, notice });
+    expect(writeSettings(database.db, { "member.groupInviteNotice": "" }).rejected).toEqual([]);
   });
 
   it("rejects unknown keys and invalid values without writing the rest of the patch", () => {

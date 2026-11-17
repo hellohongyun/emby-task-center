@@ -4,6 +4,7 @@ import type { MarketUserLibrary } from "@emby-task-center/contracts/virtual-libr
 import type { VirtualLibraryItem } from "@emby-task-center/contracts/virtual-library";
 import { virtualLibraryRequests } from "../../composables/virtual-library-requests";
 import VirtualLibraryCover from "./VirtualLibraryCover.vue";
+import VirtualLibraryAuthor from "./VirtualLibraryAuthor.vue";
 import VirtualReadonlyFilms from "./VirtualReadonlyFilms.vue";
 const props = defineProps<{ requireAuth: () => void }>();
 const base = "/api/virtual-library-market";
@@ -110,7 +111,9 @@ onMounted(load);
               <VirtualLibraryCover class="vul-library-thumb" :name="library.name" :src="poster(library)" />
               <span class="vul-library-info"
                 ><strong>{{ library.name }}</strong
-                ><small>{{ library.ownerEmail ?? library.authorName }}</small
+                ><VirtualLibraryAuthor :library="library" /><small v-if="library.ownerEmail">{{
+                  library.ownerEmail
+                }}</small
                 ><span>{{ library.itemCount }} 项 · {{ library.published ? "已上架" : "未公开" }}</span></span
               >
             </button>
@@ -125,7 +128,8 @@ onMounted(load);
           <VirtualLibraryCover class="vul-current-thumb" :name="current.name" :src="poster(current)" />
           <div>
             <h2>{{ current.name }}</h2>
-            <p>{{ current.ownerEmail ?? current.authorName }}</p>
+            <p><VirtualLibraryAuthor :library="current" /></p>
+            <p v-if="current.ownerEmail">{{ current.ownerEmail }}</p>
             <span class="vm-status" :class="current.published ? 'good' : 'muted'">{{
               current.published ? "作者已上架" : "未公开分享"
             }}</span>

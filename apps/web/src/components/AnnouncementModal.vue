@@ -153,6 +153,8 @@ header h2 {
   font-size: 13px;
   line-height: 1.9;
   white-space: pre-wrap;
+  /* 公告里粘进没有空格的长链接／令牌时折行，不要在弹窗里横向滚动。 */
+  overflow-wrap: anywhere;
 }
 footer {
   display: grid;

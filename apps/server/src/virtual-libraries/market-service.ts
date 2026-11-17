@@ -127,6 +127,8 @@ export function createVirtualLibraryMarketService(database: AppDatabase) {
           ownerAdminId: undefined,
           itemCount: owned(library, actor) ? library.itemCount : 0,
           authorName: library.ownerAdminId ? "管理员" : "用户",
+          authorAvatarUrl:
+            library.ownerMemberId != null ? `/api/virtual-library-market/${library.id}/author-avatar` : null,
           owned: owned(library, actor),
           canSubscribe: !ownIds.has(library.id),
           enabled: ownIds.has(library.id) || enabled(subscriberFor(actor), library),
@@ -224,6 +226,7 @@ export function createVirtualLibraryMarketService(database: AppDatabase) {
     const subscriberId = member ? `member:${member.id}` : adminMarketSubscriber;
     const visible = store.list().filter((l) => owned(l, actor) || (available(l) && enabled(subscriberId, l)));
     return {
+      administrator: isAdmin,
       memberId: member?.id,
       subscriberId,
       ownLibraryIds: own.map((l) => l.id),
@@ -244,7 +247,10 @@ export function createVirtualLibraryMarketService(database: AppDatabase) {
       .map((l) => ({
         ...l,
         ownerEmail: members.get(l.ownerMemberId!)?.email ?? null,
-        authorName: members.get(l.ownerMemberId!)?.email ?? "已删除用户",
+        authorName: members.has(l.ownerMemberId!) ? "用户" : "已删除用户",
+        authorAvatarUrl: members.has(l.ownerMemberId!)
+          ? `/api/virtual-library-market/user-libraries/${l.id}/author-avatar`
+          : null,
       }));
   }
   return {

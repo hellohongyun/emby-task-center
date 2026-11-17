@@ -6,7 +6,7 @@ import type { AppDatabase } from "@emby-task-center/database/client";
 import type { EmailNotifier } from "../notifications/email-service";
 import { buildVerificationEmail } from "../notifications/email-template";
 import { workflowLog, type WorkflowLog, type WorkflowLogger } from "../logging/workflow-log";
-import { readGroupRegistrationSettings } from "../settings/group-registration";
+import { publicGroupRegistrationInvitation, readGroupRegistrationSettings } from "../settings/group-registration";
 import type { CardActivationMode } from "../subscriptions/card-activation";
 import { inspectCard } from "../subscriptions/cards";
 import { isMemberExpiryCleanupPending } from "../subscriptions/member-expiry-cleanup-guard";
@@ -122,7 +122,7 @@ export function registerPublicRegistrationRoutes(
     response.json({
       ...result,
       qqNumber,
-      groupInvite: invitation.enabled ? { groupNumber: invitation.groupNumber } : null,
+      groupInvite: publicGroupRegistrationInvitation(invitation),
     });
   });
 

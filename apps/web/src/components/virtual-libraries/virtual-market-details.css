@@ -1,0 +1,102 @@
+.vmd-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #000a;
+}
+.vmd-backdrop .vmd-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(960px, 100%);
+  max-height: calc(100dvh - 48px);
+  min-width: 0;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 24px 90px #0006;
+}
+.vmd-heading {
+  flex-shrink: 0;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.vmd-heading h2 {
+  font-size: 18px;
+}
+.vmd-scroll {
+  padding: 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+}
+.vmd-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 240px) minmax(0, 1fr);
+  align-items: center;
+  gap: 22px;
+}
+.vmd-summary h3 {
+  font-size: 22px;
+  overflow-wrap: anywhere;
+  margin: 0 0 12px;
+}
+.vmd-summary p {
+  margin-top: 10px;
+  font-size: 13px;
+}
+.vmd-hint {
+  color: var(--text-dim);
+}
+.vmd-summary .vl-cover-image {
+  border-radius: 9px;
+}
+.vmd-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 24px;
+  font-size: 12px;
+}
+.vmd-dialog button {
+  min-height: 44px;
+}
+@media (max-width: 600px) {
+  .vmd-backdrop {
+    padding: 10px;
+  }
+  .vmd-backdrop .vmd-dialog {
+    max-height: calc(100dvh - 20px);
+    border-radius: 12px;
+  }
+  .vmd-heading {
+    padding: 12px 14px;
+  }
+  .vmd-scroll {
+    padding: 14px;
+  }
+  .vmd-summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .vmd-summary .vl-cover-image {
+    max-height: 180px;
+  }
+  .vmd-summary h3 {
+    font-size: 19px;
+  }
+  .vmd-pagination {
+    gap: 8px;
+  }
+}

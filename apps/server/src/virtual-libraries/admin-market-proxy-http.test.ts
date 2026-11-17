@@ -130,6 +130,18 @@ describe("bound administrator discovery without a portal member", () => {
     expect(diagnostics).toContainEqual(
       expect.objectContaining({ reason: "private_scope_ready", privateLibraryCount: 1 }),
     );
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        reason: "discovery_result",
+        accountType: "administrator",
+        localLibraryCount: 1,
+        externalLibraryCount: 1,
+        visibleLocalLibraryCount: 1,
+        enabledExternalLibraryCount: 1,
+        itemCount: 3,
+        totalRecordCount: 3,
+      }),
+    );
     expect((await get(`/Items/${otherId}`, "admin-token")).status).toBe(404);
   });
 
@@ -137,6 +149,17 @@ describe("bound administrator discovery without a portal member", () => {
     await login("admin-token");
     expect(await ids("/Users/admin/Views", "admin-old-token")).toEqual([native.Id]);
     expect(diagnostics).toContainEqual(expect.objectContaining({ reason: "login_proof_missing" }));
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        reason: "discovery_result",
+        accountType: "unresolved",
+        localLibraryCount: 0,
+        externalLibraryCount: 0,
+        visibleLocalLibraryCount: 0,
+        enabledExternalLibraryCount: 0,
+        itemCount: 1,
+      }),
+    );
     await login("admin-old-token");
     expect(await ids("/Users/admin/Views", "admin-old-token")).toEqual([ownId, native.Id, external.Id]);
   });

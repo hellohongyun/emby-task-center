@@ -2,11 +2,14 @@
 import { computed, onMounted, ref } from "vue";
 import type { MarketLibrary } from "@emby-task-center/contracts/virtual-library-market";
 import { virtualLibraryRequests } from "../../composables/virtual-library-requests";
+import VirtualMarketDetails from "./VirtualMarketDetails.vue";
+import VirtualLibraryAuthor from "./VirtualLibraryAuthor.vue";
 import VirtualLibraryCover from "./VirtualLibraryCover.vue";
 import VirtualUpstreamMarket from "./VirtualUpstreamMarket.vue";
 const props = defineProps<{ personal?: boolean; requireAuth: () => void }>();
 const base = props.personal ? "/api/public/virtual-library-market" : "/api/virtual-library-market";
 const { run, error } = virtualLibraryRequests(props.requireAuth, base);
+const preview = ref<MarketLibrary | null>(null);
 const libraries = ref<MarketLibrary[]>([]);
 const pending = ref(new Set<string>());
 const failures = ref<Record<string, string>>({});
@@ -131,14 +134,22 @@ onMounted(load);
         :aria-busy="pending.has(library.id)"
         :aria-label="library.name"
       >
-        <VirtualLibraryCover
-          :name="library.name"
-          :src="
-            library.posterImageTag
-              ? `${base}/${encodeURIComponent(library.id)}/poster?tag=${encodeURIComponent(library.posterImageTag)}`
-              : undefined
-          "
-        />
+        <button
+          type="button"
+          class="vm-card-preview"
+          :aria-label="`查看 ${library.name} 详情`"
+          @click="preview = library"
+        >
+          <VirtualLibraryCover
+            :name="library.name"
+            :src="
+              library.posterImageTag
+                ? `${base}/${encodeURIComponent(library.id)}/poster?tag=${encodeURIComponent(library.posterImageTag)}`
+                : undefined
+            "
+          />
+          <span class="vm-preview-label" aria-hidden="true">查看详情</span>
+        </button>
         <div class="vm-card-body">
           <span class="vm-status" :class="selfOwned(library) || library.enabled ? 'good' : 'muted'">{{
             library.owned
@@ -149,9 +160,18 @@ onMounted(load);
                   ? "已启用"
                   : "未启用"
           }}</span>
-          <h2>{{ library.name }}</h2>
+          <h2>
+            <button
+              type="button"
+              class="vm-title-preview"
+              :aria-label="`查看 ${library.name} 详情`"
+              @click="preview = library"
+            >
+              {{ library.name }}
+            </button>
+          </h2>
           <span v-if="library.source === 'tgtodrive'" class="vm-status muted">系统自带</span>
-          <p class="vm-card-author">{{ library.authorName }}</p>
+          <p class="vm-card-author"><VirtualLibraryAuthor :library="library" /></p>
           <p v-if="library.source === 'tgtodrive'" class="vm-card-hint">
             系统自带媒体库，内容、名称和海报更新后同步展示。
           </p>
@@ -172,5 +192,13 @@ onMounted(load);
         </div>
       </article>
     </div>
+    <VirtualMarketDetails
+      v-if="preview"
+      :key="preview.id"
+      :library="preview"
+      :base="base"
+      :require-auth="requireAuth"
+      @close="preview = null"
+    />
   </section>
 </template>

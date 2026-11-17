@@ -162,7 +162,49 @@ describe("public subscription card gate (no card → no email)", () => {
     expect(verificationCodeCount()).toBe(0);
   });
 
-  it("群邀请码仅公开群号，校验通过才发码，更换邀请码会让已验证的凭证失效", async () => {
+  it("提示可编辑或隐藏，邀请码校验保持有效，提示变化不使验证码及注册凭证失效", async () => {
+    const email = "100001031@qq.com";
+    const cardCode = "CARDAAAA1111";
+    const inviteCode = "group-notice-code";
+    seedCard(cardCode);
+    writeSettings(database.db, {
+      "member.groupInviteEnabled": true,
+      "member.groupNumber": "123456789",
+      "member.groupInviteCode": inviteCode,
+      "member.groupInviteNotice": "加入 {groupNumber}\n群号：{groupNumber}",
+    });
+    const publicEntry = await (await postSubscription(baseUrl, "entry", { email })).json();
+    expect(publicEntry.groupInvite).toEqual({
+      groupNumber: "123456789",
+      notice: "加入 123456789\n群号：123456789",
+    });
+    expect(JSON.stringify(publicEntry)).not.toContain(inviteCode);
+    writeSettings(database.db, { "member.groupInviteNoticeEnabled": false });
+    expect(await (await postSubscription(baseUrl, "entry", { email })).json()).toMatchObject({
+      groupInvite: { groupNumber: "123456789", notice: null },
+    });
+    expect(await (await postCode({ email, cardCode })).json()).toEqual({ error: "group_invite_required" });
+    expect((await postCode({ email, cardCode, inviteCode })).status).toBe(200);
+    const code = emailsSent[0]?.text.match(/验证码：(\d{6})/)?.[1];
+    writeSettings(database.db, {
+      "member.groupInviteNoticeEnabled": true,
+      "member.groupInviteNotice": "新的提示 {groupNumber}",
+    });
+    const verified = await postSubscription(baseUrl, "register/verify", { email, code, cardCode, inviteCode });
+    expect(verified.status).toBe(200);
+    const { registrationToken } = (await verified.json()) as { registrationToken: string };
+    writeSettings(database.db, { "member.groupInviteNoticeEnabled": false });
+    const activation = await postSubscription(baseUrl, "activate", { email, cardCode, registrationToken });
+    expect(activation.status).toBe(200);
+    expect(database.db.select().from(submissionUsers).get()?.email).toBe(email);
+    expect(database.db.select().from(cardKeys).get()?.status).toBe("used");
+    writeSettings(database.db, { "member.groupInviteEnabled": false });
+    expect(await (await postSubscription(baseUrl, "entry", { email: "100001032@qq.com" })).json()).toMatchObject({
+      groupInvite: null,
+    });
+  });
+
+  it("群邀请码仅公开群号和提示，校验通过才发码，更换邀请码会让已验证的凭证失效", async () => {
     const email = "100001031@qq.com";
     const cardCode = "CARDAAAA1111";
     const inviteCode = "group-notice-code";
@@ -175,7 +217,12 @@ describe("public subscription card gate (no card → no email)", () => {
 
     const entry = await postSubscription(baseUrl, "entry", { email });
     const publicEntry = await entry.json();
-    expect(publicEntry).toMatchObject({ groupInvite: { groupNumber: "123456789" } });
+    expect(publicEntry).toMatchObject({
+      groupInvite: {
+        groupNumber: "123456789",
+        notice: "请在 QQ 搜索群号 123456789 并申请入群，打开「群公告」查看「会员注册邀请码」。",
+      },
+    });
     expect(JSON.stringify(publicEntry)).not.toContain(inviteCode);
     expect(await (await postCode({ email, cardCode })).json()).toEqual({ error: "group_invite_required" });
     expect(await (await postCode({ email, cardCode, inviteCode: "wrong-code" })).json()).toEqual({

@@ -38,11 +38,17 @@ docker compose logs --since 30m --tail 2000 --timestamps app
 | `persistence_error` | 登录身份保存失败 |
 | `login_proof_missing` | 当前请求没有可识别且已确认归属的登录凭据 |
 | `validation_failed`／`validation_unavailable` | 原客户端凭据复核被拒绝，或请求失败／超时 |
-| `member_unavailable` | 上游账号未唯一绑定可用会员 |
-| `private_scope_ready` | 身份与会员已确认，`privateLibraryCount` 表示当前账号的私人库数量 |
-| `no_personal_library` | 身份与会员已确认，但该会员没有私人库 |
+| `member_unavailable` | 上游账号未匹配管理员绑定或唯一可用会员 |
+| `private_scope_ready` | 已确认身份并计算范围，`privateLibraryCount` 是当前可见本地虚拟库数，含自有库及本地订阅库，不包含 TgtoDrive 等外部库 |
+| `no_personal_library` | 已确认身份，但当前没有可见的本地虚拟库；不能据此判断外部订阅为空 |
+| `discovery_result` | 已检查实际返回的目录或首页分区，记录返回库数量、范围、账号类型、分页及响应结构 |
+| `discovery_passthrough` | 发现请求按原响应透传，没有核对返回条目数量 |
 
 `decoded` 仅表示登录响应 JSON 可读，需结合 `recorded` 判断身份是否保存；`private_scope_ready` 表示服务端确认的可见范围，不代表播放器已渲染入口。重复的同类发现记录每分钟最多一条。排查时提供播放器名称、版本、操作时间及上述记录即可，无需提供账号密码或令牌。相关回归不替代实际播放器联调。
+
+响应诊断中的 `visibleLocalLibraryCount`、`enabledExternalLibraryCount` 是已确认的范围；`localLibraryCount`、`externalLibraryCount` 是实际响应内匹配的去重库数。`accountType` 区分管理员、会员、双重身份或未确认身份，不记录账号 ID。`bodyShape=other` 表示无法识别目录结构；`recognizedLibraryDiscovery=false` 表示根目录返回了库列表，但查询未被识别为可叠加的发现请求。普通影片搜索不计作媒体库目录。1.5.7 发行版仅有原范围诊断，新增响应诊断需运行包含此改动的版本。
+
+网页和各播放器使用独立的登录凭据，一端重新登录不会替其他端建立记录。已保存的身份在同一数据库、上游地址与令牌不变时，正常容器重启或更新后仍应保留；持续丢失需要核对数据挂载、上游配置与身份记录，不能把每次重新登录视为修复完成。
 
 ## 容器验证边界
 

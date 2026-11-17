@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { ref } from "vue";
 
-defineProps<{ src?: string | null }>();
+withDefaults(defineProps<{ src?: string | null; fallback?: string }>(), { fallback: "QQ" });
 const failedSrc = ref<string>();
 </script>
 
 <template>
   <span class="member-avatar">
     <img v-if="src && src !== failedSrc" :src="src" alt="" referrerpolicy="no-referrer" @error="failedSrc = src" />
-    <span v-else aria-hidden="true">QQ</span>
+    <span v-else aria-hidden="true">{{ fallback }}</span>
   </span>
 </template>
 

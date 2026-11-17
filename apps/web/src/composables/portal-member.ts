@@ -76,7 +76,7 @@ export interface EntryCheck {
   /** 没注册过 → true：必须走注册页，凭卡密。 */
   needsCard: boolean;
   expired: boolean;
-  groupInvite?: { groupNumber: string } | null;
+  groupInvite?: { groupNumber: string; notice: string | null } | null;
 }
 
 export interface RegistrationProof {
