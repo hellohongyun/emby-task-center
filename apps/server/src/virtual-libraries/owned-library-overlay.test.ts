@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { overlayLibraries } from "./owned-library-overlay";
+import type { OwnedViewAnchor } from "./owned-view-preferences";
 import { result, type Item, type QueryUpstream, type UpstreamJson, type VirtualQueryStore } from "./query-helpers";
 
 const localIds = ["local-a", "local-b", "local-c"];
@@ -35,6 +36,9 @@ async function apply(
     onlyIds?: string[];
     upstream?: QueryUpstream;
     adminOrder?: string[];
+    personalOrder?: string[];
+    ownLibraryIds?: string[];
+    ownedOrder?: OwnedViewAnchor[];
   } = {},
 ) {
   const upstream = options.upstream ?? fixture(options.configuration);
@@ -46,6 +50,9 @@ async function apply(
     reply,
     onlyIds: options.onlyIds,
     adminOrder: options.adminOrder,
+    personalOrder: options.personalOrder,
+    ownLibraryIds: options.ownLibraryIds,
+    ownedOrder: options.ownedOrder,
   });
   return { response, upstream, body: response.body as { Items: Item[]; TotalRecordCount: number } };
 }
@@ -98,6 +105,26 @@ describe("owned library insertion", () => {
     expect(body.Items.map((item) => item.Id)).toEqual(["native-b", "local-a", "native-a", "ttd", "local-c"]);
     expect(body.Items[3]).toBe(originals[1]);
     expect(body).toMatchObject({ Extra: "keep", TotalRecordCount: 5 });
+  });
+
+  it("gives a new member the administrator order even when Emby reports its own OrderedViews", async () => {
+    const { body } = await apply({
+      adminOrder: ["native-b", "local-a", "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", "not-visible"],
+      configuration: { OrderedViews: ["local-c", "native-a", "native-b"] },
+      ownLibraryIds: [],
+      ownedOrder: [],
+    });
+    expect(body.Items.map((item) => item.Id)).toEqual(["native-b", "local-a", "native-a", "ttd", "local-b", "local-c"]);
+  });
+
+  it("keeps an order the proxy actually observed for a member without a saved personal order", async () => {
+    const { body } = await apply({
+      adminOrder: ["native-b", "local-a", "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"],
+      configuration: { OrderedViews: ["local-c", "native-a", "native-b"] },
+      ownLibraryIds: [],
+      ownedOrder: [{ id: "local-c", previous: [], next: ["native-a"] }],
+    });
+    expect(body.Items.map((item) => item.Id)).toEqual(["local-c", "native-a", "native-b", "ttd", "local-a", "local-b"]);
   });
 
   it("sorts the complete filtered list before slicing the requested page", async () => {

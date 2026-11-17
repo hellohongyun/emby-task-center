@@ -76,18 +76,25 @@ export async function personalLibraryOrderCatalog(
   const order = createPersonalLibraryOrderService(database).read(upstream, embyUserId);
   let inherited: string[] | undefined;
   if (order === undefined) {
-    const config = await legacyLibraryConfiguration(database, embyUserId);
-    const raw = Array.isArray(config.OrderedViews)
-      ? config.OrderedViews.filter((id): id is string => typeof id === "string")
-      : [];
-    const dto = (item: PersonalLibraryOrderItem) => ({ Id: item.id, Name: item.name, Guid: item.guid });
-    inherited = legacyLibrarySequence(
-      unique.filter((item) => item.kind === "native").map(dto),
-      unique.filter((item) => item.kind !== "native").map(dto),
-      raw,
-      createOwnedViewPreferences(database, store).read(upstream, embyUserId),
-      access.ownLibraryIds,
-    )?.map((item) => item.Id!);
+    // Only an arrangement this proxy actually observed counts as a legacy personal order.
+    // Emby can give a brand-new account a non-empty OrderedViews (the native library list in
+    // server order); inheriting that would hide the administrator template until the member
+    // explicitly presses "恢复默认".
+    const anchors = createOwnedViewPreferences(database, store).read(upstream, embyUserId);
+    if (anchors.length) {
+      const config = await legacyLibraryConfiguration(database, embyUserId);
+      const raw = Array.isArray(config.OrderedViews)
+        ? config.OrderedViews.filter((id): id is string => typeof id === "string")
+        : [];
+      const dto = (item: PersonalLibraryOrderItem) => ({ Id: item.id, Name: item.name, Guid: item.guid });
+      inherited = legacyLibrarySequence(
+        unique.filter((item) => item.kind === "native").map(dto),
+        unique.filter((item) => item.kind !== "native").map(dto),
+        raw,
+        anchors,
+        access.ownLibraryIds,
+      )?.map((item) => item.Id!);
+    }
   }
   const ordered = composeLibraryOrder(
     unique,

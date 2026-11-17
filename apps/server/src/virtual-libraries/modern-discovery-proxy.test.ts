@@ -116,17 +116,17 @@ describe("modern Emby library discovery through real HTTP", () => {
   it("preserves HomeSections and injects the dynamically identified home library row", async () => {
     expect(await (await get("/Users/u/HomeSections?displayMode=mobile,desktop")).json()).toEqual(sections);
     const row = await ids("/Users/u/Sections/dynamic-row-917/Items");
-    expect(row.ids).toEqual([virtualId, "101"]);
+    expect(row.ids).toEqual(["101", virtualId]);
     expect(row.TotalRecordCount).toBe(2);
     expect(row.UpstreamMarker).toBe(true);
-    expect(row.Items[1]).toEqual(real);
+    expect(row.Items[0]).toEqual(real);
     expect(observed.every((request) => request.token === "user-token")).toBe(true);
   });
 
   it("reuses successful HomeSections classification across rows without skipping items authentication", async () => {
     await get("/Users/u/HomeSections");
     expect((await ids("/Users/u/Sections/resume-dynamic/Items")).ids).toEqual(["upstream-content"]);
-    expect((await ids("/Users/u/Sections/dynamic-row-917/Items")).ids).toEqual([virtualId, "101"]);
+    expect((await ids("/Users/u/Sections/dynamic-row-917/Items")).ids).toEqual(["101", virtualId]);
     const homeRequests = () => observed.filter((request) => request.path.endsWith("/HomeSections"));
     expect(homeRequests()).toHaveLength(1);
     expect(observed.some((request) => request.path.endsWith("/Sections/dynamic-row-917/Items"))).toBe(true);
@@ -140,7 +140,7 @@ describe("modern Emby library discovery through real HTTP", () => {
   });
 
   it("passes text/plain partial configuration unchanged and reads the new Guid-based order", async () => {
-    expect((await ids("/Users/u/Views")).ids).toEqual([virtualId, "101"]);
+    expect((await ids("/Users/u/Views")).ids).toEqual(["101", virtualId]);
     const body = JSON.stringify({ OrderedViews: [real.Guid, virtualId], HidePlayedInLatest: true });
     const response = await fetch(`${base}/Users/u/Configuration/Partial?reqformat=json`, {
       method: "POST",
@@ -162,7 +162,7 @@ describe("modern Emby library discovery through real HTTP", () => {
 
   it("preserves original home query paging and upstream returned items", async () => {
     const row = await ids("/Users/u/Sections/dynamic-row-917/Items?Limit=1&StartIndex=1");
-    expect(row.ids).toEqual(["101"]);
+    expect(row.ids).toEqual([virtualId]);
     expect(row.TotalRecordCount).toBe(2);
     const itemsRequest = observed.find((request) => request.path.includes("/Sections/dynamic-row-917/Items"));
     expect(itemsRequest?.path).toContain("Limit=1");
@@ -171,7 +171,7 @@ describe("modern Emby library discovery through real HTTP", () => {
 
   it("exposes the same virtual library through MediaFolders", async () => {
     const folders = await ids("/Library/MediaFolders?UserId=u");
-    expect(folders.ids).toEqual([virtualId, "101"]);
+    expect(folders.ids).toEqual(["101", virtualId]);
     expect(folders.TotalRecordCount).toBe(2);
   });
 
@@ -200,7 +200,7 @@ describe("modern Emby library discovery through real HTTP", () => {
 
     writeSettings(database.db, { "emby.baseUrl": "http://another-emby.invalid" });
     configuration.OrderedViews = ["101", "ttd-only", virtualId, "102"];
-    expect((await ids("/Users/u/Views")).ids).toEqual(["101", "ttd-only", virtualId, "102"]);
+    expect((await ids("/Users/u/Views")).ids).toEqual(["101", "ttd-only", "102", virtualId]);
   });
 
   it("applies the active order when the server contains only upstream libraries", async () => {

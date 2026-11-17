@@ -149,9 +149,13 @@ export async function overlayLibraries(context: OverlayContext): Promise<Upstrea
     const oldOrder = Array.isArray(configuration.OrderedViews)
       ? configuration.OrderedViews.filter((id): id is string => typeof id === "string")
       : [];
+    // Emby hands new accounts their own OrderedViews, so only fall back to a legacy order when
+    // this proxy previously observed an arrangement for the account (anchors). Otherwise a new
+    // member would never see the administrator default until they press "恢复默认".
+    const ownedOrder = context.ownedOrder ?? [];
     const legacy =
-      personalOrder === undefined
-        ? legacyLibrarySequence(source, additions, oldOrder, context.ownedOrder ?? [], context.ownLibraryIds)
+      personalOrder === undefined && ownedOrder.length
+        ? legacyLibrarySequence(source, additions, oldOrder, ownedOrder, context.ownLibraryIds)
         : undefined;
     const ownIds = new Set(context.ownLibraryIds.map(identity));
     const savedIds = new Set(personalOrder?.map(identity));

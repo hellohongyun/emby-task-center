@@ -196,16 +196,16 @@ describe("market library authorization and ordering over HTTP", () => {
     createVirtualLibraryStore(database.db, { ownerMemberId: memberId }).create({ name: "new" });
     expect((await ids("/Users/alice/Views")).ids.slice(1)).toEqual(order);
   });
-  it("preserves identifiable legacy ordering and explicit reset restores the administrator default", async () => {
+  it("ignores an Emby OrderedViews the proxy never observed, and explicit reset keeps the administrator default", async () => {
     config = {
       OrderedViews: ["native-c", owned[1], shared[0], "native-a", owned[0], "native-b", shared[1]],
       MyMediaExcludes: [shared[1]],
     };
-    const before = await ids("/Users/alice/Views");
-    expect(before.ids).toEqual((config.OrderedViews as string[]).filter((id) => id !== shared[1]));
+    const expected = [...owned, ...natives.map((item) => item.Id), shared[0]];
+    expect((await ids("/Users/alice/Views")).ids).toEqual(expected);
     const orders = createPersonalLibraryOrderService(database.db);
     orders.reset(upstream, "alice");
-    expect((await ids("/Users/alice/Views")).ids.slice(0, 2)).toEqual(owned);
+    expect((await ids("/Users/alice/Views")).ids).toEqual(expected);
   });
   it("leaves playback free of identity lookups", async () => {
     seen = [];

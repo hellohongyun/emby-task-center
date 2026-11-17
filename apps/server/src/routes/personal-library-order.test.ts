@@ -155,15 +155,26 @@ describe("personal library order HTTP APIs", () => {
     expect(await (await send()).json()).toMatchObject({ order: [own, ...template], hasPersonalOrder: false });
     expect(methods.every((method) => method === "GET")).toBe(true);
   });
-  it("inherits recognizable legacy order once and an explicit reset prevents it from resurfacing", async () => {
+  it("ignores an Emby OrderedViews the proxy never observed, and an explicit reset keeps the default", async () => {
     legacy = ["native-b", shared, own, "native-a"];
-    expect(await (await send()).json()).toMatchObject({ order: legacy, hasPersonalOrder: true });
+    expect(await (await send()).json()).toMatchObject({
+      order: [own, "native-a", "native-b", shared],
+      hasPersonalOrder: false,
+    });
     await send(undefined, "DELETE");
     expect(await (await send()).json()).toMatchObject({
       order: [own, "native-a", "native-b", shared],
       hasPersonalOrder: false,
     });
     expect(createPersonalLibraryOrderService(database.db).read(upstream, "alice")).toEqual([]);
+  });
+  it("gives a new member the administrator template even when Emby already reports its own OrderedViews", async () => {
+    legacy = ["native-b", shared, own, "native-a"];
+    const template = ["native-b", shared, "native-a"];
+    expect((await send("/api/virtual-library-market/order", "PUT", { order: template }, undefined, true)).status).toBe(
+      200,
+    );
+    expect(await (await send()).json()).toMatchObject({ order: [own, ...template], hasPersonalOrder: false });
   });
   it("serves order covers only for visible libraries and revokes access on disabling a subscription", async () => {
     const path = (id: string) => `/api/public/virtual-library-order/${id}/poster`;
